@@ -1,0 +1,32 @@
+
+# Runnen met defaults:
+C:\Python27\python.exe nao_api.py
+
+# Runnen met overrides:
+C:\Python27\python.exe nao_api.py --nao_ip 192.168.1.100 --port 8080
+
+# Voorbeeld API calls:
+Linux:
+curl http://localhost:5000/ping
+curl -X POST http://localhost:5000/wake_up
+curl -X POST http://localhost:5000/tts -H "Content-Type: application/json" -d "{\"text\":\"Hallo!\"}"
+curl -X GET http://localhost:5000/list_behaviors
+curl -X POST http://localhost:5000/do_behavior -H "Content-Type: application/json" -d "{\"behavior\":\"dances/happy\"}"
+curl -X POST http://localhost:5000/rest
+
+Powershell (windows):
+Invoke-RestMethod -Method Get -Uri "http://localhost:5000/ping"
+Invoke-RestMethod -Method Post -Uri "http://localhost:5000/wake_up"
+Invoke-RestMethod -Method Post -Uri "http://localhost:5000/tts" -Body '{"text":"Hallo!"}' -ContentType "application/json"
+Invoke-RestMethod -Method Get -Uri "http://localhost:5000/list_behaviors"
+Invoke-RestMethod -Method Post -Uri "http://localhost:5000/do_behavior" -Body '{"behavior":"dances/happy"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post -Uri "http://localhost:5000/rest"
+
+CMD (Windows):
+curl.exe http://localhost:5000/ping
+curl.exe -X POST http://localhost:5000/wake_up
+curl.exe -X POST http://localhost:5000/tts -H "Content-Type: application/json" -d "{\"text\":\"Hallo!\"}"
+curl.exe http://localhost:5000/list_behaviors
+curl.exe -X POST http://localhost:5000/do_behavior -H "Content-Type: application/json" -d "{\"behavior\":\"dances/happy\"}"
+curl.exe -X POST http://localhost:5000/rest
+
