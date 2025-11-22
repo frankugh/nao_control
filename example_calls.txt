@@ -5,6 +5,59 @@ C:\Python27\python.exe nao_api.py
 # Runnen met overrides:
 C:\Python27\python.exe nao_api.py --nao_ip 192.168.1.100 --port 8080
 
+
+# Voorbeeld API calls  (draai op git bash)
+
+# Healthcheck
+curl http://localhost:5000/ping
+
+# Wakker maken
+curl -X POST http://localhost:5000/wake_up
+
+# Rust
+curl -X POST http://localhost:5000/rest
+
+# Native NAO TTS
+curl -X POST http://localhost:5000/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hallo!"}'
+
+# Behaviors opvragen
+curl http://localhost:5000/list_behaviors
+
+# Behavior starten
+curl -X POST http://localhost:5000/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"dances/happy"}'
+
+# Oogkleur aanpassen
+curl -X POST http://localhost:5000/set_eye_color \
+  -H "Content-Type: application/json" \
+  -d '{"color":"#00FFCC","duration":0.5}'
+
+# === DEPRECATED: upload_only ===
+curl -X POST http://localhost:5000/upload_only \
+  -F "file=@example_audio/out_piper_tts_tmp.wav;type=audio/wav" \
+  -F "filename=out_piper_tts_tmp.wav" \
+  -F "remote_dir=/home/nao/ugh_audio"
+
+# === DEPRECATED: play_audio ===
+curl -X POST http://localhost:5000/play_audio \
+  -F "file=@example_audio/out_piper_tts_tmp.wav;type=audio/wav" \
+  -F "filename=out_piper_tts_tmp.wav" \
+  -F "remote_dir=/home/nao/ugh_audio"
+
+# Streaming raw PCM (S16_LE, mono)
+# Dit moet in 2 stappen. Eerst een raw file maken dan als stream sturen
+ffmpeg -i example_audio/out_piper_tts_tmp.wav \
+  -f s16le -acodec pcm_s16le -ac 1 -ar 22050 \
+  example_audio/out_pcm_s16le.raw
+
+curl -X POST http://localhost:5000/nao/play_stream \
+  --data-binary "@example_audio/out_pcm_s16le.raw" \
+  -H "Content-Type: application/octet-stream"
+
+
 # Voorbeeld API calls:
 Linux:
 curl http://localhost:5000/ping

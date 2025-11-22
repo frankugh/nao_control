@@ -1,0 +1,46 @@
+# === Python build/bytecode ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# === Virtual environments ===
+venv/
+env/
+.venv/
+.python-version
+
+# === VS Code ===
+.vscode/
+.settings/
+
+# === OS-specific ===
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+*.log
+logs/
+nohup.out
+
+# === Temporary uploads ===
+nao_tmp/
+_nao_tmp_uploads/
+*.tmp
+
+# === Build/artifacts ===
+*.bak
+*.swp
+*.swo
+
+# === Python packaging (if ever used) ===
+build/
+dist/
+*.egg-info/
+
+# === Example/output files ===
+example_audio/*.raw
+example_audio/*.wav
+
+# === Misc ===
+*.lock

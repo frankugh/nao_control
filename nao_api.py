@@ -1,55 +1,107 @@
 # -*- coding: utf-8 -*-
 import argparse
 import os
+import socket
+import sys
+import traceback
 from flask import Flask, request, jsonify
 from naoqi import ALProxy
+from nao_utils import NaoUtils, set_eye_color, group_behaviors, DEFAULT_REMOTE_AUDIO_DIR
 
-# ====== Default configuratie ======
-# Let op!! Dit wordt overschreven door params in main
-# bv als je start via de bash scripts. 
+# ====== Defaults ======
 DEFAULT_WEB_HOST = "0.0.0.0"
 DEFAULT_WEB_PORT = 5000
 DEFAULT_NAO_IP   = "192.168.0.101"
 DEFAULT_NAO_PORT = 9559
+DEFAULT_SSH_USER = "nao"
+DEFAULT_SSH_PASS = "nao"
+DEFAULT_SSH_PORT = 22
 
 # ====== Flask app ======
 app = Flask(__name__)
 
+
 # ====== Helpers ======
+
 def make_response(status="ok", data=None, error=None):
-    resp = {"status": status}
+    """
+    Uniform JSON-response.
+    status: "ok" | "error" | "warning"
+    data  : payload (alles wat je wilt)
+    error : string met foutmelding (optioneel)
+    """
+    payload = {"status": status}
     if data is not None:
-        resp["data"] = data
+        payload["data"] = data
     if error is not None:
-        resp["error"] = error
-    return jsonify(resp)
+        payload["error"] = error
+    return jsonify(payload)
+
 
 def get_proxy(name):
-    """Maak steeds een nieuwe proxy naar NAO"""
-    return ALProxy(name, app.config["NAO_IP"], app.config["NAO_PORT"])
+    """
+    Haal een ALProxy met de NAO_IP/NAO_PORT uit de app-config.
+    """
+    ip = app.config["NAO_IP"]
+    port = app.config["NAO_PORT"]
+    return ALProxy(name, ip, port)
+
 
 def is_awake():
+    """
+    Checkt of de robot 'wakker' is via ALMotion.robotIsWakeUp.
+    """
+    motion = get_proxy("ALMotion")
     try:
-        return get_proxy("ALMotion").robotIsWakeUp()
+        return bool(motion.robotIsWakeUp())
+    except AttributeError:
+        # Oudere NAOqi-versies kunnen dit niet hebben; val terug op isFallManagerEnabled
+        try:
+            return bool(motion.isFallManagerEnabled())
+        except Exception:
+            return True
+
+
+def _utils():
+    """
+    Maak een NaoUtils instance met de juiste SSH-config uit Flask config.
+    """
+    return NaoUtils(
+        nao_ip=app.config["NAO_IP"],
+        nao_port=app.config["NAO_PORT"],
+        ssh_user=app.config["NAO_SSH_USER"],
+        ssh_pass=app.config["NAO_SSH_PASS"],
+        ssh_port=app.config["NAO_SSH_PORT"],
+        remote_audio_dir=app.config["NAO_REMOTE_AUDIO_DIR"],
+    )
+
+
+def _get_local_ip():
+    """
+    Bepaal een 'beste gok' van het lokale IP om in de console te tonen.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
     except Exception:
-        return False
+        return "127.0.0.1"
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
 
-def group_behaviors(behaviors):
-    grouped = {}
-    for b in behaviors:
-        folder = os.path.dirname(b)
-        name = os.path.basename(b)
-        if folder not in grouped:
-            grouped[folder] = []
-        grouped[folder].append(name)
-    for k in grouped:
-        grouped[k].sort()
-    return grouped
 
-# ====== API endpoints ======
+# ====== Routes ======
+
 @app.route("/ping", methods=["GET"])
 def ping():
+    """
+    Healthcheck voor de web-API.
+    """
     return make_response(data="pong")
+
 
 @app.route("/wake_up", methods=["POST"])
 def wake_up():
@@ -63,6 +115,7 @@ def wake_up():
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
+
 @app.route("/rest", methods=["POST"])
 def rest():
     try:
@@ -75,82 +128,199 @@ def rest():
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
+
 @app.route("/tts", methods=["POST"])
 def tts_say():
     try:
-        text = request.json.get("text", u"")
-        if isinstance(text, unicode):
-            text = text.encode("utf-8")
+        payload = request.get_json(force=True) or {}
+        text = payload.get("text", u"")
+
+        try:
+            unicode
+        except NameError:
+            unicode = str
+
+        # Zorg dat het UNICODE wordt, niet bytes
+        if not isinstance(text, unicode):
+            # als het bytes is -> decode, anders cast
+            if isinstance(text, str):
+                text = text.decode("utf-8")
+            else:
+                text = unicode(text)
+
         tts = get_proxy("ALTextToSpeech")
         tts.say(text)
-        return make_response(data="Said: " + text)
+        return make_response(data={"text": text})
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
+
 @app.route("/list_behaviors", methods=["GET"])
-def list_behaviors():
+def list_behaviors_ep():
+    """
+    Geef alle geïnstalleerde behaviors gegroepeerd per folder terug.
+    """
     try:
-        behavior = get_proxy("ALBehaviorManager")
-        behaviors = behavior.getInstalledBehaviors()
+        mgr = get_proxy("ALBehaviorManager")
+        behaviors = mgr.getInstalledBehaviors()
         grouped = group_behaviors(behaviors)
         return make_response(data=grouped)
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
+
 @app.route("/do_behavior", methods=["POST"])
 def do_behavior():
     try:
-        bname = request.json.get("behavior", "")
-            
+        payload = request.get_json(force=True) or {}
+        bname = payload.get("behavior")
+
         if not bname:
-            return make_response(status="error", error="No behavior provided")
-            
-        if isinstance(bname, unicode):
-            bname = bname.encode("utf-8")
+            return make_response(status="error", error="Missing 'behavior'")
+
+        try:
+            unicode
+        except NameError:
+            unicode = str
+
+        # Zorg dat het UNICODE is, niet bytes
+        if not isinstance(bname, unicode):
+            if isinstance(bname, str):
+                bname = bname.decode("utf-8")
+            else:
+                bname = unicode(bname)
 
         behavior = get_proxy("ALBehaviorManager")
+
         if not behavior.isBehaviorInstalled(bname):
             return make_response(status="error", error="Behavior not installed: " + bname)
 
         if not is_awake():
-            return make_response(status="warning",
-                                 data="Robot is resting, some behaviors may not run correctly")
+            return make_response(
+                status="warning",
+                data="Robot is resting, some behaviors may not run correctly"
+            )
 
         behavior.runBehavior(bname)
         return make_response(data="Ran behavior: " + bname)
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
+
+@app.route("/set_eye_color", methods=["POST"])
+def set_eye_color_ep():
+    """
+    Zet de oogkleur (FaceLeds) op een bepaalde kleur.
+    Body: { "color": "#RRGGBB", "duration": 0.5 }
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+        color = payload.get("color")
+        duration = float(payload.get("duration", 0.5))
+        if color is None:
+            return make_response(status="error", error="Missing 'color'")
+        rgb = set_eye_color(app.config["NAO_IP"], app.config["NAO_PORT"], color, duration)
+        return make_response(data={"rgb": int(rgb), "duration": duration})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+# === DEPRECATED ===
+# File-upload via deze endpoint blijft werken voor bestaande code,
+# maar nieuwe functionaliteit moet via de Py3-NAO-transportlaag lopen.
+@app.route("/upload_only", methods=["POST"])
+def upload_only():
+    """
+    multipart/form-data:
+      file=<upload>  (vereist)
+      filename=<optioneel, bestandsnaam op de robot>
+      remote_dir=<optioneel, standaard /home/nao/ugh_audio>
+    """
+    try:
+        if 'file' not in request.files:
+            return make_response(status="error", error="No file part")
+        f = request.files['file']
+        if not f or not f.filename:
+            return make_response(status="error", error="Empty file")
+        filename = request.form.get('filename') or f.filename
+        remote_dir = request.form.get('remote_dir') or app.config["NAO_REMOTE_AUDIO_DIR"]
+
+        utils = _utils()
+        remote_path = utils.upload_via_temp(f, f.filename, remote_filename=filename, remote_dir=remote_dir)
+        return make_response(data={"remote_path": remote_path})
+    except Exception as e:
+        app.logger.error(traceback.format_exc())
+        return make_response(status="error", error=repr(e))
+
+
+# === DEPRECATED (file-based audio) ===
+# Gebruik deze endpoint alleen nog voor legacy-audio die al via deze route geüpload wordt.
+# Nieuwe audio-stromen lopen via de Py3-laag (Piper + transport).
+@app.route("/play_audio", methods=["POST"])
+def play_audio():
+    """
+    multipart/form-data:
+      file=<upload>  (vereist)
+      filename=<optioneel, bestandsnaam op de robot>
+      remote_dir=<optioneel, standaard /home/nao/ugh_audio>
+    """
+    try:
+        if 'file' not in request.files:
+            return make_response(status="error", error="No file part")
+        f = request.files['file']
+        if not f or not f.filename:
+            return make_response(status="error", error="Empty file")
+
+        filename = request.form.get('filename') or f.filename
+        remote_dir = request.form.get('remote_dir') or app.config["NAO_REMOTE_AUDIO_DIR"]
+
+        utils = _utils()
+        # upload + afspelen via NAO
+        remote_path = utils.upload_and_play(f, f.filename, remote_filename=filename, remote_dir=remote_dir)
+        return make_response(data={"remote_path": remote_path})
+    except Exception as e:
+        app.logger.error(traceback.format_exc())
+        return make_response(status="error", error=repr(e))
+
+
+# Streaming-endpoint dat raw PCM (S16_LE, mono) direct naar NAO stuurt.
+# Voor nu experimenteel; wordt in Py3 opnieuw ontworpen rondom Piper-live-TTS.
+@app.route("/nao/play_stream", methods=["POST"])
+def play_stream():
+    """
+    Body: raw PCM bytes (S16_LE, mono) in de HTTP-body.
+    Content-Type: application/octet-stream
+    """
+    try:
+        audio_bytes = request.data
+        utils = _utils()
+        utils.stream_and_play(audio_bytes)
+        return jsonify({"status": "playing (streamed)"})
+    except Exception as e:
+        app.logger.error(traceback.format_exc())
+        return make_response(status="error", error=repr(e))
+
+
 # ====== Main ======
 if __name__ == "__main__":
-    import socket
-    import sys
-
-    def get_local_ip():
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            # hoeft niet echt te connecten; bepaalt alleen de lokale IP
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-        except Exception:
-            ip = "127.0.0.1"
-        finally:
-            s.close()
-        return ip
-
     parser = argparse.ArgumentParser(description="NAO Flask API")
     parser.add_argument("--host", default=DEFAULT_WEB_HOST, help="Web host (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=DEFAULT_WEB_PORT, help="Web port (default 5000)")
-    parser.add_argument("--nao_ip", default=DEFAULT_NAO_IP, help="NAO IP (default 192.168.68.66)")
+    parser.add_argument("--nao_ip", default=DEFAULT_NAO_IP, help="NAO IP")
     parser.add_argument("--nao_port", type=int, default=DEFAULT_NAO_PORT, help="NAO port (default 9559)")
+    parser.add_argument("--nao_ssh_user", default=os.environ.get("NAO_SSH_USER", DEFAULT_SSH_USER))
+    parser.add_argument("--nao_ssh_pass", default=os.environ.get("NAO_SSH_PASS", DEFAULT_SSH_PASS))
+    parser.add_argument("--nao_ssh_port", type=int, default=int(os.environ.get("NAO_SSH_PORT", DEFAULT_SSH_PORT)))
+    parser.add_argument("--nao_remote_audio_dir", default=os.environ.get("NAO_REMOTE_AUDIO_DIR", DEFAULT_REMOTE_AUDIO_DIR))
     args = parser.parse_args()
 
-    # config opslaan in Flask app
     app.config["NAO_IP"] = args.nao_ip
     app.config["NAO_PORT"] = args.nao_port
+    app.config["NAO_SSH_USER"] = args.nao_ssh_user
+    app.config["NAO_SSH_PASS"] = args.nao_ssh_pass
+    app.config["NAO_SSH_PORT"] = args.nao_ssh_port
+    app.config["NAO_REMOTE_AUDIO_DIR"] = args.nao_remote_audio_dir
 
-    local_ip = get_local_ip()
-    # Python 2-compatibele output (geen f-strings)
+    local_ip = _get_local_ip()
     sys.stdout.write("Flask app beschikbaar op: http://%s:%s\n" % (local_ip, args.port))
-
     app.run(host=args.host, port=args.port)
