@@ -6,7 +6,10 @@ C:\Python27\python.exe nao_api.py
 C:\Python27\python.exe nao_api.py --nao_ip 192.168.1.100 --port 8080
 
 
-# Voorbeeld API calls  (draai op git bash)
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# Voorbeeld API calls  
+# Let op! Deze zijn gemaakt voor git bash
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 
 # Healthcheck
 curl http://localhost:5000/ping
@@ -30,10 +33,35 @@ curl -X POST http://localhost:5000/do_behavior \
   -H "Content-Type: application/json" \
   -d '{"behavior":"dances/happy"}'
 
+curl -X POST http://localhost:5000/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"animations/Stand/Gestures/Hey_1"}'
+
+curl -X POST http://localhost:5000/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"animations/Stand/BodyTalk/Listening/Listening_2"}'
+
+curl -X POST http://localhost:5000/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"basic/standup"}'
+
 # Oogkleur aanpassen
 curl -X POST http://localhost:5000/set_eye_color \
   -H "Content-Type: application/json" \
   -d '{"color":"#00FFCC","duration":0.5}'
+
+curl -X POST http://localhost:5000/set_volume \
+  -H "Content-Type: application/json" \
+  -d '{"volume":30}'
+
+curl -X POST http://localhost:5000/tts_speed \
+  -H "Content-Type: application/json" \
+  -d '{"speed":86}'
+
+# ---------------------------------------------------------------
+# Calls voor audio upload en afspelen. De deprecated methods die 
+# in py3 vervangen worden
+# ---------------------------------------------------------------
 
 # === DEPRECATED: upload_only ===
 curl -X POST http://localhost:5000/upload_only \
@@ -53,9 +81,35 @@ ffmpeg -i example_audio/out_piper_tts_tmp.wav \
   -f s16le -acodec pcm_s16le -ac 1 -ar 22050 \
   example_audio/out_pcm_s16le.raw
 
-curl -X POST http://localhost:5000/nao/play_stream \
+curl -X POST http://localhost:5000/play_stream \
   --data-binary "@example_audio/out_pcm_s16le.raw" \
   -H "Content-Type: application/octet-stream"
+
+# ----------------------------------------------------------
+# Calls aan de generieke naoqi call ipv dedicated endpoints.
+# Let op, unicode conversie kreeg ik niet 123 aan de praat 
+# bij de generieke functie, dus alleen get functies werken. 
+# Deze voorbeeld calls zijn dan dus ook allemaal 'getters'
+# ----------------------------------------------------------
+
+curl -X POST http://localhost:5000/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{"module":"ALAudioDevice","method":"getOutputVolume"}'
+
+curl -X POST http://localhost:5000/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{"module":"ALTextToSpeech","method":"getParameter","args":["speed"]}'
+
+curl -X POST http://localhost:5000/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{"module":"ALBehaviorManager","method":"getInstalledBehaviors"}'
+
+
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 
 
 # Voorbeeld API calls:

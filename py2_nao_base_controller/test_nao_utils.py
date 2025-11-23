@@ -3,7 +3,7 @@ import unittest
 import posixpath
 from mock import patch, MagicMock
 import nao_utils as nu
-from nao_utils import NaoUtils, parse_color, _rgb_tuple_to_int, group_behaviors
+from nao_utils import NaoUtils, parse_color, _rgb_tuple_to_int, group_behaviors, _to_bytes
 
 
 class TestNaoUtilsUpload(unittest.TestCase):
@@ -99,6 +99,27 @@ class TestGroupBehaviors(unittest.TestCase):
         self.assertEqual(grouped["dances"], ["happy", "sad"])
         self.assertEqual(grouped["stories"], ["intro", "outro"])
         self.assertEqual(grouped[""], ["just_one"])
+
+
+class TestToBytes(unittest.TestCase):
+    def test_to_bytes_from_unicode(self):
+        try:
+            unicode
+        except NameError:
+            unicode = str
+
+        value = u"hé_audio.wav"
+        b = _to_bytes(value)
+
+        # In Py2 is str = bytes; in Py2 moet dit dus een str zijn met utf-8.
+        self.assertIsInstance(b, str)
+        self.assertEqual(b, value.encode("utf-8"))
+
+    def test_to_bytes_passthrough_bytes(self):
+        b_in = "plain-bytes.wav"
+        b_out = _to_bytes(b_in)
+        # Zelfde object terug (geen onnodige allocatie).
+        self.assertIs(b_out, b_in)
 
 
 class TestSetEyeColor(unittest.TestCase):

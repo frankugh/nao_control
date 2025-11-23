@@ -1,0 +1,4 @@
+
+curl -X POST http://localhost:5001/nao/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hallo vanaf de Py3 API"}'

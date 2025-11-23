@@ -4,6 +4,7 @@ import os
 import socket
 import sys
 import traceback
+import json
 from flask import Flask, request, jsonify
 from naoqi import ALProxy
 from nao_utils import NaoUtils, set_eye_color, group_behaviors, DEFAULT_REMOTE_AUDIO_DIR
@@ -207,6 +208,48 @@ def do_behavior():
         return make_response(status="error", error=repr(e))
 
 
+@app.route("/tts_speed", methods=["POST"])
+def tts_speed():
+    """
+    Zet TTS-snelheid.
+    Body: { "speed": 80 }   # typisch bereik 50–100
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+        speed = payload.get("speed", None)
+        if speed is None:
+            return make_response(status="error", error="Missing 'speed'")
+        speed = int(speed)
+
+        tts = get_proxy("ALTextToSpeech")
+        tts.setParameter("speed", speed)
+
+        return make_response(data={"speed": speed})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/set_volume", methods=["POST"])
+def set_volume():
+    """
+    Zet outputvolume.
+    Body: { "volume": 30 }   # 0–100
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+        volume = payload.get("volume", None)
+        if volume is None:
+            return make_response(status="error", error="Missing 'volume'")
+        volume = int(volume)
+
+        audio_dev = get_proxy("ALAudioDevice")
+        audio_dev.setOutputVolume(volume)
+
+        return make_response(data={"volume": volume})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
 @app.route("/set_eye_color", methods=["POST"])
 def set_eye_color_ep():
     """
@@ -223,6 +266,77 @@ def set_eye_color_ep():
         return make_response(data={"rgb": int(rgb), "duration": duration})
     except Exception as e:
         return make_response(status="error", error=repr(e))
+    
+
+@app.route("/naoqi/call", methods=["POST"])
+def naoqi_call():
+    payload = request.get_json(force=True, silent=True) or {}
+    module_name = payload.get("module")
+    method_name = payload.get("method")
+    args = payload.get("args") or []
+    kwargs = payload.get("kwargs") or {}
+
+    if not module_name or not method_name:
+        return jsonify({
+            "status": "error",
+            "error": "Missing 'module' or 'method'"
+        })
+
+    try:
+        result = naoqi_call_generic(module_name, method_name, args, kwargs)
+        # zorg dat resultaat JSON-serialiseerbaar is
+        try:
+            json.dumps(result)
+            safe_result = result
+        except TypeError:
+            safe_result = repr(result)
+
+        return jsonify({
+            "status": "ok",
+            "data": {
+                "result": safe_result
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": repr(e)
+        })
+    
+
+def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
+    if args is None:
+        args = []
+    if kwargs is None:
+        kwargs = {}
+
+    # Py2 introspection
+    try:
+        unicode_type = unicode
+    except NameError:
+        unicode_type = str  # Py3 fallback
+
+    # --- 1. module/method moeten *bytes/str* zijn (voor ALProxy / getattr) ---
+    if isinstance(module_name, unicode_type):
+        module_name = module_name.encode("utf-8")
+    if isinstance(method_name, unicode_type):
+        method_name = method_name.encode("utf-8")
+
+    proxy = get_proxy(module_name)
+    method = getattr(proxy, method_name)
+
+    # --- 2. args/kwargs moeten *unicode* zijn voor NAOqi (bv. TTS say) ---
+    def ensure_unicode(x):
+        if isinstance(x, unicode_type):
+            return x
+        if isinstance(x, str):  # bytes
+            return x.decode("utf-8")
+        return x  # numbers, bools, dicts etc.
+
+    args = [ensure_unicode(a) for a in args]
+    kwargs = {k: ensure_unicode(v) for (k, v) in kwargs.items()}
+
+    return method(*args, **kwargs)
 
 
 # === DEPRECATED ===
@@ -285,7 +399,7 @@ def play_audio():
 
 # Streaming-endpoint dat raw PCM (S16_LE, mono) direct naar NAO stuurt.
 # Voor nu experimenteel; wordt in Py3 opnieuw ontworpen rondom Piper-live-TTS.
-@app.route("/nao/play_stream", methods=["POST"])
+@app.route("/play_stream", methods=["POST"])
 def play_stream():
     """
     Body: raw PCM bytes (S16_LE, mono) in de HTTP-body.
