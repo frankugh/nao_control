@@ -310,13 +310,12 @@ def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
     if kwargs is None:
         kwargs = {}
 
-    # Py2 introspection
     try:
-        unicode_type = unicode
+        unicode_type = unicode  # Py2
     except NameError:
-        unicode_type = str  # Py3 fallback
+        unicode_type = str      # Py3 fallback
 
-    # --- 1. module/method moeten *bytes/str* zijn (voor ALProxy / getattr) ---
+    # 1) module/method als bytes/str
     if isinstance(module_name, unicode_type):
         module_name = module_name.encode("utf-8")
     if isinstance(method_name, unicode_type):
@@ -325,16 +324,14 @@ def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
     proxy = get_proxy(module_name)
     method = getattr(proxy, method_name)
 
-    # --- 2. args/kwargs moeten *unicode* zijn voor NAOqi (bv. TTS say) ---
-    def ensure_unicode(x):
+    # 2) args/kwargs als bytes/str voor NAOqi
+    def ensure_naoqi_arg(x):
         if isinstance(x, unicode_type):
-            return x
-        if isinstance(x, str):  # bytes
-            return x.decode("utf-8")
-        return x  # numbers, bools, dicts etc.
+            return x.encode("utf-8")  # unicode -> bytes
+        return x                     # str/bytes/nummers etc. laten staan
 
-    args = [ensure_unicode(a) for a in args]
-    kwargs = {k: ensure_unicode(v) for (k, v) in kwargs.items()}
+    args = [ensure_naoqi_arg(a) for a in args]
+    kwargs = {k: ensure_naoqi_arg(v) for (k, v) in kwargs.items()}
 
     return method(*args, **kwargs)
 

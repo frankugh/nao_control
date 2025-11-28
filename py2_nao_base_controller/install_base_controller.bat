@@ -1,8 +1,8 @@
 @echo off
-call "%~dp0env_config.bat"
+call "%~dp0..\env_config.bat"
 
 echo [INFO] Ga naar Py2-controller map...
-cd /d "%~dp0py2_nao_base_controller"
+cd /d "%~dp0"
 
 echo [INFO] Installeer/upgrade tools voor Python2...
 "%PYTHON2%" -m pip install --upgrade pip setuptools
@@ -15,8 +15,10 @@ if not exist "venv\Scripts\python.exe" (
     echo [INFO] Bestaande venv gevonden, gebruik die...
 )
 
-echo [INFO] Installeer requirements in venv...
-venv\Scripts\python.exe -m pip install -r requirements.txt
+set "PY2_VENV_PY=venv\Scripts\python.exe"
 
-echo [INFO] Py2-installatie voltooid.
+echo [INFO] Installeer Python2 dependencies...
+"%PY2_VENV_PY%" -m pip install --upgrade -r requirements.txt
+
+echo [INFO] Klaar met Py2-installatie.
 pause

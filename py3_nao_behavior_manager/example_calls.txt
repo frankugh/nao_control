@@ -1,4 +1,112 @@
+# --- Healthchecks ---
+
+# Py3-laag zelf
+curl -X GET http://localhost:5001/ping
+
+# Onderliggende Py2-NAO-API via Py3
+curl -X GET http://localhost:5001/nao/ping
+
+
+# --- Basis NAO power / houding ---
+
+curl -X POST http://localhost:5001/nao/wake_up
+
+curl -X POST http://localhost:5001/nao/rest
+
+
+# --- TTS & audio-instellingen ---
 
 curl -X POST http://localhost:5001/nao/tts \
   -H "Content-Type: application/json" \
-  -d '{"text":"Hallo vanaf de Py3 API"}'
+  -d '{"text":"Hallo vanaf de python 3 API"}'
+
+curl -X POST http://localhost:5001/nao/tts_speed \
+  -H "Content-Type: application/json" \
+  -d '{"speed":86}'
+
+curl -X POST http://localhost:5001/nao/set_volume \
+  -H "Content-Type: application/json" \
+  -d '{"volume":30}'
+
+
+# --- Behaviors ---
+
+curl -X GET http://localhost:5001/nao/list_behaviors
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"animations/Stand/Gestures/Hey_1"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"animations/Stand/BodyTalk/Listening/Listening_2"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"dances/happy"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"standup"}'
+
+
+# --- Oogkleur ---
+
+curl -X POST http://localhost:5001/nao/set_eye_color \
+  -H "Content-Type: application/json" \
+  -d '{"color":"#0000FF","duration":0.5}'
+
+curl -X POST http://localhost:5001/nao/set_eye_color \
+  -H "Content-Type: application/json" \
+  -d '{"color":"#00FFCC","duration":0.5}'
+
+
+# --- Generieke NAOqi-call ---
+
+curl -X POST http://localhost:5001/nao/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{"module":"ALAudioDevice","method":"getOutputVolume"}'
+
+curl -X POST http://localhost:5001/nao/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{"module":"ALTextToSpeech","method":"getParameter","args":["speed"]}'
+
+curl -X POST http://localhost:5001/nao/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "ALTextToSpeech",
+    "method": "say",
+    "args": ["Hallo via de generieke NAOqi-call"],
+    "kwargs": {}
+  }'
+
+curl -X POST http://localhost:5001/nao/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "ALBehaviorManager",
+    "method": "runBehavior",
+    "args": ["animations/Stand/BodyTalk/Listening/Listening_2"],
+    "kwargs": {}
+  }'
+
+
+# --- File upload (legacy) ---
+
+# upload_only (bijv. een tekstbestand)
+curl -X POST http://localhost:5001/nao/upload_only \
+  -F "file=@example_audio/out_piper_tts_tmp.wav;type=audio/wav" \
+  -F "filename=out_piper_tts_tmp.wav" \
+  -F "remote_dir=/home/nao/ugh_audio"
+
+# play_audio (bestand uploaden en laten afspelen)
+curl -X POST http://localhost:5001/nao/play_audio \
+  -F "file=@example_audio/out_piper_tts_tmp.wav;type=audio/wav" \
+  -F "filename=out_piper_tts_tmp.wav" \
+  -F "remote_dir=/home/nao/ugh_audio"
+
+
+# --- Audio stream (raw) ---
+
+curl -X POST http://localhost:5001/nao/play_stream \
+  --data-binary "@example_audio/out_pcm_s16le.raw" \
+  -H "Content-Type: application/octet-stream"

@@ -87,9 +87,6 @@ curl -X POST http://localhost:5000/play_stream \
 
 # ----------------------------------------------------------
 # Calls aan de generieke naoqi call ipv dedicated endpoints.
-# Let op, unicode conversie kreeg ik niet 123 aan de praat 
-# bij de generieke functie, dus alleen get functies werken. 
-# Deze voorbeeld calls zijn dan dus ook allemaal 'getters'
 # ----------------------------------------------------------
 
 curl -X POST http://localhost:5000/naoqi/call \
@@ -103,6 +100,15 @@ curl -X POST http://localhost:5000/naoqi/call \
 curl -X POST http://localhost:5000/naoqi/call \
   -H "Content-Type: application/json" \
   -d '{"module":"ALBehaviorManager","method":"getInstalledBehaviors"}'
+
+curl -X POST http://localhost:5000/naoqi/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "ALTextToSpeech",
+    "method": "say",
+    "args": ["Hallo via de generieke NAOqi-call"],
+    "kwargs": {}
+  }'
 
 
 # |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
