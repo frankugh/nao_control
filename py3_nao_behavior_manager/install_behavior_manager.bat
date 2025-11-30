@@ -1,22 +1,16 @@
 @echo off
-call "%~dp0..\env_config.bat"
-
-echo [INFO] Ga naar Py3 behavior manager map...
+setlocal
 cd /d "%~dp0"
 
-if not exist "venv\Scripts\python.exe" (
-    echo [INFO] Maak nieuwe Python3-venv in %CD%\venv ...
-    "%PYTHON3%" -m venv venv
-) else (
-    echo [INFO] Bestaande Py3-venv gevonden, gebruik die...
+if not exist "venv" (
+    echo [INFO] Maak Py3 venv...
+    py -3 -m venv venv
 )
 
-set "PY3_VENV_PY=venv\Scripts\python.exe"
+echo [INFO] Installeer dependencies (Py3)...
+venv\Scripts\python.exe -m pip install --upgrade pip
+venv\Scripts\python.exe -m pip install -r requirements.txt
 
-echo [INFO] Installeer Py3 dependencies...
-REM Als requirements.txt in de root ligt: gebruik ..\requirements.txt
-"%PY3_VENV_PY%" -m pip install --upgrade pip
-"%PY3_VENV_PY%" -m pip install -r ..\requirements.txt
-
-echo [INFO] Klaar met Py3-installatie.
+echo [OK] Py3 behavior manager klaar.
 pause
+endlocal

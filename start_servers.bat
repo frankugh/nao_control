@@ -1,6 +1,3 @@
-@echo off
-call "%~dp0env_config.bat"
-
 echo [INFO] Start Py2 NAO base controller in nieuw venster...
 start "NAO Py2 Base Controller" cmd /k "%~dp0py2_nao_base_controller\start_base_controller.bat"
 

@@ -1,0 +1,1 @@
+Dit is een zo leeg mogelijke sdk die je kunt gebruiken voor een python2 project zoals de nao_base_controller. Deze moet parallel staan aan de executable. 

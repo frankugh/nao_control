@@ -6,17 +6,70 @@ import sys
 import traceback
 import json
 from flask import Flask, request, jsonify
+
+def _setup_naoqi_paths():
+    # Als PyInstaller draait: _MEIPASS, anders gewone dir
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    sdk_root = os.path.join(base_dir, "naoqi-sdk")
+    lib_dir = os.path.join(sdk_root, "lib")
+    bin_dir = os.path.join(sdk_root, "bin")
+
+    if os.path.isdir(lib_dir) and lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+
+    # DLL-zoekpad uitbreiden
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+
+_setup_naoqi_paths()
+
 from naoqi import ALProxy
 from nao_utils import NaoUtils, set_eye_color, group_behaviors, DEFAULT_REMOTE_AUDIO_DIR
+import ConfigParser
 
 # ====== Defaults ======
 DEFAULT_WEB_HOST = "0.0.0.0"
 DEFAULT_WEB_PORT = 5000
-DEFAULT_NAO_IP   = "192.168.0.101"
+DEFAULT_NAO_IP   = "192.168.0.102"
 DEFAULT_NAO_PORT = 9559
 DEFAULT_SSH_USER = "nao"
 DEFAULT_SSH_PASS = "nao"
 DEFAULT_SSH_PORT = 22
+
+def load_config():
+    """
+    Leest config.ini één map hoger dan nao_api.py.
+    Alleen defaults voor host/port/NAO_IP/NAO_PORT worden hieruit gehaald.
+    CLI-args en env-vars blijven alles overrulen.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(base_dir)
+    ini_path = os.path.join(root_dir, "config.ini")
+
+    cfg = {
+        "WEB_HOST": DEFAULT_WEB_HOST,
+        "WEB_PORT": DEFAULT_WEB_PORT,
+        "NAO_IP":   DEFAULT_NAO_IP,
+        "NAO_PORT": DEFAULT_NAO_PORT,
+    }
+
+    if os.path.exists(ini_path):
+        parser = ConfigParser.ConfigParser()
+        parser.read(ini_path)
+
+        if parser.has_section("nao_controller"):
+            if parser.has_option("nao_controller", "NAO_IP"):
+                cfg["NAO_IP"] = parser.get("nao_controller", "NAO_IP")
+            if parser.has_option("nao_controller", "NAO_PORT"):
+                cfg["NAO_PORT"] = parser.getint("nao_controller", "NAO_PORT")
+
+        if parser.has_section("py2_server"):
+            if parser.has_option("py2_server", "WEB_HOST"):
+                cfg["WEB_HOST"] = parser.get("py2_server", "WEB_HOST")
+            if parser.has_option("py2_server", "WEB_PORT"):
+                cfg["WEB_PORT"] = parser.getint("py2_server", "WEB_PORT")
+
+    return cfg
+
 
 # ====== Flask app ======
 app = Flask(__name__)
@@ -414,11 +467,13 @@ def play_stream():
 
 # ====== Main ======
 if __name__ == "__main__":
+    ini_cfg = load_config()
+
     parser = argparse.ArgumentParser(description="NAO Flask API")
-    parser.add_argument("--host", default=DEFAULT_WEB_HOST, help="Web host (default 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=DEFAULT_WEB_PORT, help="Web port (default 5000)")
-    parser.add_argument("--nao_ip", default=DEFAULT_NAO_IP, help="NAO IP")
-    parser.add_argument("--nao_port", type=int, default=DEFAULT_NAO_PORT, help="NAO port (default 9559)")
+    parser.add_argument("--host", default=ini_cfg["WEB_HOST"], help="Web host (default 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=ini_cfg["WEB_PORT"], help="Web port (default 5000)")
+    parser.add_argument("--nao_ip", default=ini_cfg["NAO_IP"], help="NAO IP")
+    parser.add_argument("--nao_port", type=int, default=ini_cfg["NAO_PORT"], help="NAO port (default 9559)")
     parser.add_argument("--nao_ssh_user", default=os.environ.get("NAO_SSH_USER", DEFAULT_SSH_USER))
     parser.add_argument("--nao_ssh_pass", default=os.environ.get("NAO_SSH_PASS", DEFAULT_SSH_PASS))
     parser.add_argument("--nao_ssh_port", type=int, default=int(os.environ.get("NAO_SSH_PORT", DEFAULT_SSH_PORT)))

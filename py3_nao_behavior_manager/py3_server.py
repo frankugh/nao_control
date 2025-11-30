@@ -15,17 +15,50 @@ import os
 
 from flask import Flask, request, jsonify
 import requests
+import configparser
 
 from nao_actions import NaoActions
 
+DEFAULT_PY3_WEB_HOST = "0.0.0.0"
+DEFAULT_PY3_WEB_PORT = 5001
+DEFAULT_PY2_API_URL  = "http://127.0.0.1:5000"
 
-def create_app():
+
+def load_config():
+    """
+    Leest config.ini één map hoger.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(base_dir)
+    ini_path = os.path.join(root_dir, "config.ini")
+
+    cfg = {
+        "WEB_HOST":        DEFAULT_PY3_WEB_HOST,
+        "WEB_PORT":        DEFAULT_PY3_WEB_PORT,
+        "PY2_NAO_API_URL": DEFAULT_PY2_API_URL,
+    }
+
+    if os.path.exists(ini_path):
+        parser = configparser.ConfigParser()
+        parser.read(ini_path)
+
+        if parser.has_section("py3_server"):
+            if parser.has_option("py3_server", "WEB_HOST"):
+                cfg["WEB_HOST"] = parser.get("py3_server", "WEB_HOST")
+            if parser.has_option("py3_server", "WEB_PORT"):
+                cfg["WEB_PORT"] = parser.getint("py3_server", "WEB_PORT")
+            if parser.has_option("py3_server", "PY2_NAO_API_URL"):
+                cfg["PY2_NAO_API_URL"] = parser.get("py3_server", "PY2_NAO_API_URL")
+
+    return cfg
+
+def create_app(py2_api_url=None):
+    if py2_api_url is None:
+        cfg = load_config()
+        py2_api_url = cfg["PY2_NAO_API_URL"]
+
     app = Flask(__name__)
-
-    # Py2-NAO-API basis-URL; aanpasbaar via env:
-    #   set PY2_NAO_API_URL=http://192.168.0.110:5000
-    py2_base_url = os.environ.get("PY2_NAO_API_URL", "http://192.168.68.62:5000")
-    nao_actions = NaoActions(py2_base_url)
+    nao_actions = NaoActions(py2_api_url)
 
     # ===== interne helper voor uniform error-handling =====
 
@@ -165,9 +198,13 @@ def create_app():
 
 
 if __name__ == "__main__":
-    app = create_app()
-    host = os.environ.get("PY3_WEB_HOST", "0.0.0.0")
-    port = int(os.environ.get("PY3_WEB_PORT", "5001"))
+    cfg = load_config()
+    app = create_app(cfg["PY2_NAO_API_URL"])
+
+    host = cfg["WEB_HOST"]
+    port = cfg["WEB_PORT"]
+
     print("Py3 NAO API beschikbaar op: http://%s:%s" % (host, port))
-    print("Proxy naar Py2 NAO API op:", os.environ.get("PY2_NAO_API_URL", "http://127.0.0.1:5000"))
+    print("Proxy naar Py2 NAO API op:", cfg["PY2_NAO_API_URL"])
+
     app.run(host=host, port=port, debug=False, use_reloader=False)

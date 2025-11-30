@@ -47,7 +47,7 @@ curl -X POST http://localhost:5001/nao/do_behavior \
 
 curl -X POST http://localhost:5001/nao/do_behavior \
   -H "Content-Type: application/json" \
-  -d '{"behavior":"standup"}'
+  -d '{"behavior":"basic/standup"}'
 
 
 # --- Oogkleur ---
