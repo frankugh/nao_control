@@ -49,6 +49,25 @@ curl -X POST http://localhost:5001/nao/do_behavior \
   -H "Content-Type: application/json" \
   -d '{"behavior":"basic/standup"}'
 
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"basic/sitdown"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"greetings/doboxsit"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"greetings/dohighfivesit"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"greetings"}'
+
+curl -X POST http://localhost:5001/nao/do_behavior \
+  -H "Content-Type: application/json" \
+  -d '{"behavior":"greetings/dohighfive"}'
 
 # --- Oogkleur ---
 

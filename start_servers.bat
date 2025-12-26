@@ -5,4 +5,3 @@ echo [INFO] Start Py3 behavior manager in nieuw venster...
 start "NAO Py3 Behavior Manager" cmd /k "%~dp0py3_nao_behavior_manager\start_behavior_manager.bat"
 
 echo [INFO] Beide servers zijn gestart (als alles goed ging).
-pause
