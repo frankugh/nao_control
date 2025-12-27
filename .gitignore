@@ -21,6 +21,7 @@ Thumbs.db
 # === Logs ===
 *.log
 logs/
+py3_nao_behavior_manager/logs/
 nohup.out
 
 # === Temporary uploads ===

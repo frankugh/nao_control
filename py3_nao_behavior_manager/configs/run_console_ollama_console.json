@@ -13,7 +13,8 @@
     "params": {
       "host": "https://ollama.com",
       "model": "gpt-oss:120b",
-      "api_key": "${OLLAMA_API_KEY}"
+      "api_key": "${OLLAMA_API_KEY}",
+      "system_prompt": "master_prompts/default.txt"
     }
   },
   "output": {

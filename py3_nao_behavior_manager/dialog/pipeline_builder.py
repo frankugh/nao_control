@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 from dialog.pipeline import InputLLMOutputPipeline
 
@@ -61,6 +62,38 @@ def _req(d: JsonLike, key: str) -> Any:
     return d[key]
 
 
+def _read_text_file(path: str, base_dir: str) -> str:
+    p = path
+    if not os.path.isabs(p):
+        p = os.path.join(base_dir, p)
+    with open(p, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _extract_system_prompt(cfg: JsonLike, *, config_path: str) -> Optional[str]:
+    llm_cfg = cfg.get("llm", {}) or {}
+    params = (llm_cfg.get("params", {}) or {})
+
+    sp = params.get("system_prompt", None)
+    spf = params.get("system_prompt_file", None)
+
+    if sp and spf:
+        raise ValueError("Gebruik óf llm.params.system_prompt óf llm.params.system_prompt_file, niet allebei.")
+
+    if sp:
+        if not isinstance(sp, str):
+            raise ValueError("llm.params.system_prompt moet een string zijn.")
+        return sp
+
+    if spf:
+        if not isinstance(spf, str):
+            raise ValueError("llm.params.system_prompt_file moet een string pad zijn.")
+        base_dir = os.path.dirname(os.path.abspath(config_path)) if config_path and config_path != "<memory>" else os.getcwd()
+        return _read_text_file(spf, base_dir)
+
+    return None
+
+
 def _make_mic(mic_cfg: JsonLike):
     t = _req(mic_cfg, "type").lower()
     p = mic_cfg.get("params", {}) or {}
@@ -108,16 +141,13 @@ def _make_llm(cfg: JsonLike):
     if t == "none":
         return NoOpLLMBackend()
 
-    # --- OLLAMA LOCAL (geen api_key verplicht) ---
     if t in ("ollama_local",):
         host = p.get("host", "http://localhost:11434")
-        model = p.get("model", "llama3.2")
-        # api_key optioneel; voor local meestal None/"".
+        model = p.get("model", "llama3.1:8b")
         api_key = p.get("api_key", None)
         client = OllamaClient(model=model, host=host, api_key=api_key)
         return OllamaLLMBackend(client)
 
-    # --- OLLAMA CLOUD (api_key verplicht) ---
     if t in ("ollama", "ollama_cloud"):
         api_key = p.get("api_key") or os.environ.get("OLLAMA_API_KEY")
         if not api_key:
@@ -125,7 +155,6 @@ def _make_llm(cfg: JsonLike):
 
         host = p.get("host", os.environ.get("OLLAMA_HOST", "https://ollama.com"))
         model = p.get("model", os.environ.get("OLLAMA_MODEL", "gpt-oss:120b"))
-
         client = OllamaClient(model=model, host=host, api_key=api_key)
         return OllamaLLMBackend(client)
 
@@ -147,23 +176,60 @@ def _make_output(cfg: JsonLike):
     raise ValueError(f"Onbekende output.type: {t!r}")
 
 
-def build_pipeline_from_config(cfg: JsonLike) -> InputLLMOutputPipeline:
+def _default_log_path(config_path: str, log_dir: str) -> str:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    cfg_name = os.path.splitext(os.path.basename(config_path))[0]
+    filename = f"run_{ts}_{cfg_name}.jsonl"
+    return os.path.join(log_dir, filename)
+
+
+def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") -> InputLLMOutputPipeline:
     cfg = _expand_env(cfg)
 
     run_cfg = cfg.get("run", {}) or {}
     status_to_console = bool(run_cfg.get("status_to_console", True))
 
+    # logging defaults: AAN
+    log_messages = bool(run_cfg.get("log_messages", True))
+    log_dir = run_cfg.get("log_dir", "logs")
+    log_messages_path = run_cfg.get("log_messages_path", None)
+
+    if log_messages:
+        if not log_messages_path:
+            os.makedirs(log_dir, exist_ok=True)
+            log_messages_path = _default_log_path(config_path, log_dir)
+        else:
+            parent = os.path.dirname(log_messages_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+
+    system_prompt = _extract_system_prompt(cfg, config_path=config_path)
+
     input_backend = _make_input(cfg)
     llm = _make_llm(cfg)
     output = _make_output(cfg)
+
+    llm_cfg = cfg.get("llm", {}) or {}
+    llm_params = (llm_cfg.get("params", {}) or {})
+    log_meta = {
+        "config_path": config_path,
+        "llm_type": (llm_cfg.get("type") or ""),
+        "llm_host": llm_params.get("host"),
+        "llm_model": llm_params.get("model"),
+        "has_system_prompt": bool(system_prompt),
+    }
 
     return InputLLMOutputPipeline(
         input_backend=input_backend,
         llm=llm,
         output_backend=output,
         status_to_console=status_to_console,
+        system_prompt=system_prompt,
+        log_messages_path=log_messages_path if log_messages else None,
+        log_meta=log_meta,
     )
 
 
 def build_pipeline_from_json(path: str) -> InputLLMOutputPipeline:
-    return build_pipeline_from_config(_load_json(path))
+    cfg = _load_json(path)
+    return build_pipeline_from_config(cfg, config_path=path)

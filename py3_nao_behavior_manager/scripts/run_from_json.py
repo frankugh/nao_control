@@ -7,7 +7,11 @@ from dialog.pipeline_builder import build_pipeline_from_json
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config", required=True, help="Pad naar run-config JSON, bijv configs/run_audio_laptop_whisper_stt_only.json")
+    p.add_argument(
+        "--config",
+        required=True,
+        help="Pad naar run-config JSON, bijv configs/run_console_ollama_local_console.json",
+    )
     args = p.parse_args()
 
     pipeline = build_pipeline_from_json(args.config)

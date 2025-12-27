@@ -12,7 +12,8 @@
     "type": "ollama_local",
     "params": {
       "host": "http://localhost:11434",
-      "model": "gemma:2b"
+      "model": "gemma:2b",
+      "system_prompt": "prompts/master.txt"
     }
   },
   "output": {
