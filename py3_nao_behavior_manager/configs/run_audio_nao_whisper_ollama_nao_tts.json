@@ -32,7 +32,10 @@
       "host": "https://ollama.com",
       "model": "gpt-oss:120b",
       "api_key": "${OLLAMA_API_KEY}",
-      "system_prompt": "master_prompts/default.txt"
+      "system_prompt_file": "master_prompts/default.txt",
+      "context": {
+        "max_history_turns": 12
+      }
     }
   },
   "output": { "type": "nao_tts", "params": {} }

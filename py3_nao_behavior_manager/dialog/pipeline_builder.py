@@ -94,6 +94,30 @@ def _extract_system_prompt(cfg: JsonLike, *, config_path: str) -> Optional[str]:
     return None
 
 
+def _extract_max_history_turns(cfg: JsonLike) -> Optional[int]:
+    """
+    Nieuwe plek: llm.params.context.max_history_turns
+    Legacy fallback: run.max_history_turns
+    """
+    llm_cfg = cfg.get("llm", {}) or {}
+    params = (llm_cfg.get("params", {}) or {})
+    ctx = params.get("context", {}) or {}
+    if not isinstance(ctx, dict):
+        raise ValueError("llm.params.context moet een object/dict zijn.")
+
+    v = ctx.get("max_history_turns", None)
+    if v is None:
+        # legacy fallback
+        run_cfg = cfg.get("run", {}) or {}
+        v = run_cfg.get("max_history_turns", None)
+
+    if v is None:
+        return None
+    if not isinstance(v, int):
+        raise ValueError("max_history_turns moet een int zijn (of weglaten).")
+    return v
+
+
 def _make_mic(mic_cfg: JsonLike):
     t = _req(mic_cfg, "type").lower()
     p = mic_cfg.get("params", {}) or {}
@@ -204,6 +228,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
                 os.makedirs(parent, exist_ok=True)
 
     system_prompt = _extract_system_prompt(cfg, config_path=config_path)
+    max_history_turns = _extract_max_history_turns(cfg)
 
     input_backend = _make_input(cfg)
     llm = _make_llm(cfg)
@@ -217,6 +242,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         "llm_host": llm_params.get("host"),
         "llm_model": llm_params.get("model"),
         "has_system_prompt": bool(system_prompt),
+        "max_history_turns": max_history_turns,
     }
 
     return InputLLMOutputPipeline(
@@ -227,6 +253,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         system_prompt=system_prompt,
         log_messages_path=log_messages_path if log_messages else None,
         log_meta=log_meta,
+        max_history_turns=max_history_turns,
     )
 
 

@@ -13,7 +13,10 @@
     "params": {
       "host": "http://localhost:11434",
       "model": "gemma:2b",
-      "system_prompt": "prompts/master.txt"
+      "system_prompt_file": "master_prompts/short.txt",
+      "context": {
+        "max_history_turns": 4
+      }
     }
   },
   "output": {

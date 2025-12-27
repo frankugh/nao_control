@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from dialog.interfaces import (
     DialogPipeline,
@@ -15,12 +15,19 @@ from dialog.interfaces import (
 )
 
 
+def _role(msg: Any) -> Optional[str]:
+    if isinstance(msg, dict):
+        return msg.get("role")
+    return getattr(msg, "role", None)
+
+
 class InputLLMOutputPipeline(DialogPipeline):
     """
     Input -> LLM -> Output
 
-    - Optioneel system_prompt: wordt als eerste system-message meegestuurd.
-    - Optioneel per turn logging van exacte 'messages' naar JSONL.
+    - system_prompt: als eerste system-message meegestuurd
+    - log_messages_path: JSONL met exacte 'messages' die naar LLM gaan
+    - max_history_turns: bewaart laatste N user-turns (inclusief huidige user turn)
     """
 
     def __init__(
@@ -33,6 +40,7 @@ class InputLLMOutputPipeline(DialogPipeline):
         system_prompt: Optional[str] = None,
         log_messages_path: Optional[str] = None,
         log_meta: Optional[Dict[str, Any]] = None,
+        max_history_turns: Optional[int] = None,
     ) -> None:
         self.input = input_backend
         self.llm = llm
@@ -43,6 +51,8 @@ class InputLLMOutputPipeline(DialogPipeline):
 
         self.log_messages_path = log_messages_path
         self.log_meta = log_meta or {}
+        self.max_history_turns = max_history_turns
+
         self._turn_idx = 0
 
     def _status(self, msg: str) -> None:
@@ -68,11 +78,40 @@ class InputLLMOutputPipeline(DialogPipeline):
         if not self.system_prompt:
             return messages
 
-        if messages and getattr(messages[0], "role", None) == "system":
+        if messages and _role(messages[0]) == "system":
             return messages
 
         sys_msg = ChatMessage(role="system", content=self.system_prompt)  # type: ignore[arg-type]
         return [sys_msg] + list(messages)
+
+    def _trim_history(self, history: History) -> History:
+        """
+        Bewaar laatste N user-turns. Turn = een user-message; we knippen history
+        vanaf de N-de laatste user-message tot het eind.
+
+        Als history begint met een system-message, behouden we die.
+        """
+        n = self.max_history_turns
+        if n is None:
+            return history
+        if n <= 0:
+            if history and _role(history[0]) == "system":
+                return [history[0]]
+            return []
+
+        sys_prefix: List[Any] = []
+        rest: List[Any] = list(history)
+
+        if rest and _role(rest[0]) == "system":
+            sys_prefix = [rest[0]]
+            rest = rest[1:]
+
+        user_idxs = [i for i, m in enumerate(rest) if _role(m) == "user"]
+        if len(user_idxs) <= n:
+            return sys_prefix + rest
+
+        cut = user_idxs[-n]
+        return sys_prefix + rest[cut:]
 
     def run_once(self, history: History | None = None) -> DialogTurn:
         user_in: UserInput = self.input.get_input()
@@ -88,7 +127,12 @@ class InputLLMOutputPipeline(DialogPipeline):
             )
 
         messages: History = list(history or [])
+
+        # Voeg huidige user toe
         messages.append(ChatMessage(role="user", content=user_in.text))  # type: ignore[arg-type]
+
+        # Trim nu (dus inclusief de huidige user turn)
+        messages = self._trim_history(messages)
 
         # System prompt toevoegen (als eerste)
         messages_to_send = self._prepend_system_prompt(messages)

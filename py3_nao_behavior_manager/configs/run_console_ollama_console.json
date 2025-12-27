@@ -2,10 +2,10 @@
   "input": {
     "type": "console",
     "params": {
-      "prompt": "You> ",
+      "prompt_text": "You> ",
       "confirm_before_send": false,
-      "allow_edit_before_send": false,
-      "print_input": false
+      "print_input": false,
+      "status_to_console": true
     }
   },
   "llm": {
@@ -14,7 +14,10 @@
       "host": "https://ollama.com",
       "model": "gpt-oss:120b",
       "api_key": "${OLLAMA_API_KEY}",
-      "system_prompt": "master_prompts/default.txt"
+      "system_prompt_file": "master_prompts/default.txt",
+      "context": {
+        "max_history_turns": 8
+      }
     }
   },
   "output": {
@@ -22,5 +25,6 @@
     "params": {
       "prefix": "BOT"
     }
-  }
+  },
+  "run": { "status_to_console": true }
 }
