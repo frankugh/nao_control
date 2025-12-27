@@ -1,0 +1,13 @@
+{
+  "input": {
+    "type": "console",
+    "params": {
+      "prompt": "You> ",
+      "confirm_before_send": false,
+      "allow_edit_before_send": false,
+      "print_input": false
+    }
+  },
+  "llm": { "type": "echo" },
+  "output": { "type": "console", "params": { "prefix": "BOT" } }
+}

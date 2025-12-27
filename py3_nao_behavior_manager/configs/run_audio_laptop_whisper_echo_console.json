@@ -1,0 +1,36 @@
+{
+  "input": {
+    "type": "audio",
+    "mic": {
+      "type": "laptop",
+      "params": {
+        "sample_rate": 16000,
+        "start_threshold_rms": 500,
+        "stop_silence_ms": 1000,
+        "pre_roll_ms": 200,
+        "max_utterance_s": 12.0,
+        "block_ms": 20,
+        "input_device": null
+      }
+    },
+    "stt": {
+      "type": "whisper",
+      "params": {
+        "model_name": "small",
+        "language": "nl",
+        "vad_filter": true,
+        "min_silence_duration_ms": 1000
+      }
+    },
+    "params": {
+      "confirm_before_record": true,
+      "confirm_before_send": true,
+      "start_timeout_s": null,
+      "print_input": true,
+      "status_to_console": true
+    }
+  },
+  "llm": { "type": "echo" },
+  "output": { "type": "console", "params": { "prefix": "BOT" } },
+  "run": { "status_to_console": true }
+}

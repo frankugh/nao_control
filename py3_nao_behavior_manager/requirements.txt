@@ -6,3 +6,4 @@ numpy
 sounddevice
 ollama
 webrtcvad
+prompt_toolkit

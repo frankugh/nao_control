@@ -1,0 +1,5 @@
+{
+  "input": { "type": "console", "params": { "prompt": "You> " } },
+  "llm": { "type": "none" },
+  "output": { "type": "console", "params": { "prefix": "BOT" } }
+}

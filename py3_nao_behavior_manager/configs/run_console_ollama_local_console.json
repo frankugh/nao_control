@@ -1,0 +1,25 @@
+{
+  "input": {
+    "type": "console",
+    "params": {
+      "prompt_text": "You> ",
+      "confirm_before_send": false,
+      "print_input": false,
+      "status_to_console": true
+    }
+  },
+  "llm": {
+    "type": "ollama_local",
+    "params": {
+      "host": "http://localhost:11434",
+      "model": "gemma:2b"
+    }
+  },
+  "output": {
+    "type": "console",
+    "params": {
+      "prefix": "BOT"
+    }
+  },
+  "run": { "status_to_console": true }
+}

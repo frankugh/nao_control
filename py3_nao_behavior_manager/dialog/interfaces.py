@@ -1,3 +1,4 @@
+# py3_nao_behavior_manager/dialog/interfaces.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,8 +32,9 @@ class UtteranceAudio:
     Eén gesproken utterance als audio.
 
     pcm:
-        Audiobytes als WAV (RIFF/WAVE) zodat STT backends 
-        (zoals WhisperSTTBackend) het direct kunnen parsen.
+        Audiobytes. In deze codebase wordt dit in de praktijk vaak als WAV-bytes
+        (RIFF/WAVE) gebruikt, omdat WhisperSTTBackend wave.open(...) doet.
+        (De naam 'pcm' is historisch.)
     sample_rate:
         Sample rate in Hz (bijv. 16000).
     channels:
@@ -55,6 +57,26 @@ class STTResult:
 
 
 @dataclass
+class UserInput:
+    """
+    Genormaliseerde user-input voor de pipeline.
+
+    raw_text:
+        De oorspronkelijke tekst (STT-output of getypte input).
+    text:
+        De uiteindelijke tekst die naar de LLM gaat (na evt. edit/confirm).
+    audio:
+        Optioneel: de audio-utterance (alleen bij audio input).
+    stt:
+        Optioneel: STTResult (alleen bij audio input).
+    """
+    raw_text: str
+    text: str
+    audio: Optional[UtteranceAudio] = None
+    stt: Optional[STTResult] = None
+
+
+@dataclass
 class LLMResult:
     """Resultaat van de LLM-call."""
     reply: str
@@ -66,30 +88,22 @@ class LLMResult:
 @dataclass
 class DialogTurn:
     """
-    Volledige data van één dialoogronde:
-    audio-in, STT-resultaat en LLM-resultaat.
+    Data van één ronde:
+    input (text/audio), optioneel STT, en LLM-resultaat.
     """
-    user_audio: UtteranceAudio
-    stt: STTResult
+    user_input: UserInput
     llm: LLMResult
+    user_audio: Optional[UtteranceAudio] = None
+    stt: Optional[STTResult] = None
 
 
 # ====== Interfaces / Protocols ======
 
 @runtime_checkable
 class MicBackend(Protocol):
-    """
-    Microfoon / audio-input.
-
-    Implementaties mogen intern VAD gebruiken, zolang er maar
-    precies één utterance wordt teruggegeven.
-    """
+    """Microfoon / audio-input backend."""
 
     def capture_utterance(self, timeout_s: float = 10.0) -> UtteranceAudio:
-        """
-        Luister tot er een utterance is (of tot timeout) en geef daarvan
-        de audio terug.
-        """
         ...
 
 
@@ -98,9 +112,17 @@ class STTBackend(Protocol):
     """Spraak-naar-tekst backend."""
 
     def transcribe(self, audio: UtteranceAudio) -> STTResult:
-        """
-        Converteer de gegeven utterance naar tekst.
-        """
+        ...
+
+
+@runtime_checkable
+class InputBackend(Protocol):
+    """
+    Input-laag: levert UserInput op (audio+stt of console text).
+    Bevat ook de UX-gates (confirm/edit).
+    """
+
+    def get_input(self) -> UserInput:
         ...
 
 
@@ -109,38 +131,32 @@ class LLMBackend(Protocol):
     """LLM-backend (local of cloud)."""
 
     def generate(self, messages: History) -> LLMResult:
-        """
-        Genereer een antwoord op basis van de chatgeschiedenis.
-        De laatste user-boodschap zit in `messages` aan het eind.
-        """
+        ...
+
+
+@runtime_checkable
+class OutputBackend(Protocol):
+    """
+    Output-laag: 'emit' kan console printen of TTS doen.
+    """
+
+    def emit(self, text: str) -> None:
         ...
 
 
 @runtime_checkable
 class TTSBackend(Protocol):
-    """Tekst-naar-spraak backend (bijv. NAO TTS)."""
+    """
+    Legacy naam; je kunt dit blijven gebruiken in bestaande code.
+    Voor de nieuwe pipeline gebruiken we OutputBackend.emit(...).
+    """
 
     def speak(self, text: str) -> None:
-        """
-        Spreek de gegeven tekst uit. Blocking of non-blocking is
-        aan de implementatie, maar moet duidelijk gedocumenteerd worden.
-        """
         ...
 
 
 class DialogPipeline(Protocol):
-    """
-    Combinatie van mic + stt + llm + tts voor één dialoogronde.
-    Stateless: geen eigen geheugen; history komt van buiten.
-    """
+    """Input → LLM → Output (history komt van buiten)."""
 
     def run_once(self, history: Optional[History] = None) -> DialogTurn:
-        """
-        1) mic.capture_utterance()
-        2) stt.transcribe()
-        3) history + user-bericht -> llm.generate()
-        4) tts.speak()
-
-        Retourneert een DialogTurn met alle tussenresultaten.
-        """
         ...

@@ -1,0 +1,38 @@
+{
+  "input": {
+    "type": "audio",
+    "mic": {
+      "type": "nao_ssh",
+      "params": {
+        "host": "192.168.0.101",
+        "username": "nao",
+        "password": "nao"
+      }
+    },
+    "stt": {
+      "type": "whisper",
+      "params": {
+        "model_name": "small",
+        "language": "nl",
+        "vad_filter": true,
+        "min_silence_duration_ms": 1000
+      }
+    },
+    "params": {
+      "confirm_before_record": true,
+      "confirm_before_send": true,
+      "allow_edit_before_send": true,
+      "start_timeout_s": null,
+      "print_input": true
+    }
+  },
+  "llm": {
+    "type": "ollama_cloud",
+    "params": {
+      "host": "https://ollama.com",
+      "model": "gpt-oss:120b",
+      "api_key": "${OLLAMA_API_KEY}"
+    }
+  },
+  "output": { "type": "nao_tts", "params": {} }
+}
