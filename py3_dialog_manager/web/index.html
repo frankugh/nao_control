@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NAO dialog test (intranet)</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+      h2 { margin: 0 0 10px 0; }
+
+      .layout { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 14px; }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      button { padding: 10px 14px; font-size: 16px; }
+      textarea { width: 100%; min-height: 110px; font-size: 16px; padding: 10px; box-sizing: border-box; }
+
+      .small { color: #444; font-size: 13px; margin-bottom: 10px; }
+      .status { margin-top: 8px; font-size: 14px; white-space: pre-wrap; }
+
+      .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
+
+      .chat { height: 360px; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 10px; }
+      .msg { margin: 8px 0; display: flex; }
+      .msg.user { justify-content: flex-end; }
+      .bubble { max-width: 75%; padding: 8px 10px; border-radius: 12px; border: 1px solid #e6e6e6; background: white; white-space: pre-wrap; }
+      .user .bubble { background: #f1f7ff; border-color: #d8e8ff; }
+      .role { font-size: 12px; color: #666; margin-bottom: 3px; }
+      .bubblewrap { display: flex; flex-direction: column; }
+
+      .prompt { height: 520px; overflow: auto; background: #0b0b0b; color: #e8e8e8; border-radius: 12px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; white-space: pre-wrap; }
+      .muted { color: #aaa; }
+    </style>
+  </head>
+  <body>
+    <h2>NAO dialog test (thuis / intranet)</h2>
+    <div class="small">
+      Flow: <span class="pill">record</span> → <span class="pill">stop</span> (STT) → <span class="pill">edit</span> → <span class="pill">send</span> (LLM+output)
+    </div>
+
+    <div class="layout">
+      <!-- LEFT: chat + controls -->
+      <div class="card">
+        <div class="row" style="margin-bottom:10px">
+          <button id="btnRec">🎙️ Opnemen</button>
+          <button id="btnSend" disabled>📨 Send</button>
+          <button id="btnReset">🧹 Reset</button>
+          <span id="recState" class="pill">idle</span>
+        </div>
+
+        <div style="margin-top: 10px">
+          <textarea id="txt" placeholder="Transcript komt hier... (je kunt het editen)"></textarea>
+        </div>
+        <div id="status" class="status"></div>
+
+        <div id="chat" class="chat"></div>
+      </div>
+
+      <!-- RIGHT: master prompt -->
+      <div class="card">
+        <div class="row" style="margin-bottom:8px">
+          <b>Master prompt</b>
+          <span class="pill">system</span>
+        </div>
+        <div id="prompt" class="prompt"><span class="muted">laden…</span></div>
+      </div>
+    </div>
+
+    <script>
+      const btnRec = document.getElementById('btnRec');
+      const btnSend = document.getElementById('btnSend');
+      const btnReset = document.getElementById('btnReset');
+      const txt = document.getElementById('txt');
+      const statusEl = document.getElementById('status');
+      const chatEl = document.getElementById('chat');
+      const promptEl = document.getElementById('prompt');
+      const recState = document.getElementById('recState');
+
+      let audioCtx = null;
+      let stream = null;
+      let processor = null;
+      let input = null;
+      let recording = false;
+      let pcmChunks = [];
+
+      function setStatus(msg) { statusEl.textContent = msg; }
+      function setRecState(s) { recState.textContent = s; }
+
+      function renderHistory(history) {
+        chatEl.innerHTML = '';
+        (history || []).forEach(m => {
+          const role = m.role || 'unknown';
+          const content = (m.content || '').toString();
+
+          const msg = document.createElement('div');
+          msg.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
+
+          const wrap = document.createElement('div');
+          wrap.className = 'bubblewrap';
+
+          const roleEl = document.createElement('div');
+          roleEl.className = 'role';
+          roleEl.textContent = (role === 'user') ? 'You' : 'Bot';
+
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble';
+          bubble.textContent = content;
+
+          wrap.appendChild(roleEl);
+          wrap.appendChild(bubble);
+          msg.appendChild(wrap);
+          chatEl.appendChild(msg);
+        });
+
+        // scroll to bottom
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+
+      function renderPrompt(p) {
+        const text = (p || '').trim();
+        promptEl.textContent = text ? text : '(geen system prompt ingesteld)';
+      }
+
+      async function refreshState() {
+        const r = await fetch('/api/state');
+        const j = await r.json();
+        if (j.ok) {
+          renderHistory(j.history || []);
+          renderPrompt(j.system_prompt || '');
+        }
+      }
+
+      // --- WAV encoding helpers (mono, 16-bit PCM, 16kHz) ---
+      function floatTo16BitPCM(float32Array) {
+        const buffer = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i++) {
+          let s = Math.max(-1, Math.min(1, float32Array[i]));
+          buffer[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        return buffer;
+      }
+      function writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+      }
+      function encodeWAV(int16Audio, sampleRate) {
+        const bytesPerSample = 2;
+        const blockAlign = 1 * bytesPerSample;
+        const buffer = new ArrayBuffer(44 + int16Audio.length * bytesPerSample);
+        const view = new DataView(buffer);
+
+        writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + int16Audio.length * bytesPerSample, true);
+        writeString(view, 8, 'WAVE');
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true); // PCM
+        view.setUint16(22, 1, true); // mono
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * blockAlign, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, 16, true);
+        writeString(view, 36, 'data');
+        view.setUint32(40, int16Audio.length * bytesPerSample, true);
+
+        let offset = 44;
+        for (let i = 0; i < int16Audio.length; i++, offset += 2) view.setInt16(offset, int16Audio[i], true);
+        return new Blob([view], { type: 'audio/wav' });
+      }
+
+      function resampleTo16k(inputFloat32, inRate) {
+        if (inRate === 16000) return inputFloat32;
+        const ratio = inRate / 16000;
+        const outLength = Math.round(inputFloat32.length / ratio);
+        const out = new Float32Array(outLength);
+        for (let i = 0; i < outLength; i++) {
+          const idx = i * ratio;
+          const idx0 = Math.floor(idx);
+          const idx1 = Math.min(idx0 + 1, inputFloat32.length - 1);
+          const frac = idx - idx0;
+          out[i] = inputFloat32[idx0] * (1 - frac) + inputFloat32[idx1] * frac;
+        }
+        return out;
+      }
+
+      async function startRecording() {
+        if (recording) return;
+        setStatus('🎙️ Opnemen...');
+        setRecState('recording');
+        pcmChunks = [];
+
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const inRate = audioCtx.sampleRate;
+        input = audioCtx.createMediaStreamSource(stream);
+
+        processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (e) => {
+          if (!recording) return;
+          const ch = e.inputBuffer.getChannelData(0);
+          pcmChunks.push(new Float32Array(ch));
+        };
+        input.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        recording = true;
+        btnRec.textContent = '⏹️ Stop';
+        btnSend.disabled = true;
+        startRecording._inRate = inRate;
+      }
+
+      async function stopRecording() {
+        if (!recording) return;
+        recording = false;
+        btnRec.disabled = true;
+        setStatus('⏳ Uploaden + transcriben...');
+        setRecState('transcribing');
+
+        try {
+          if (processor) processor.disconnect();
+          if (input) input.disconnect();
+          if (stream) stream.getTracks().forEach(t => t.stop());
+          if (audioCtx) await audioCtx.close();
+        } catch (_) {}
+
+        let total = 0;
+        for (const c of pcmChunks) total += c.length;
+        const merged = new Float32Array(total);
+        let off = 0;
+        for (const c of pcmChunks) { merged.set(c, off); off += c.length; }
+
+        const inRate = startRecording._inRate || 48000;
+        const resampled = resampleTo16k(merged, inRate);
+        const int16 = floatTo16BitPCM(resampled);
+        const wavBlob = encodeWAV(int16, 16000);
+
+        const form = new FormData();
+        form.append('audio', wavBlob, 'audio.wav');
+
+        const r = await fetch('/api/transcribe', { method: 'POST', body: form });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'transcribe failed');
+
+        txt.value = (j.transcript || '').trim();
+        btnSend.disabled = !txt.value.trim();
+        setStatus('✅ Transcript klaar. Edit en druk op Send.');
+        setRecState('idle');
+      }
+
+      btnRec.addEventListener('click', async () => {
+        try {
+          if (!recording) await startRecording();
+          else await stopRecording();
+        } catch (e) {
+          console.error(e);
+          setStatus('❌ Fout: ' + (e?.message || e));
+          setRecState('idle');
+          recording = false;
+          btnRec.textContent = '🎙️ Opnemen';
+        } finally {
+          if (!recording) {
+            btnRec.textContent = '🎙️ Opnemen';
+            btnRec.disabled = false;
+          }
+        }
+      });
+
+      txt.addEventListener('input', () => { btnSend.disabled = !txt.value.trim(); });
+
+      btnSend.addEventListener('click', async () => {
+        const text = txt.value.trim();
+        if (!text) return;
+        btnSend.disabled = true;
+        setStatus('🤖 LLM + output...');
+        setRecState('thinking');
+        try {
+          const r = await fetch('/api/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'send failed');
+
+          renderHistory(j.history || []);
+          renderPrompt(j.system_prompt || '');
+          setStatus('✅ Klaar. Je kunt opnieuw opnemen.');
+        } catch (e) {
+          console.error(e);
+          setStatus('❌ Fout: ' + (e?.message || e));
+        } finally {
+          setRecState('idle');
+          btnSend.disabled = !txt.value.trim();
+        }
+      });
+
+      btnReset.addEventListener('click', async () => {
+        try {
+          const r = await fetch('/api/reset', { method: 'POST' });
+          const j = await r.json();
+          renderHistory(j.history || []);
+          renderPrompt(j.system_prompt || '');
+          setStatus('🧹 History gereset.');
+        } catch (e) {
+          setStatus('❌ Reset fout: ' + (e?.message || e));
+        }
+      });
+
+      // init
+      refreshState().catch(() => setStatus('⚠️ Kan server niet bereiken.'));
+    </script>
+  </body>
+</html>

@@ -16,7 +16,11 @@
     "stt": {
       "type": "whisper",
       "params": {
-        "model_name": "small",
+        "mode": "AUTO",
+        "model_cpu": "small",
+        "model_gpu": "medium",
+        "compute_type_cpu": "int8",
+        "compute_type_gpu": "float16",
         "language": "nl",
         "vad_filter": true,
         "min_silence_duration_ms": 1000

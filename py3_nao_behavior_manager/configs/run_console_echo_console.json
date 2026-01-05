@@ -2,12 +2,13 @@
   "input": {
     "type": "console",
     "params": {
-      "prompt": "You> ",
+      "prompt_text": "You> ",
       "confirm_before_send": false,
-      "allow_edit_before_send": false,
-      "print_input": false
+      "print_input": false,
+      "status_to_console": true
     }
   },
   "llm": { "type": "echo" },
-  "output": { "type": "console", "params": { "prefix": "BOT" } }
+  "output": { "type": "console", "params": { "prefix": "BOT" } },
+  "run": { "status_to_console": true }
 }

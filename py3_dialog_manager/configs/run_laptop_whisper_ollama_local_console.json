@@ -1,12 +1,20 @@
 {
+  "run": {
+    "status_to_console": true,
+    "log_messages": true
+  },
   "input": {
     "type": "audio",
     "mic": {
-      "type": "nao_ssh",
+      "type": "laptop",
       "params": {
-        "host": "192.168.0.101",
-        "username": "nao",
-        "password": "nao"
+        "sample_rate": 16000,
+        "start_threshold_rms": 500,
+        "stop_silence_ms": 1000,
+        "pre_roll_ms": 200,
+        "max_utterance_s": 12.0,
+        "block_ms": 20,
+        "input_device": null
       }
     },
     "stt": {
@@ -25,22 +33,25 @@
     "params": {
       "confirm_before_record": true,
       "confirm_before_send": true,
-      "allow_edit_before_send": true,
       "start_timeout_s": null,
       "print_input": true
     }
   },
   "llm": {
-    "type": "ollama_cloud",
+    "type": "ollama_local",
     "params": {
-      "host": "https://ollama.com",
-      "model": "gpt-oss:120b",
-      "api_key": "${OLLAMA_API_KEY}",
-      "system_prompt_file": "master_prompts/default.txt",
+      "host": "http://localhost:11434",
+      "model": "gemma:2b",
+      "system_prompt_file": "master_prompts/short.txt",
       "context": {
-        "max_history_turns": 12
+        "max_history_turns": 4
       }
     }
   },
-  "output": { "type": "nao_tts", "params": {} }
+  "output": {
+    "type": "console",
+    "params": {
+      "prefix": "BOT"
+    }
+  }
 }

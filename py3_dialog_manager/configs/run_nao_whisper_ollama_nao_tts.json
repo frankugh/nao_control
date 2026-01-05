@@ -25,7 +25,6 @@
     "params": {
       "confirm_before_record": true,
       "confirm_before_send": true,
-      "allow_edit_before_send": true,
       "start_timeout_s": null,
       "print_input": true
     }
@@ -42,5 +41,8 @@
       }
     }
   },
-  "output": { "type": "nao_tts", "params": {} }
+  "output": {
+    "type": "nao_tts",
+    "params": {}
+  }
 }
