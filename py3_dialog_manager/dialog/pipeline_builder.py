@@ -138,6 +138,23 @@ def _make_stt(stt_cfg: JsonLike):
     raise ValueError(f"Onbekende stt.type: {t!r}")
 
 
+def make_stt_backend_from_config(cfg: JsonLike):
+    """
+    Factory for "just the STT backend" from a full run config.
+
+    This avoids web UI drift: `/api/transcribe` should use the same STT parsing
+    and instantiation rules as the normal `build_pipeline_from_config(...)`.
+    """
+    cfg = _expand_env(cfg)
+    input_cfg = cfg.get("input", {}) or {}
+    stt_cfg = input_cfg.get("stt", None)
+    if not stt_cfg:
+        raise ValueError("Config mist input.stt (nodig voor /api/transcribe).")
+    if not isinstance(stt_cfg, dict):
+        raise ValueError("input.stt moet een object/dict zijn.")
+    return _make_stt(stt_cfg)
+
+
 def _make_input(cfg: JsonLike):
     input_cfg = _req(cfg, "input")
     t = _req(input_cfg, "type").lower()

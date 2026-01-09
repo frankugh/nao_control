@@ -17,15 +17,15 @@ import argparse
 import json
 import os
 import secrets
-import inspect
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
 try:
     from dialog.pipeline import InputLLMOutputPipeline
-    from dialog.pipeline_builder import build_pipeline_from_config
+    from dialog.pipeline_builder import build_pipeline_from_config, make_stt_backend_from_config
+    from dialog.backends.input_fixed_text import FixedTextInputBackend
+    from dialog.backends.output_none import NoOpOutputBackend
     from dialog.interfaces import UtteranceAudio
 except Exception as e:  # pragma: no cover
     raise RuntimeError(
@@ -34,18 +34,6 @@ except Exception as e:  # pragma: no cover
         + repr(e)
     )
 
-try:
-    from dialog.interfaces import UserInput  # type: ignore
-except Exception:  # pragma: no cover
-
-    @dataclass
-    class UserInput:  # type: ignore
-        raw_text: str
-        text: str
-        audio: Optional[UtteranceAudio] = None
-        stt: Any = None
-
-
 JsonLike = Dict[str, Any]
 History = List[Dict[str, str]]
 
@@ -53,54 +41,6 @@ History = List[Dict[str, str]]
 def _load_json(path: str) -> JsonLike:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def _make_user_input(*, raw: str, audio: Any = None, stt: Any = None) -> Any:
-    sig = inspect.signature(UserInput)  # type: ignore
-    kwargs: Dict[str, Any] = {}
-
-    if "raw_text" in sig.parameters:
-        kwargs["raw_text"] = raw
-    if "text" in sig.parameters:
-        kwargs["text"] = raw
-    if "audio" in sig.parameters:
-        kwargs["audio"] = audio
-    if "stt" in sig.parameters:
-        kwargs["stt"] = stt
-
-    if not any(k in kwargs for k in ("raw_text", "text")) and len(sig.parameters) > 0:
-        first = next(iter(sig.parameters))
-        kwargs[first] = raw
-
-    return UserInput(**kwargs)  # type: ignore
-
-
-class FixedTextInputBackend:
-    def __init__(self, text: str):
-        self._text = text
-        self._used = False
-
-    def get_input(self) -> Any:
-        if self._used:
-            return _make_user_input(raw="", audio=None, stt=None)
-        self._used = True
-        return _make_user_input(raw=self._text, audio=None, stt=None)
-
-
-def _make_stt_only(cfg: JsonLike):
-    input_cfg = cfg.get("input", {}) or {}
-    stt_cfg = input_cfg.get("stt", None)
-    if not stt_cfg:
-        raise ValueError("Config mist input.stt (nodig voor /api/transcribe).")
-
-    stt_type = (stt_cfg.get("type") or "").lower()
-    stt_params = (stt_cfg.get("params") or {})
-
-    if stt_type != "whisper":
-        raise ValueError(f"Alleen stt.type='whisper' ondersteund in webapp, kreeg: {stt_type!r}")
-
-    from dialog.backends.stt_whisper import WhisperSTTBackend
-    return WhisperSTTBackend(**stt_params)
 
 
 def _strip_system(history: History) -> History:
@@ -120,7 +60,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     app = Flask(__name__, static_folder="web", static_url_path="")
 
     base_pipeline = build_pipeline_from_config(cfg, config_path=config_path)
-    stt = _make_stt_only(cfg)
+    stt = make_stt_backend_from_config(cfg)
 
     # In-memory session histories for intranet testing
     sessions: Dict[str, History] = {}
@@ -175,17 +115,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if not text:
             return jsonify({"ok": False, "error": "Lege tekst."}), 400
 
+        emit_req = (payload.get("emit") or "none")
+        emit_used = "pipeline" if str(emit_req).lower() == "pipeline" else "none"
+
         sid = _get_sid()
         if payload.get("reset") is True:
             sessions[sid] = []
 
         history = _get_history(sid)
 
+        # Default is UI-only: no console status and no robot/TTS output unless requested.
+        output_backend = base_pipeline.output if emit_used == "pipeline" else NoOpOutputBackend()
+        status_to_console = base_pipeline.status_to_console if emit_used == "pipeline" else False
+
         pipeline = InputLLMOutputPipeline(
             input_backend=FixedTextInputBackend(text),
             llm=base_pipeline.llm,
-            output_backend=base_pipeline.output,
-            status_to_console=base_pipeline.status_to_console,
+            output_backend=output_backend,
+            status_to_console=status_to_console,
             system_prompt=base_pipeline.system_prompt,
             log_messages_path=base_pipeline.log_messages_path,
             log_meta=base_pipeline.log_meta,
@@ -203,6 +150,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 "reply": reply,
                 "history": sessions[sid],
                 "system_prompt": _system_prompt(),
+                "emit_used": emit_used,
             }
         )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")

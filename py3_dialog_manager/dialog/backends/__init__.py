@@ -3,6 +3,7 @@
 # Input backends
 from dialog.backends.input_audio import AudioInputBackend
 from dialog.backends.input_console import ConsoleInputBackend
+from dialog.backends.input_fixed_text import FixedTextInputBackend
 
 # Mic backends
 from dialog.backends.mic_laptop import LaptopMic
@@ -25,6 +26,7 @@ __all__ = [
     # input
     "AudioInputBackend",
     "ConsoleInputBackend",
+    "FixedTextInputBackend",
     # mic
     "LaptopMic",
     "NaoSshMic",

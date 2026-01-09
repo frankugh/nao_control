@@ -8,13 +8,13 @@ $ErrorActionPreference = "Stop"
 try {
   Set-Location $PSScriptRoot
 
-  # Kies hier je config
-  #$config = "configs\run_console_echo_console.json"
-  #$config = "configs\run_console_ollama_local_console.json"
-  #$config = "configs\run_console_ollama_cloud_console.json"
-  #$config = "configs\run_audio_laptop_whisper_echo_console.json"
-  $config = "configs\run_audio_laptop_whisper_ollama_local_console.json"
-  #$config = "configs\run_audio_laptop_whisper_ollama_cloud_console.json"
+  # Kies hier je config  
+  $config = "configs\run_laptop_whisper_echo_console.json"
+  #$config = "configs\run_laptop_whisper_echo_nao.json"
+  #$config = "configs\run_laptop_whisper_ollama_cloud_console.json"
+  #$config = "configs\run_laptop_whisper_ollama_cloud_nao.json"
+  #$config = "configs\run_laptop_whisper_ollama_local_console.json"
+  #$config = "configs\run_laptop_whisper_ollama_local_nao.json"
   
 
   if (-not (Test-Path "venv\Scripts\python.exe")) {
