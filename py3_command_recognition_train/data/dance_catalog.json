@@ -1,0 +1,12 @@
+{
+  "dances": [
+    {
+      "key": "robot",
+      "aliases": ["robot", "robotdans", "dance robot"]
+    },
+    {
+      "key": "salsa",
+      "aliases": ["salsa"]
+    }
+  ]
+}

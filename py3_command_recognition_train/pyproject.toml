@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmdrec"
+version = "0.1.0"
+description = "Minimal training project for Dutch NAO command recognition"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "Proprietary"}
+authors = [
+  {name = "ugh"}
+]
+dependencies = [
+  "joblib>=1.2",
+  "numpy>=1.22",
+  "scikit-learn>=1.2",
+]
+
+[project.optional-dependencies]
+extras = [
+  "datasets>=2.14",
+]
+
+test = [
+  "pytest>=7.4",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
