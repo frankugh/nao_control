@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
 
+from cmdrec.resolvers import load_dance_catalog, resolve_dance
 from cmdrec.rules import stop_rules
 
 
@@ -34,13 +36,41 @@ def decide(proba: np.ndarray, labels: list[str], threshold: float, margin: float
     return labels[top_idx]
 
 
+def find_latest_bundle(root: Path) -> Path | None:
+    candidates = [path for path in root.glob("bundle_v*") if path.is_dir()]
+    if not candidates:
+        return None
+    versioned: list[tuple[int, Path]] = []
+    fallback: list[Path] = []
+    for path in candidates:
+        match = re.match(r"bundle_v(\d+)$", path.name)
+        if match:
+            versioned.append((int(match.group(1)), path))
+        else:
+            fallback.append(path)
+    if versioned:
+        versioned.sort(key=lambda item: item[0], reverse=True)
+        return versioned[0][1]
+    fallback.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return fallback[0]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Predict command label.")
     parser.add_argument("text", help="Input text")
     parser.add_argument("--json", action="store_true", help="Print JSON output")
     args = parser.parse_args()
 
-    bundle_path = Path(os.environ.get("CMDREC_BUNDLE", "dist/bundle_v1"))
+    bundle_env = os.environ.get("CMDREC_BUNDLE")
+    if bundle_env:
+        bundle_path = Path(bundle_env)
+    else:
+        default_path = Path("dist/bundle_v1")
+        bundle_path = default_path
+        if not (bundle_path / "model.joblib").exists():
+            latest = find_latest_bundle(Path("dist"))
+            if latest is not None:
+                bundle_path = latest
     model, decision_policy, labels = load_bundle(bundle_path)
 
     proba = model.predict_proba([args.text])[0]
@@ -51,6 +81,15 @@ def main() -> None:
     ml_decision = decide(proba, labels, threshold, margin)
     final_decision = "STOP" if stop_rules(args.text) else ml_decision
 
+    resolved_dance = None
+    if final_decision == "DANCE":
+        catalog_path = bundle_path / "dance_catalog.json"
+        if not catalog_path.exists():
+            catalog_path = Path("data/dance_catalog.json")
+        if catalog_path.exists():
+            dance_catalog = load_dance_catalog(catalog_path)
+            resolved_dance = resolve_dance(args.text, dance_catalog)
+
     output = {
         "text": args.text,
         "top3": top3,
@@ -59,6 +98,7 @@ def main() -> None:
         "threshold": threshold,
         "margin": margin,
         "stop_rule_fired": stop_rules(args.text),
+        "resolved_dance": resolved_dance,
     }
 
     if args.json:
@@ -70,6 +110,8 @@ def main() -> None:
         print(f"- {item['label']}: {item['score']:.3f}")
     print(f"ML decision: {ml_decision}")
     print(f"Final decision: {final_decision}")
+    if resolved_dance is not None:
+        print(f"Resolved dance: {resolved_dance}")
 
 
 if __name__ == "__main__":

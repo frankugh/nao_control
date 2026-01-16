@@ -1,0 +1,402 @@
+Hoi
+Hallo
+Goedemorgen
+Goedenavond
+Ben je daar?
+Luister je?
+Hoor je me?
+Kun je me verstaan?
+Is je microfoon aan?
+Werkt je geluid?
+Kun je wat harder praten?
+Kun je wat zachter praten?
+Kun je jezelf voorstellen?
+Hoe heet jij?
+Hoe heet jij ook alweer?
+Wat kun jij allemaal?
+Wat doe je precies?
+Waar ben je voor gemaakt?
+Wie heeft jou gemaakt?
+Ben jij een robot?
+Ben jij een NAO?
+Hoe oud ben je?
+Hoeveel kan je onthouden?
+Kun je Nederlands praten?
+Kun je ook Engels?
+Wat is jouw favoriete kleur?
+Wat is jouw lievelingsliedje?
+Wat vind jij leuk om te doen?
+Wat doe jij graag?
+Vind je het leuk hier?
+Heb je een naam?
+Waarom heet je zo?
+Kun je me helpen?
+Kun je me iets uitleggen?
+Kun je een vraag beantwoorden?
+Mag ik je iets vragen?
+Ik ben Frank
+Ik heet Frank
+Ik ben vandaag moe
+Ik ben blij vandaag
+Ik ben een beetje zenuwachtig
+Ik heb er zin in
+Ik ben benieuwd wat je kan
+Dit is grappig
+Dat is leuk
+Dat is vreemd
+Dat snap ik niet
+Kun je dat herhalen?
+Kun je dat nog een keer zeggen?
+Kun je langzamer praten?
+Kun je sneller praten?
+Kun je even wachten?
+Wacht even alsjeblieft
+Ik ben zo terug
+Ik pak even iets
+Ik moet even iets pakken
+Ik zet iets klaar
+Ik ben even bezig
+Kijk eens hier
+Zie je dit?
+Kun je dit zien?
+Kun je mij zien?
+Kun je mijn hand zien?
+Kun je mijn gezicht zien?
+Kun je mijn stem herkennen?
+Ken je mijn naam?
+Kun je mijn naam onthouden?
+Ik wil iets testen
+We gaan even testen
+Ik probeer iets uit
+Dit is een proefje
+We doen een test
+Werkt dit goed?
+Gaat het goed met je?
+Hoe gaat het met je?
+Hoe voel jij je?
+Ben je oké?
+Ben je nog wakker?
+Ben je aan het slapen?
+Ben je in slaapstand?
+Kun je in slaapstand?
+Hoe word je wakker?
+Moet ik je aanraken om je wakker te maken?
+Reageer je op je naam?
+Wanneer luister je wel en wanneer niet?
+Luister je altijd mee?
+Luister je nu mee?
+Kun je stoppen met luisteren?
+Kun je alleen luisteren als ik je naam zeg?
+Kun je alleen luisteren als ik je aanraak?
+Kun je luisteren zonder te praten?
+Kun je stil zijn?
+Kun je even niets doen?
+Kun je even rustig blijven?
+Kun je kalm blijven?
+Kun je jezelf resetten?
+Wat doe ik als je vastloopt?
+Wat doe ik als je blijft hangen?
+Wat doe ik als je niet reageert?
+Waarom reageer je niet?
+Waarom duurde dat zo lang?
+Ik denk dat er iets mis is
+Het lijkt alsof je vastzit
+Je scherm doet raar
+Je praat niet terug
+Je hebt net iets anders gedaan dan ik bedoelde
+Ik zei net iets anders
+Volgens mij begreep je me verkeerd
+Ik sprak te zacht denk ik
+Ik sprak te snel denk ik
+Kun je mijn accent verstaan?
+Kun je omgaan met dialect?
+Kun je omgaan met straattaal?
+Kun je omgaan met typefouten?
+Kun je omgaan met versprekingen?
+Wat betekent “high five” eigenlijk voor jou?
+Begrijp je “high five” altijd?
+Als ik “box” zeg, wat doe je dan?
+Begrijp je “boks” hetzelfde als “box”?
+Wat doe je als ik “tik hem aan” zeg?
+Wat doe je als ik “stop” zeg?
+Wat doe je als ik “ho” zeg?
+Wat doe je als ik “halt” zeg?
+Wat doe je als ik “pauze” zeg?
+Kun je ook stoppen met lopen als ik stop zeg?
+Hoe weet je wanneer je moet stoppen?
+Wat doe je als ik “links” zeg?
+Wat doe je als ik “rechts” zeg?
+Wat doe je als ik “draai links” zeg?
+Wat doe je als ik “draai rechts” zeg?
+Wat doe je als ik “achteruit” zeg?
+Wat doe je als ik “vooruit” zeg?
+Wat doe je als ik “loopmodus” zeg?
+Wat betekent “loopmodus” voor jou?
+Kun je uitleggen wat je onder loopmodus verstaat?
+Kun je lopen zonder om te vallen?
+Kun je je balans houden?
+Heb je moeite met draaien?
+Waarom wiebel je soms?
+Kun je één stap doen?
+Kun je kleine stapjes doen?
+Kun je voorzichtig bewegen?
+Kun je langzaam bewegen?
+Kun je sneller bewegen?
+Wat doe je als je struikelt?
+Wat doe je als je iets raakt?
+Kun je obstakels zien?
+Kun je langs mij heen lopen?
+Kun je om mij heen lopen?
+Hoe weet je waar ik ben?
+Kun je mij volgen zonder te praten?
+Kun je mijn hand vasthouden?
+Kun je mijn hand herkennen?
+Kun je een handdruk herkennen?
+Kun je een vuist herkennen?
+Zie je mijn vuist?
+Zie je mijn hand omhoog?
+Als ik mijn hand omhoog houd, wat doe je dan?
+Als ik naar je zwaai, wat doe je dan?
+Als ik naar je zwaai, zwaai je dan terug?
+Kun je ook zwaaien zonder dat ik het vraag?
+Kun je ook dansen?
+Welke dansjes ken je?
+Hoeveel dansjes heb je?
+Wat is je favoriete dans?
+Kun je een liedje zingen?
+Kun je muziek maken?
+Kun je klappen op de maat?
+Kun je een ritme voelen?
+Kun je een verhaal vertellen?
+Kun je een quiz doen?
+Kun je vragen stellen?
+Kun je een gesprek voeren?
+Kun je open dialoog voeren?
+Kun je ook gewoon praten zonder commando’s?
+Hoe kies je tussen praten en doen?
+Hoe weet je dat iets een commando is?
+Hoe weet je dat iets geen commando is?
+Kun je twijfel herkennen?
+Kun je aangeven als je het niet zeker weet?
+Kun je zeggen wanneer je het niet begrijpt?
+Kun je vragen om verduidelijking?
+Kun je vragen wat ik bedoel?
+Kun je een voorbeeld geven?
+Kun je me helpen leren hoe ik je moet aanspreken?
+Wat is de beste manier om jou iets te vragen?
+Moet ik korte zinnen gebruiken?
+Moet ik duidelijke woorden gebruiken?
+Moet ik je naam eerst zeggen?
+Moet ik eerst op je hoofd tikken?
+Moet ik dicht bij je staan?
+Moet ik langzaam praten?
+Moet ik harder praten?
+Kun je achtergrondgeluid aan?
+Kun je omgaan met muziek op de achtergrond?
+Kun je omgaan met meerdere mensen?
+Kun je onderscheid maken tussen stemmen?
+Kun je herkennen wie er praat?
+Kun je herkennen of ik boos ben?
+Kun je herkennen of ik blij ben?
+Kun je emoties herkennen?
+Kun je empathisch reageren?
+Kun je grapjes maken?
+Kun je sarcasme begrijpen?
+Kun je mijn humor aan?
+Kun je lachen?
+Kun je knipperen met je ogen?
+Kun je je hoofd draaien?
+Kun je me aankijken?
+Kun je naar links kijken?
+Kun je naar rechts kijken?
+Kun je naar boven kijken?
+Kun je naar beneden kijken?
+Kun je je arm bewegen?
+Kun je je hand opsteken?
+Kun je op commando’s reageren zonder te praten?
+Kun je praten terwijl je beweegt?
+Praat je wel eens door jezelf?
+Waarom praat je soms tegen jezelf?
+Kun je stoppen met praten terwijl je beweegt?
+Kun je stil zijn tijdens een dansje?
+Kun je stil zijn tijdens het lopen?
+Kun je na een actie weer terug naar luisteren?
+Kun je na een actie weer naar slaapstand?
+Kun je na een actie weer wachten op mijn naam?
+Kun je even wachten op bevestiging?
+Kun je iets pas doen na een tik?
+Kun je iets weigeren als het onveilig is?
+Kun je uitleggen waarom je iets niet doet?
+Kun je mij waarschuwen als iets gevaarlijk is?
+Kun je me zeggen wat je gaat doen?
+Kun je vooraf aankondigen wat je doet?
+Kun je achteraf vertellen wat je deed?
+Kun je loggen wat ik zei?
+Kun je onthouden wat ik zojuist zei?
+Kun je samenvatten wat er net gebeurde?
+Kun je zeggen wat je verstaan hebt?
+Kun je herhalen wat je hoorde?
+Kun je aangeven als je me niet goed verstaat?
+Kun je zeggen dat je twijfelt?
+Kun je vragen om het opnieuw te zeggen?
+Kun je een alternatief voorstellen?
+Kun je een voorbeeldzin geven die jij goed begrijpt?
+kan die zwaaien
+begrijpt hij het als ik hem zeg te zwaaien
+zou leuk zijn als hij zomaar ging zwaaien
+he, ik zwaai naar je
+Kun je me wat vertellen over jezelf?
+Wat kun je allemaal?
+Hoe werkt jouw spraakherkenning?
+Kun je me uitleggen wat je net deed?
+Waarom reageer je soms niet?
+Kun je herhalen wat je hoorde?
+Wat bedoel je precies?
+Kun je me helpen met een vraag?
+Hoe kan ik je het beste aanspreken?
+Ben je er nog?
+Luister je nog?
+Kun je wat zachter praten?
+Kun je wat harder praten?
+Wat is je favoriete dans?
+Welke dansjes ken je?
+Wat gebeurt er als ik 'stop' zeg?
+Wat bedoel je met loopmodus?
+Kun je ook zonder commando praten?
+Ik weet even niet wat ik moet zeggen.
+Ik ben een beetje zenuwachtig.
+Ik vind dit eigenlijk best spannend.
+Ik ben benieuwd hoe dit gaat.
+Ik vind het grappig dat je zo klein bent.
+Oké, ik snap het volgens mij.
+Wacht, ik bedoelde dat anders.
+Nee, laat maar.
+Oké, prima.
+Haha, oké dan.
+Oei, dat ging bijna mis.
+Ik schrok een beetje.
+Rustig maar.
+Het gaat goed hoor.
+Ik ben er weer.
+Ik ben even aan het kijken.
+Ik probeer het nog een keer.
+Dat was niet wat ik bedoelde.
+Dat ging niet helemaal lekker.
+Ik ben een beetje in de war.
+Ik zei net “stop”, maar ik bedoelde het niet als commando.
+Ik zei “stop” tegen mezelf, niet tegen jou.
+Stop is een raar woord eigenlijk.
+Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.
+Ik vind het woord “stop” grappig.
+Je reageert snel op het woord stop.
+Ik wil niet dat je stopt, ik praat gewoon.
+Het was meer “ho”, als uitdrukking, niet als commando.
+Ho, dat klinkt ouderwets.
+Als ik “halt” zeg, klinkt dat wel streng.
+Ik zei “sta stil” omdat ik zelf stil stond.
+Ik bedoelde “blijf staan” als grapje.
+Ik zei “pauze” omdat ik zelf pauze heb.
+Ik ben even in pauze-modus.
+Ik wacht even, ik denk na.
+Ik ben aan het wachten op iemand.
+Ik ben zo terug, ik ben even weg.
+Ik ben even bezig, moment.
+Ik heb het over links en rechts, niet over lopen.
+Links is voor mij altijd lastig.
+Ik haal links en rechts altijd door elkaar.
+Rechts is waar mijn horloge zit.
+Ik ging net naar links, maar dat was per ongeluk.
+Ik bedoelde links in het verhaal, niet in de ruimte.
+Ik heb het over rechts in de tekst, niet over jou.
+Ik zei “draai”, maar ik bedoelde het in mijn hoofd.
+Ik moet even schakelen.
+Mijn hoofd draait overuren vandaag.
+Ik voel me een beetje draaierig.
+Ik word duizelig als ik snel draai.
+Ik vind draaien er grappig uitzien.
+Ik vind lopen bij jou een beetje wiebelig.
+Ik zag je net lopen en ik schrok.
+Lopen lijkt me best moeilijk voor jou.
+Ik denk dat lopen best energie kost.
+Ik heb zelf net een stukje gelopen.
+Ik ben net terug van een wandeling.
+Ik heb vandaag veel gelopen.
+Ik hou van dansen, maar ik ga nu niet dansen hoor.
+Ik vind dansjes altijd grappig om te zien.
+Gangnam style blijft toch leuk.
+Ik heb gisteren nog Gangnam style gehoord.
+Ik ken de dab van vroeger.
+Die robotdans is wel een klassieker.
+Ik vraag me af hoe jij een robotdans doet.
+Taichi ziet er altijd rustig uit.
+Ik vind “lang zal hij leven” een leuk liedje.
+Die stoomboot is echt Sinterklaas voor mij.
+Ik moest aan de stoomboot denken door het weer.
+Ik krijg meteen dat liedje in mijn hoofd.
+Ik ben nu die melodie aan het neuriën.
+Ik ben niet echt in een feeststemming vandaag.
+Ik ben meer in een rustige bui.
+Ik heb vroeger wel eens gebokst op training.
+Boxen lijkt me zwaar.
+Ik vind boksen er stoer uitzien.
+Ik heb geen zin om te boksen nu.
+Ik wil niet dat je me slaat, hoor.
+Dat “box” klinkt agressiever dan ik bedoel.
+Ik bedoelde box als in “denk buiten de box”.
+Ik zei “high five” tegen iemand anders.
+High five is altijd een beetje ongemakkelijk.
+Ik zie mensen vaak mis slaan bij een high five.
+Ik vind een fistbump meestal makkelijker.
+Ik heb mijn hand al vol, sorry.
+Mijn hand doet pijn vandaag.
+Ik heb koude handen.
+Ik heb net mijn hand gewassen.
+Ik ben een beetje bang dat ik je omstoot.
+Ik wil je niet per ongeluk aanraken.
+Ik vind zwaaien altijd zo’n schattig gebaar.
+Ik zwaaide net naar iemand achter je.
+Ik zeg vaak “zwaai” als ik afscheid neem.
+Ik ben eigenlijk niet zo’n zwaaier.
+Ik vind het awkward om naar een robot te zwaaien.
+Ik ga straks weer weg, dus dan zwaai ik wel.
+Ik ben vandaag niet zo sociaal.
+Ik ben vandaag juist extra sociaal.
+Ik vind het leuk dat je reageert op stem.
+Ik praat soms door elkaar als ik enthousiast ben.
+Ik praat soms heel zacht.
+Ik ben een beetje hees.
+Ik heb een droge keel.
+Ik moet even hoesten.
+Alex, ik praat tegen jou, maar niet als commando.
+René, ik test gewoon even je microfoon.
+NAO, ik probeer je spraakherkenning te snappen.
+Ik weet niet of je mij wel goed verstaat.
+Volgens mij verstond je me net verkeerd.
+Ik praat te snel, denk ik.
+Ik zal langzamer praten.
+Ik ga wat duidelijker articuleren.
+Ik ga het eenvoudiger zeggen.
+Ik ben benieuwd hoe vaak je fouten maakt.
+Ik ben benieuwd of je “loop” vaak fout begrijpt.
+Ik ben benieuwd of je “stop” vaak te snel pakt.
+Ik wil liever gewoon even kletsen.
+Ik ben vooral aan het experimenteren.
+Ik ben aan het testen wat jij doet.
+Oké, dat was een misser.
+Dat was niet de bedoeling.
+Dat is niet wat ik vroeg.
+Dat is niet wat ik zei.
+Dat is wel grappig eigenlijk.
+Dat is best knap.
+Dat is best schattig.
+Dat is een beetje vreemd.
+Dat is verrassend.
+Dat is beter.
+Dat is slechter.
+Dat was sneller dan ik dacht.
+Dat was langzamer dan ik dacht.
+Ik weet het nog niet.
+Ik twijfel nog.
+Ik denk dat dit werkt.
+Ik denk dat dit niet werkt.
+Ik moet het nog eens proberen.

@@ -38,6 +38,7 @@ _nao_tmp_uploads/
 build/
 dist/
 *.egg-info/
+review/
 
 # === Example/output files ===
 example_audio/*.raw

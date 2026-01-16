@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Minimal training project for Dutch NAO command recognition"
 requires-python = ">=3.10"
 readme = "README.md"
-license = {text = "Proprietary"}
+license = {text = "MIT"}
 authors = [
   {name = "ugh"}
 ]
