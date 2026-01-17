@@ -1,4 +1,8 @@
 {
+  "behavior_backend": "print",
+  "debug_cmdrec": true,
+  "cmdrec": "latest",
+  "cmdrec_bundles_dir": "dist",
   "input": {
     "type": "audio",
     "mic": {

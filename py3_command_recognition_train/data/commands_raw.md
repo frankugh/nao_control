@@ -564,6 +564,48 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - doe taichi
 - dans yeah yeah
 - doe yeahyeah
+## DANCE
+- NAO, speel jij lang zal hij leven af? dan kunnen we samen dansen
+- speel lang zal hij leven af en dans mee
+- kun je lang zal hij leven doen
+- doe lang zal hij leven
+- zet lang zal hij leven aan en dans
+- wil je lang zal hij leven dansen
+- kun je lang zal hij leven dansen
+- start lang zal hij leven
+- begin lang zal hij leven
+- doe het dansje lang zal hij leven
+- doe het liedje lang zal hij leven
+- speel het liedje lang zal hij leven en dans
+- zet dat liedje lang zal hij leven op en dans
+- speel zie ginds komt de stoomboot af en dans
+- doe zie ginds komt de stoomboot
+- zet zie ginds komt de stoomboot aan
+- speel gangnam style af en doe het dansje
+- doe gangnam style
+- zet gangnam style op en dans
+- speel happy af en dans
+- doe happy
+- speel taichi af
+- doe taichi
+- zet de robotdans aan
+- speel de robotdans af
+- doe de robotdans
+- doe ateam
+- zet ateam op en dans
+- speel ateam af
+- doe dab
+- zet dab aan en dans
+- speel dab af
+- doe yeahyeah
+- zet yeahyeah op en dans
+- speel yeahyeah af
+- doe bebold
+- zet bebold aan
+- speel bebold af
+- doe in the stone
+- zet in the stone op en dans
+- speel in the stone af
 
 ### Sinterklaas / stoomboot
 

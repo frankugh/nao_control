@@ -40,6 +40,13 @@ Top-level keys:
     "log_dir": "logs",
     "log_messages_path": "logs/whatever.jsonl"
   },
+  "cmdrec": "none" | "latest" | "v<nummer>",
+  "cmdrec_bundles_dir": "dist",
+  "confirm_method": "none" | "head" | "enter" | "popup",
+  "confirm_timeout_s": float,
+  "guarded_labels": ["DANCE", "LOCOMOTION_REQUEST", "WALK_WITH_ME", "BOX", "HIGH_FIVE"],
+  "debug_cmdrec": bool,
+  "behavior_backend": "nao" | "print",
   "input": {
     "type": "console" | "audio",
     "params": { ... },

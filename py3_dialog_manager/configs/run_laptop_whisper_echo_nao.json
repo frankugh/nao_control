@@ -1,4 +1,6 @@
 {
+  "behavior_backend": "print",
+  "debug_cmdrec": true,
   "input": {
     "type": "audio",
     "mic": {

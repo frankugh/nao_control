@@ -7,6 +7,9 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from dialog.pipeline import InputLLMOutputPipeline
+from dialog.interfaces import parse_cmdrec_bundle, parse_confirm_method
+from dialog.command_recognizer import CmdRecRecognizer
+from dialog.behavior_executor import BehaviorExecutor, PrintBehaviorExecutor
 
 # input backends
 from dialog.backends.input_audio import AudioInputBackend
@@ -116,6 +119,67 @@ def _extract_max_history_turns(cfg: JsonLike) -> Optional[int]:
     if not isinstance(v, int):
         raise ValueError("max_history_turns moet een int zijn (of weglaten).")
     return v
+
+
+def _extract_cmdrec_config(cfg: JsonLike) -> JsonLike:
+    cmdrec = parse_cmdrec_bundle(cfg.get("cmdrec", "none"))
+    cmdrec_bundles_dir = cfg.get("cmdrec_bundles_dir", "dist")
+    confirm_method = parse_confirm_method(cfg.get("confirm_method", "none"))
+    confirm_timeout_s = cfg.get("confirm_timeout_s", 6.0)
+    guarded_labels = cfg.get(
+        "guarded_labels",
+        ["DANCE", "LOCOMOTION_REQUEST", "WALK_WITH_ME", "BOX", "HIGH_FIVE"],
+    )
+    debug_cmdrec = cfg.get("debug_cmdrec", False)
+    behavior_backend = cfg.get("behavior_backend", "nao")
+    guarded_labels_override = cfg.get("guarded_labels_override", None)
+    unguarded_labels_override = cfg.get("unguarded_labels_override", None)
+
+    if not isinstance(cmdrec_bundles_dir, str):
+        raise ValueError("cmdrec_bundles_dir moet een string zijn.")
+    if not isinstance(confirm_timeout_s, (int, float)):
+        raise ValueError("confirm_timeout_s moet een float zijn.")
+    if not isinstance(guarded_labels, list) or not all(isinstance(v, str) for v in guarded_labels):
+        raise ValueError("guarded_labels moet een lijst van strings zijn.")
+    if not isinstance(debug_cmdrec, bool):
+        raise ValueError("debug_cmdrec moet een boolean zijn.")
+    if guarded_labels_override is not None:
+        if not isinstance(guarded_labels_override, list) or not all(
+            isinstance(v, str) for v in guarded_labels_override
+        ):
+            raise ValueError("guarded_labels_override moet een lijst van strings zijn.")
+    if unguarded_labels_override is not None:
+        if not isinstance(unguarded_labels_override, list) or not all(
+            isinstance(v, str) for v in unguarded_labels_override
+        ):
+            raise ValueError("unguarded_labels_override moet een lijst van strings zijn.")
+    if not isinstance(behavior_backend, str):
+        raise ValueError("behavior_backend moet een string zijn.")
+    behavior_backend = behavior_backend.strip().lower()
+    if behavior_backend not in ("nao", "print"):
+        raise ValueError("behavior_backend moet 'nao' of 'print' zijn.")
+
+    run_cfg = cfg.get("run", {}) or {}
+    web_ui_enabled = run_cfg.get("web_ui_enabled", None)
+    if confirm_method == "popup":
+        if web_ui_enabled is False:
+            raise ValueError(
+                "confirm_method 'popup' vereist web UI; zet run.web_ui_enabled=true "
+                "of kies een andere confirm_method."
+            )
+        # TODO: koppel popup-confirm aan web UI en check de daadwerkelijke enablement.
+
+    return {
+        "cmdrec": cmdrec,
+        "cmdrec_bundles_dir": cmdrec_bundles_dir,
+        "confirm_method": confirm_method,
+        "confirm_timeout_s": float(confirm_timeout_s),
+        "guarded_labels": guarded_labels,
+        "debug_cmdrec": debug_cmdrec,
+        "behavior_backend": behavior_backend,
+        "guarded_labels_override": guarded_labels_override,
+        "unguarded_labels_override": unguarded_labels_override,
+    }
 
 
 def _make_mic(mic_cfg: JsonLike):
@@ -246,6 +310,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
 
     system_prompt = _extract_system_prompt(cfg, config_path=config_path)
     max_history_turns = _extract_max_history_turns(cfg)
+    cmdrec_cfg = _extract_cmdrec_config(cfg)
 
     input_backend = _make_input(cfg)
     llm = _make_llm(cfg)
@@ -262,6 +327,15 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         "max_history_turns": max_history_turns,
     }
 
+    cmdrec_recognizer = None
+    behavior_executor = None
+    if cmdrec_cfg["cmdrec"] != "none":
+        cmdrec_recognizer = CmdRecRecognizer(cmdrec_cfg)
+        if cmdrec_cfg["behavior_backend"] == "print":
+            behavior_executor = PrintBehaviorExecutor()
+        else:
+            behavior_executor = BehaviorExecutor()
+
     return InputLLMOutputPipeline(
         input_backend=input_backend,
         llm=llm,
@@ -271,6 +345,9 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         log_messages_path=log_messages_path if log_messages else None,
         log_meta=log_meta,
         max_history_turns=max_history_turns,
+        cmdrec_recognizer=cmdrec_recognizer,
+        behavior_executor=behavior_executor,
+        debug_cmdrec=cmdrec_cfg["debug_cmdrec"],
     )
 
 

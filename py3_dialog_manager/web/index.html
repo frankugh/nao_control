@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NAO dialog test (intranet)</title>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; min-height: 100vh; }
       h2 { margin: 0 0 10px 0; }
 
-      .layout { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 14px; }
+      .layout { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 14px; min-height: calc(100vh - 90px); }
       @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+      @media (max-width: 900px) { .chatcard { height: calc(100vh - 140px); } }
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       button { padding: 10px 14px; font-size: 16px; }
@@ -19,15 +20,18 @@
       .status { margin-top: 8px; font-size: 14px; white-space: pre-wrap; }
 
       .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+      .chatcard { display: flex; flex-direction: column; height: calc(100vh - 130px); }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
 
-      .chat { height: 360px; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 10px; }
+      .chat { flex: 1; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 10px; }
+      .composer { margin-top: 10px; }
       .msg { margin: 8px 0; display: flex; }
       .msg.user { justify-content: flex-end; }
       .bubble { max-width: 75%; padding: 8px 10px; border-radius: 12px; border: 1px solid #e6e6e6; background: white; white-space: pre-wrap; }
       .user .bubble { background: #f1f7ff; border-color: #d8e8ff; }
       .role { font-size: 12px; color: #666; margin-bottom: 3px; }
       .bubblewrap { display: flex; flex-direction: column; }
+      .debug { margin-top: 6px; font-size: 12px; color: #333; background: #f4f4f4; border: 1px dashed #cfcfcf; padding: 6px 8px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
       .prompt { height: 520px; overflow: auto; background: #0b0b0b; color: #e8e8e8; border-radius: 12px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; white-space: pre-wrap; }
       .muted { color: #aaa; }
@@ -41,20 +45,19 @@
 
     <div class="layout">
       <!-- LEFT: chat + controls -->
-      <div class="card">
-        <div class="row" style="margin-bottom:10px">
-          <button id="btnRec">🎙️ Opnemen</button>
-          <button id="btnSend" disabled>📨 Send</button>
-          <button id="btnReset">🧹 Reset</button>
-          <span id="recState" class="pill">idle</span>
-        </div>
-
-        <div style="margin-top: 10px">
-          <textarea id="txt" placeholder="Transcript komt hier... (je kunt het editen)"></textarea>
-        </div>
-        <div id="status" class="status"></div>
-
+      <div class="card chatcard">
         <div id="chat" class="chat"></div>
+
+        <div class="composer">
+          <textarea id="txt" placeholder="Transcript komt hier... (je kunt het editen)"></textarea>
+          <div class="row" style="margin-top:10px">
+            <button id="btnRec">🎙️ Opnemen</button>
+            <button id="btnSend" disabled>📨 Send</button>
+            <button id="btnReset">🧹 Reset</button>
+            <span id="recState" class="pill">idle</span>
+          </div>
+          <div id="status" class="status"></div>
+        </div>
       </div>
 
       <!-- RIGHT: master prompt -->
@@ -87,8 +90,9 @@
       function setStatus(msg) { statusEl.textContent = msg; }
       function setRecState(s) { recState.textContent = s; }
 
-      function renderHistory(history) {
+      function renderHistory(history, debug) {
         chatEl.innerHTML = '';
+        let lastAssistantWrap = null;
         (history || []).forEach(m => {
           const role = m.role || 'unknown';
           const content = (m.content || '').toString();
@@ -111,7 +115,23 @@
           wrap.appendChild(bubble);
           msg.appendChild(wrap);
           chatEl.appendChild(msg);
+
+          if (role !== 'user') lastAssistantWrap = wrap;
         });
+
+        if (debug && lastAssistantWrap) {
+          const dbg = document.createElement('div');
+          dbg.className = 'debug';
+          const routed = debug.routed_as || 'dialog';
+          const top3 = (debug.top3 || []).map(t => `${t[0]}:${Number(t[1]).toFixed(3)}`).join(', ');
+          if (routed === 'command') {
+            const conf = (debug.confidence != null) ? Number(debug.confidence).toFixed(3) : '';
+            dbg.textContent = `CMD: ${debug.label || 'UNKNOWN'} (${conf}) top3=[${top3}]`;
+          } else {
+            dbg.textContent = `DIALOG: reason=${debug.reason || 'none'} top3=[${top3}]`;
+          }
+          lastAssistantWrap.appendChild(dbg);
+        }
 
         // scroll to bottom
         chatEl.scrollTop = chatEl.scrollHeight;
@@ -266,6 +286,12 @@
       });
 
       txt.addEventListener('input', () => { btnSend.disabled = !txt.value.trim(); });
+      txt.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          btnSend.click();
+        }
+      });
 
       btnSend.addEventListener('click', async () => {
         const text = txt.value.trim();
@@ -282,8 +308,10 @@
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'send failed');
 
-          renderHistory(j.history || []);
+          renderHistory(j.history || [], j.debug || null);
           renderPrompt(j.system_prompt || '');
+          txt.value = '';
+          txt.focus();
           setStatus('✅ Klaar. Je kunt opnieuw opnemen.');
         } catch (e) {
           console.error(e);

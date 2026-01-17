@@ -535,6 +535,23 @@ def main() -> None:
         "constraints": constraints,
         "vectorizer": best.name,
         "vectorizer_config": describe_vectorizer(best.vectorizer),
+        "guard": {
+            "default": True,
+            "unguarded_labels": [
+                "BOX",
+                "HIGH_FIVE",
+                "STOP",
+                "WAVE",
+                "SITDOWN",
+                "STAND_UP",
+                "REST",
+            ],
+            "guarded_labels": [
+                "DANCE",
+                "WALK_WITH_ME",
+                "LOCOMOTION_REQUEST",
+            ],
+        },
     }
     (args.out / "decision_policy.json").write_text(
         json.dumps(decision_policy, ensure_ascii=False, indent=2), encoding="utf-8"

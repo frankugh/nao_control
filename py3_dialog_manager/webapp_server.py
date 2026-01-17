@@ -137,22 +137,27 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             log_messages_path=base_pipeline.log_messages_path,
             log_meta=base_pipeline.log_meta,
             max_history_turns=base_pipeline.max_history_turns,
+            cmdrec_recognizer=getattr(base_pipeline, "_cmdrec", None),
+            behavior_executor=getattr(base_pipeline, "_behavior_executor", None),
+            debug_cmdrec=getattr(base_pipeline, "_debug_cmdrec", False),
         )
 
         turn = pipeline.run_once(history=history)
         reply = (turn.llm.reply or "").strip()
 
         sessions[sid] = _append_turn(history, text, reply)
+        debug = getattr(pipeline, "_last_cmdrec_debug", None)
 
-        resp = jsonify(
-            {
-                "ok": True,
-                "reply": reply,
-                "history": sessions[sid],
-                "system_prompt": _system_prompt(),
-                "emit_used": emit_used,
-            }
-        )
+        payload = {
+            "ok": True,
+            "reply": reply,
+            "history": sessions[sid],
+            "system_prompt": _system_prompt(),
+            "emit_used": emit_used,
+        }
+        if debug:
+            payload["debug"] = debug
+        resp = jsonify(payload)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 

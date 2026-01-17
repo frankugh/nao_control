@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import (
+    Any,
+    Dict,
     List,
     Optional,
     Protocol,
+    Tuple,
     TypedDict,
     Literal,
     runtime_checkable,
@@ -15,6 +18,8 @@ from typing import (
 # ====== Basis types ======
 
 ChatRole = Literal["system", "user", "assistant"]
+CmdRecBundle = Literal["none", "latest"] | str
+ConfirmMethod = Literal["none", "head", "enter", "popup"]
 
 
 class ChatMessage(TypedDict):
@@ -24,6 +29,31 @@ class ChatMessage(TypedDict):
 
 
 History = List[ChatMessage]
+
+
+def parse_cmdrec_bundle(value: Any) -> CmdRecBundle:
+    if value is None:
+        return "none"
+    if not isinstance(value, str):
+        raise ValueError("cmdrec moet een string zijn (none, latest, v<nummer>).")
+    v = value.strip()
+    v_lower = v.lower()
+    if v_lower in ("none", "latest"):
+        return v_lower
+    if v_lower.startswith("v") and v_lower[1:].isdigit():
+        return f"v{int(v_lower[1:])}"
+    raise ValueError("cmdrec moet 'none', 'latest' of 'v<nummer>' zijn.")
+
+
+def parse_confirm_method(value: Any) -> ConfirmMethod:
+    if value is None:
+        return "none"
+    if not isinstance(value, str):
+        raise ValueError("confirm_method moet een string zijn (none/head/enter/popup).")
+    v = value.strip().lower()
+    if v in ("none", "head", "enter", "popup"):
+        return v  # type: ignore[return-value]
+    raise ValueError("confirm_method moet 'none', 'head', 'enter' of 'popup' zijn.")
 
 
 @dataclass
@@ -159,4 +189,46 @@ class DialogPipeline(Protocol):
     """Input → LLM → Output (history komt van buiten)."""
 
     def run_once(self, history: Optional[History] = None) -> DialogTurn:
+        ...
+
+
+@dataclass
+class CommandDecision:
+    label: str
+    confidence: float
+    raw_text: str
+    resolved: Optional[Dict[str, str]] = None
+
+
+@dataclass
+class RouteDecision:
+    is_command: bool
+    command: Optional[CommandDecision] = None
+    reason: Optional[str] = None
+    top3: Optional[List[Tuple[str, float]]] = None
+
+
+@dataclass
+class ConfirmRequest:
+    prompt: str
+    method: ConfirmMethod
+    timeout_s: float
+    command: CommandDecision
+
+
+@runtime_checkable
+class ICommandRecognizer(Protocol):
+    def route(self, text: str, mode: str, active_behavior: str | None) -> RouteDecision:
+        ...
+
+
+@runtime_checkable
+class IConfirmer(Protocol):
+    def confirm(self, req: ConfirmRequest) -> bool:
+        ...
+
+
+@runtime_checkable
+class ICommandExecutor(Protocol):
+    def execute(self, cmd: CommandDecision) -> None:
         ...

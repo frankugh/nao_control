@@ -1,0 +1,491 @@
+{"text": "boks", "label": "BOX"}
+{"text": "box", "label": "BOX"}
+{"text": "geef me een boks", "label": "BOX"}
+{"text": "doe een boks", "label": "BOX"}
+{"text": "kunnen we een boks doen", "label": "BOX"}
+{"text": "kun je boks doen", "label": "BOX"}
+{"text": "doe een boks met me", "label": "BOX"}
+{"text": "boks met mij", "label": "BOX"}
+{"text": "kom, boks", "label": "BOX"}
+{"text": "even boks", "label": "BOX"}
+{"text": "boks eens", "label": "BOX"}
+{"text": "boks alsjeblieft", "label": "BOX"}
+{"text": "mag ik een boks", "label": "BOX"}
+{"text": "begroet me met een box", "label": "BOX"}
+{"text": "Alex, boks", "label": "BOX"}
+{"text": "René, boks", "label": "BOX"}
+{"text": "hé robot, boks", "label": "BOX"}
+{"text": "NAO, boks", "label": "BOX"}
+{"text": "tik hem aan", "label": "BOX"}
+{"text": "tik hem aan vriend", "label": "BOX"}
+{"text": "tik mijn vuist aan", "label": "BOX"}
+{"text": "raak mijn vuist aan", "label": "BOX"}
+{"text": "tik m'n vuist", "label": "BOX"}
+{"text": "boks, tik 'm aan", "label": "BOX"}
+{"text": "Jo, box", "label": "BOX"}
+{"text": "he, box man", "label": "BOX"}
+{"text": "laten we een box doen", "label": "BOX"}
+{"text": "ik wil een box doen", "label": "BOX"}
+{"text": "Nu een boks", "label": "BOX"}
+{"text": "ik wil nu een box", "label": "BOX"}
+{"text": "high five", "label": "HIGH\\_FIVE"}
+{"text": "doe een high five", "label": "HIGH\\_FIVE"}
+{"text": "geef me een high five", "label": "HIGH\\_FIVE"}
+{"text": "kun je een high five geven", "label": "HIGH\\_FIVE"}
+{"text": "sla mijn hand", "label": "HIGH\\_FIVE"}
+{"text": "tik mijn hand aan", "label": "HIGH\\_FIVE"}
+{"text": "geef me een vijf", "label": "HIGH\\_FIVE"}
+{"text": "geef me een vijfje", "label": "HIGH\\_FIVE"}
+{"text": "nu een high five", "label": "HIGH\\_FIVE"}
+{"text": "ik wil een high five", "label": "HIGH\\_FIVE"}
+{"text": "kom op, high five", "label": "HIGH\\_FIVE"}
+{"text": "high five dan", "label": "HIGH\\_FIVE"}
+{"text": "Alex, high five", "label": "HIGH\\_FIVE"}
+{"text": "René, high five", "label": "HIGH\\_FIVE"}
+{"text": "hé robot, high five", "label": "HIGH\\_FIVE"}
+{"text": "NAO, high five", "label": "HIGH\\_FIVE"}
+{"text": "Ik wil nu een high five", "label": "HIGH\\_FIVE"}
+{"text": "mag ik een high five", "label": "HIGH\\_FIVE"}
+{"text": "oh, high five", "label": "HIGH\\_FIVE"}
+{"text": "zwaai", "label": "WAVE"}
+{"text": "zwaai naar me", "label": "WAVE"}
+{"text": "kun je zwaaien", "label": "WAVE"}
+{"text": "zwaai even", "label": "WAVE"}
+{"text": "zwaai eens", "label": "WAVE"}
+{"text": "wuif", "label": "WAVE"}
+{"text": "doe eens zwaaien", "label": "WAVE"}
+{"text": "zwaai hallo", "label": "WAVE"}
+{"text": "zwaai gedag", "label": "WAVE"}
+{"text": "zeg even hallo", "label": "WAVE"}
+{"text": "doe een zwaai", "label": "WAVE"}
+{"text": "zwaai naar het publiek", "label": "WAVE"}
+{"text": "Alex, zwaai", "label": "WAVE"}
+{"text": "René, zwaai even", "label": "WAVE"}
+{"text": "hé robot, zwaai", "label": "WAVE"}
+{"text": "zwaai eens terug", "label": "WAVE"}
+{"text": "zwaai naar mij", "label": "WAVE"}
+{"text": "zwaai naar me toe", "label": "WAVE"}
+{"text": "zwaai even naar mij", "label": "WAVE"}
+{"text": "zwaai eens naar mij", "label": "WAVE"}
+{"text": "wuif even", "label": "WAVE"}
+{"text": "doe even gedag", "label": "WAVE"}
+{"text": "doe gedag", "label": "WAVE"}
+{"text": "zwaai gedag naar me", "label": "WAVE"}
+{"text": "zwaai hallo naar me", "label": "WAVE"}
+{"text": "zwaai als begroeting", "label": "WAVE"}
+{"text": "zeg hallo met je hand", "label": "WAVE"}
+{"text": "zwaai vriendelijk", "label": "WAVE"}
+{"text": "Alex, zwaai even", "label": "WAVE"}
+{"text": "NAO, zwaai even", "label": "WAVE"}
+{"text": "zwaai naar iedereen", "label": "WAVE"}
+{"text": "zwaai naar ons", "label": "WAVE"}
+{"text": "groet met je hand", "label": "WAVE"}
+{"text": "maak een zwaai", "label": "WAVE"}
+{"text": "loop met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "loop met mij mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "wil je met me meelopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom met me mee lopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "laten we samen lopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "ik wil samen lopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom, laten we lopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom, laten we samen lopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "volg mij", "label": "WALK\\_WITH\\_ME"}
+{"text": "volg me", "label": "WALK\\_WITH\\_ME"}
+{"text": "pak mijn hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "pak m'n hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "pak mijn hand vast", "label": "WALK\\_WITH\\_ME"}
+{"text": "houd mijn hand vast", "label": "WALK\\_WITH\\_ME"}
+{"text": "loop samen met me", "label": "WALK\\_WITH\\_ME"}
+{"text": "wandel met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "Alex, loop met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "René, loop met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "hé robot, loop met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "pak mn hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "pak even mijn hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "hou mijn hand vast", "label": "WALK\\_WITH\\_ME"}
+{"text": "houd m'n hand vast", "label": "WALK\\_WITH\\_ME"}
+{"text": "hou m'n hand vast", "label": "WALK\\_WITH\\_ME"}
+{"text": "geef me je hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "geef mij je hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom, pak mijn hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom, geef me je hand", "label": "WALK\\_WITH\\_ME"}
+{"text": "kun je met me meelopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom, loop met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "blijf bij me en loop mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "volg me terwijl ik je hand vasthoud", "label": "WALK\\_WITH\\_ME"}
+{"text": "kom meelopen", "label": "WALK\\_WITH\\_ME"}
+{"text": "ga met me mee", "label": "WALK\\_WITH\\_ME"}
+{"text": "loopmodus", "label": "WALK\\_FORWARD"}
+{"text": "start loopmodus", "label": "WALK\\_FORWARD"}
+{"text": "ga naar loopmodus", "label": "WALK\\_FORWARD"}
+{"text": "zet loopmodus aan", "label": "WALK\\_FORWARD"}
+{"text": "begin loopmodus", "label": "WALK\\_FORWARD"}
+{"text": "activeer loopmodus", "label": "WALK\\_FORWARD"}
+{"text": "we gaan lopen", "label": "WALK\\_FORWARD"}
+{"text": "kom, we gaan lopen", "label": "WALK\\_FORWARD"}
+{"text": "ga lopen", "label": "WALK\\_FORWARD"}
+{"text": "begin met lopen", "label": "WALK\\_FORWARD"}
+{"text": "start met lopen", "label": "WALK\\_FORWARD"}
+{"text": "begin te lopen", "label": "WALK\\_FORWARD"}
+{"text": "loop zelfstandig", "label": "WALK\\_FORWARD"}
+{"text": "loop alleen", "label": "WALK\\_FORWARD"}
+{"text": "vooruit", "label": "WALK\\_FORWARD"}
+{"text": "loop naar voren", "label": "WALK\\_FORWARD"}
+{"text": "ga naar voren", "label": "WALK\\_FORWARD"}
+{"text": "loop vooruit", "label": "WALK\\_FORWARD"}
+{"text": "begin naar voren te lopen", "label": "WALK\\_FORWARD"}
+{"text": "begin te lopen naar voren", "label": "WALK\\_FORWARD"}
+{"text": "een stukje vooruit", "label": "WALK\\_FORWARD"}
+{"text": "ga een stukje vooruit", "label": "WALK\\_FORWARD"}
+{"text": "Alex, ga lopen", "label": "WALK\\_FORWARD"}
+{"text": "Alex, vooruit", "label": "WALK\\_FORWARD"}
+{"text": "loop naar voren Alex", "label": "WALK\\_FORWARD"}
+{"text": "René, start met lopen", "label": "WALK\\_FORWARD"}
+{"text": "René, loop naar voren", "label": "WALK\\_FORWARD"}
+{"text": "begin naar voren te lopen René", "label": "WALK\\_FORWARD"}
+{"text": "NAO, loop naar voren", "label": "WALK\\_FORWARD"}
+{"text": "achteruit", "label": "WALK\\_BACKWARD"}
+{"text": "loop naar achteren", "label": "WALK\\_BACKWARD"}
+{"text": "ga naar achter", "label": "WALK\\_BACKWARD"}
+{"text": "loop achteruit", "label": "WALK\\_BACKWARD"}
+{"text": "ga achteruit", "label": "WALK\\_BACKWARD"}
+{"text": "een stukje terug", "label": "WALK\\_BACKWARD"}
+{"text": "stukje terug", "label": "WALK\\_BACKWARD"}
+{"text": "stukje terug nu", "label": "WALK\\_BACKWARD"}
+{"text": "ga een stukje terug", "label": "WALK\\_BACKWARD"}
+{"text": "ga terug", "label": "WALK\\_BACKWARD"}
+{"text": "stap terug", "label": "WALK\\_BACKWARD"}
+{"text": "ga even terug", "label": "WALK\\_BACKWARD"}
+{"text": "Alex, achteruit", "label": "WALK\\_BACKWARD"}
+{"text": "Alex, stukje terug", "label": "WALK\\_BACKWARD"}
+{"text": "René, ga terug", "label": "WALK\\_BACKWARD"}
+{"text": "NAO, achteruit", "label": "WALK\\_BACKWARD"}
+{"text": "ga een stap achteruit", "label": "WALK\\_BACKWARD"}
+{"text": "achteruit lopen", "label": "WALK\\_BACKWARD"}
+{"text": "loop naar links", "label": "WALK\\_LEFT"}
+{"text": "ga naar links", "label": "WALK\\_LEFT"}
+{"text": "stap naar links", "label": "WALK\\_LEFT"}
+{"text": "een stap naar links", "label": "WALK\\_LEFT"}
+{"text": "ga een stukje naar links", "label": "WALK\\_LEFT"}
+{"text": "loop links", "label": "WALK\\_LEFT"}
+{"text": "links", "label": "WALK\\_LEFT"}
+{"text": "Alex, links", "label": "WALK\\_LEFT"}
+{"text": "René, loop naar links", "label": "WALK\\_LEFT"}
+{"text": "NAO, naar links", "label": "WALK\\_LEFT"}
+{"text": "loop naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "ga naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "stap naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "een stap naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "ga een stukje naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "loop rechts", "label": "WALK\\_RIGHT"}
+{"text": "rechts", "label": "WALK\\_RIGHT"}
+{"text": "Alex, rechts", "label": "WALK\\_RIGHT"}
+{"text": "René, loop naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "NAO, naar rechts", "label": "WALK\\_RIGHT"}
+{"text": "draai links", "label": "TURN\\_LEFT"}
+{"text": "draai naar links", "label": "TURN\\_LEFT"}
+{"text": "naar links draaien", "label": "TURN\\_LEFT"}
+{"text": "ga linksom", "label": "TURN\\_LEFT"}
+{"text": "linksom", "label": "TURN\\_LEFT"}
+{"text": "draai een beetje links", "label": "TURN\\_LEFT"}
+{"text": "draai wat meer links", "label": "TURN\\_LEFT"}
+{"text": "draai een kwartslag links", "label": "TURN\\_LEFT"}
+{"text": "draai 90 graden links", "label": "TURN\\_LEFT"}
+{"text": "Alex, draai links", "label": "TURN\\_LEFT"}
+{"text": "René, draai links", "label": "TURN\\_LEFT"}
+{"text": "NAO, draai links", "label": "TURN\\_LEFT"}
+{"text": "draai rechts", "label": "TURN\\_RIGHT"}
+{"text": "draai naar rechts", "label": "TURN\\_RIGHT"}
+{"text": "naar rechts draaien", "label": "TURN\\_RIGHT"}
+{"text": "ga rechtsom", "label": "TURN\\_RIGHT"}
+{"text": "rechtsom", "label": "TURN\\_RIGHT"}
+{"text": "draai een beetje rechts", "label": "TURN\\_RIGHT"}
+{"text": "draai wat meer rechts", "label": "TURN\\_RIGHT"}
+{"text": "draai een kwartslag rechts", "label": "TURN\\_RIGHT"}
+{"text": "draai 90 graden rechts", "label": "TURN\\_RIGHT"}
+{"text": "Alex, draai rechts", "label": "TURN\\_RIGHT"}
+{"text": "René, draai rechts", "label": "TURN\\_RIGHT"}
+{"text": "NAO, draai rechts", "label": "TURN\\_RIGHT"}
+{"text": "stop", "label": "STOP"}
+{"text": "stop nu", "label": "STOP"}
+{"text": "stop ermee", "label": "STOP"}
+{"text": "hou op", "label": "STOP"}
+{"text": "kap ermee", "label": "STOP"}
+{"text": "annuleer", "label": "STOP"}
+{"text": "stop alsjeblieft", "label": "STOP"}
+{"text": "stop met bewegen", "label": "STOP"}
+{"text": "blijf staan", "label": "STOP"}
+{"text": "sta stil", "label": "STOP"}
+{"text": "even stoppen", "label": "STOP"}
+{"text": "Alex, stop", "label": "STOP"}
+{"text": "René, stop", "label": "STOP"}
+{"text": "NAO, stop", "label": "STOP"}
+{"text": "Ho", "label": "STOP"}
+{"text": "ho, nee, niet doen", "label": "STOP"}
+{"text": "nee, stop", "label": "STOP"}
+{"text": "stoppen", "label": "STOP"}
+{"text": "nu stoppen", "label": "STOP"}
+{"text": "ho, stoppen", "label": "STOP"}
+{"text": "wacht", "label": "STOP"}
+{"text": "gaat fout, niet doen", "label": "STOP"}
+{"text": "shit, stop", "label": "STOP"}
+{"text": "wachten", "label": "STOP"}
+{"text": "halt", "label": "STOP"}
+{"text": "stil staan", "label": "STOP"}
+{"text": "nee, niet verder", "label": "STOP"}
+{"text": "stop even", "label": "STOP"}
+{"text": "stop eens", "label": "STOP"}
+{"text": "stop nou", "label": "STOP"}
+{"text": "stop meteen", "label": "STOP"}
+{"text": "stop direct", "label": "STOP"}
+{"text": "hou daarmee op", "label": "STOP"}
+{"text": "houd op", "label": "STOP"}
+{"text": "ophouden", "label": "STOP"}
+{"text": "niet doen", "label": "STOP"}
+{"text": "nee nee", "label": "STOP"}
+{"text": "wacht even", "label": "STOP"}
+{"text": "stop met lopen", "label": "STOP"}
+{"text": "stop met draaien", "label": "STOP"}
+{"text": "ga niet verder", "label": "STOP"}
+{"text": "niet verder lopen", "label": "STOP"}
+{"text": "stop, wacht even", "label": "STOP"}
+{"text": "pauze", "label": "STOP"}
+{"text": "pauzeer even", "label": "STOP"}
+{"text": "stop gelijk", "label": "STOP"}
+{"text": "stop nu meteen", "label": "STOP"}
+{"text": "stop alsjeblieft meteen", "label": "STOP"}
+{"text": "stop met lopen nu", "label": "STOP"}
+{"text": "stop met bewegen nu", "label": "STOP"}
+{"text": "blijf daar", "label": "STOP"}
+{"text": "blijf staan nu", "label": "STOP"}
+{"text": "sta stil nu", "label": "STOP"}
+{"text": "stop, terug", "label": "STOP"}
+{"text": "terug, stop", "label": "STOP"}
+{"text": "nee, ophouden nu", "label": "STOP"}
+{"text": "oh, oeps, nee niet doen", "label": "STOP"}
+{"text": "ho, help, nee wachten", "label": "STOP"}
+{"text": "shit, nee", "label": "STOP"}
+{"text": "kut, kappen nu", "label": "STOP"}
+{"text": "ho, nee dat gaat fout", "label": "STOP"}
+{"text": "gaat fout, nee wacht", "label": "STOP"}
+{"text": "kut stop", "label": "STOP"}
+{"text": "shit stop", "label": "STOP"}
+{"text": "help stop", "label": "STOP"}
+{"text": "oeps stop", "label": "STOP"}
+{"text": "fuck stop", "label": "STOP"}
+{"text": "fuck nee kappen nu", "label": "STOP"}
+{"text": "shit, kappen meteen", "label": "STOP"}
+{"text": "kappen, snel nu", "label": "STOP"}
+{"text": "ho nee", "label": "STOP"}
+{"text": "stop onmiddellijk", "label": "STOP"}
+{"text": "stop meteen nu", "label": "STOP"}
+{"text": "stop direct nu", "label": "STOP"}
+{"text": "stop alsjeblieft nu", "label": "STOP"}
+{"text": "stop nu alsjeblieft", "label": "STOP"}
+{"text": "stop even alsjeblieft", "label": "STOP"}
+{"text": "stop nou alsjeblieft", "label": "STOP"}
+{"text": "stop hier", "label": "STOP"}
+{"text": "stop daar", "label": "STOP"}
+{"text": "stop daar mee", "label": "STOP"}
+{"text": "stop daarmee", "label": "STOP"}
+{"text": "hou nu op", "label": "STOP"}
+{"text": "hou eens op", "label": "STOP"}
+{"text": "hou op nou", "label": "STOP"}
+{"text": "ophouden nu", "label": "STOP"}
+{"text": "kappen nu", "label": "STOP"}
+{"text": "kap nou", "label": "STOP"}
+{"text": "kap ermee nu", "label": "STOP"}
+{"text": "niet doen alsjeblieft", "label": "STOP"}
+{"text": "niet doen nu", "label": "STOP"}
+{"text": "nee, niet doen", "label": "STOP"}
+{"text": "nee, hou op", "label": "STOP"}
+{"text": "nee, stop meteen", "label": "STOP"}
+{"text": "help, stop", "label": "STOP"}
+{"text": "help, niet doen", "label": "STOP"}
+{"text": "ga zitten", "label": "SITDOWN"}
+{"text": "zit", "label": "SITDOWN"}
+{"text": "zit neer", "label": "SITDOWN"}
+{"text": "neem plaats", "label": "SITDOWN"}
+{"text": "ga even zitten", "label": "SITDOWN"}
+{"text": "ga maar zitten", "label": "SITDOWN"}
+{"text": "kun je gaan zitten", "label": "SITDOWN"}
+{"text": "wil je gaan zitten", "label": "SITDOWN"}
+{"text": "Alex zitten", "label": "SITDOWN"}
+{"text": "Alex, ga zitten", "label": "SITDOWN"}
+{"text": "René, ga zitten", "label": "SITDOWN"}
+{"text": "René, zit", "label": "SITDOWN"}
+{"text": "NAO, ga zitten", "label": "SITDOWN"}
+{"text": "ga eens zitten", "label": "SITDOWN"}
+{"text": "ga rustig zitten", "label": "SITDOWN"}
+{"text": "zak maar door je knieën en ga zitten", "label": "SITDOWN"}
+{"text": "ga zitten alsjeblieft", "label": "SITDOWN"}
+{"text": "zit alsjeblieft", "label": "SITDOWN"}
+{"text": "ga zitten nu", "label": "SITDOWN"}
+{"text": "ga zitten op de grond", "label": "SITDOWN"}
+{"text": "ga zitten op je knieën", "label": "SITDOWN"}
+{"text": "ga zitten en wacht", "label": "SITDOWN"}
+{"text": "kun je even zitten", "label": "SITDOWN"}
+{"text": "doe zit", "label": "SITDOWN"}
+{"text": "ga zitten robot", "label": "SITDOWN"}
+{"text": "sta op", "label": "STAND\\_UP"}
+{"text": "ga staan", "label": "STAND\\_UP"}
+{"text": "kom overeind", "label": "STAND\\_UP"}
+{"text": "sta recht", "label": "STAND\\_UP"}
+{"text": "kom staan", "label": "STAND\\_UP"}
+{"text": "wil je opstaan", "label": "STAND\\_UP"}
+{"text": "kun je opstaan", "label": "STAND\\_UP"}
+{"text": "sta even op", "label": "STAND\\_UP"}
+{"text": "Alex, sta op", "label": "STAND\\_UP"}
+{"text": "René, ga staan", "label": "STAND\\_UP"}
+{"text": "NAO, sta op", "label": "STAND\\_UP"}
+{"text": "sta eens op", "label": "STAND\\_UP"}
+{"text": "opstaan", "label": "STAND\\_UP"}
+{"text": "opstaan alsjeblieft", "label": "STAND\\_UP"}
+{"text": "kom eens overeind", "label": "STAND\\_UP"}
+{"text": "wil je even opstaan", "label": "STAND\\_UP"}
+{"text": "kom omhoog", "label": "STAND\\_UP"}
+{"text": "ga weer staan", "label": "STAND\\_UP"}
+{"text": "René, sta op", "label": "STAND\\_UP"}
+{"text": "ga staan alsjeblieft", "label": "STAND\\_UP"}
+{"text": "sta op alsjeblieft", "label": "STAND\\_UP"}
+{"text": "sta op nu", "label": "STAND\\_UP"}
+{"text": "ga staan nu", "label": "STAND\\_UP"}
+{"text": "kom weer overeind", "label": "STAND\\_UP"}
+{"text": "ga terug staan", "label": "STAND\\_UP"}
+{"text": "sta rechtop", "label": "STAND\\_UP"}
+{"text": "ga staan en wacht", "label": "STAND\\_UP"}
+{"text": "rust", "label": "REST"}
+{"text": "rust even", "label": "REST"}
+{"text": "ga rusten", "label": "REST"}
+{"text": "ontspan", "label": "REST"}
+{"text": "ga in ruststand", "label": "REST"}
+{"text": "ga naar rust", "label": "REST"}
+{"text": "ruststand", "label": "REST"}
+{"text": "oké klaar, rust", "label": "REST"}
+{"text": "Alex, rust", "label": "REST"}
+{"text": "René, ga rusten", "label": "REST"}
+{"text": "NAO, rust", "label": "REST"}
+{"text": "stop maar NAO, ga maar rusten", "label": "REST"}
+{"text": "zet je motoren uit", "label": "REST"}
+{"text": "motoren uit", "label": "REST"}
+{"text": "stop je motoren", "label": "REST"}
+{"text": "zet je motoren maar uit nu", "label": "REST"}
+{"text": "zet de motoren maar uit NAO", "label": "REST"}
+{"text": "ga slapen", "label": "REST"}
+{"text": "slaapstand", "label": "REST"}
+{"text": "ga in slaapstand", "label": "REST"}
+{"text": "ga naar slaapstand", "label": "REST"}
+{"text": "ga naar standby", "label": "REST"}
+{"text": "standby", "label": "REST"}
+{"text": "zet jezelf uit", "label": "REST"}
+{"text": "ga uit", "label": "REST"}
+{"text": "ga maar uit", "label": "REST"}
+{"text": "zet je uit", "label": "REST"}
+{"text": "zet jezelf uit nu", "label": "REST"}
+{"text": "schakel uit", "label": "REST"}
+{"text": "doe rust", "label": "REST"}
+{"text": "doe slaapstand", "label": "REST"}
+{"text": "ga naar rest", "label": "REST"}
+{"text": "rest", "label": "REST"}
+{"text": "rust nu", "label": "REST"}
+{"text": "ga nu rusten", "label": "REST"}
+{"text": "ga nu slapen", "label": "REST"}
+{"text": "naar slaapstand", "label": "REST"}
+{"text": "naar ruststand", "label": "REST"}
+{"text": "ga terug naar rust", "label": "REST"}
+{"text": "ga terug naar slaapstand", "label": "REST"}
+{"text": "stop en ga rusten", "label": "REST"}
+{"text": "stop en ga slapen", "label": "REST"}
+{"text": "Alex, ga rusten", "label": "REST"}
+{"text": "NAO, ga rusten", "label": "REST"}
+{"text": "Alex, slaapstand", "label": "REST"}
+{"text": "René, slaapstand", "label": "REST"}
+{"text": "NAO, slaapstand", "label": "REST"}
+{"text": "ga maar rusten", "label": "REST"}
+{"text": "ga maar slapen", "label": "REST"}
+{"text": "kun je gaan rusten", "label": "REST"}
+{"text": "wil je gaan rusten", "label": "REST"}
+{"text": "kun je naar slaapstand", "label": "REST"}
+{"text": "wil je naar slaapstand", "label": "REST"}
+{"text": "ga rustig slapen", "label": "REST"}
+{"text": "tijd om te rusten", "label": "REST"}
+{"text": "oké, rust", "label": "REST"}
+{"text": "oké, slaapstand", "label": "REST"}
+{"text": "ga even rusten", "label": "REST"}
+{"text": "ga even slapen", "label": "REST"}
+{"text": "doe een dansje", "label": "DANCE"}
+{"text": "ga dansen", "label": "DANCE"}
+{"text": "dans voor me", "label": "DANCE"}
+{"text": "kun je dansen", "label": "DANCE"}
+{"text": "doe een dans", "label": "DANCE"}
+{"text": "laat een dans zien", "label": "DANCE"}
+{"text": "laat je dansje zien", "label": "DANCE"}
+{"text": "dans ateam", "label": "DANCE"}
+{"text": "doe ateam", "label": "DANCE"}
+{"text": "laat ateam zien", "label": "DANCE"}
+{"text": "doe de a-team dans", "label": "DANCE"}
+{"text": "doe de a-team", "label": "DANCE"}
+{"text": "dans bebold", "label": "DANCE"}
+{"text": "doe bebold", "label": "DANCE"}
+{"text": "dans dab", "label": "DANCE"}
+{"text": "doe dab", "label": "DANCE"}
+{"text": "dans gangnam", "label": "DANCE"}
+{"text": "doe gangnam", "label": "DANCE"}
+{"text": "dans gangnam style", "label": "DANCE"}
+{"text": "dans happy", "label": "DANCE"}
+{"text": "doe happy", "label": "DANCE"}
+{"text": "dans in the stone", "label": "DANCE"}
+{"text": "doe inthestone", "label": "DANCE"}
+{"text": "dans lang zal hij leven", "label": "DANCE"}
+{"text": "doe langzalhijleven", "label": "DANCE"}
+{"text": "dans op lang zal hij leven", "label": "DANCE"}
+{"text": "nu in de gloria", "label": "DANCE"}
+{"text": "doe nu in de gloria", "label": "DANCE"}
+{"text": "dans robot", "label": "DANCE"}
+{"text": "doe robot", "label": "DANCE"}
+{"text": "dans taichi", "label": "DANCE"}
+{"text": "doe taichi", "label": "DANCE"}
+{"text": "dans yeah yeah", "label": "DANCE"}
+{"text": "doe yeahyeah", "label": "DANCE"}
+{"text": "NAO, speel jij lang zal hij leven af? dan kunnen we samen dansen", "label": "DANCE"}
+{"text": "speel lang zal hij leven af en dans mee", "label": "DANCE"}
+{"text": "kun je lang zal hij leven doen", "label": "DANCE"}
+{"text": "doe lang zal hij leven", "label": "DANCE"}
+{"text": "zet lang zal hij leven aan en dans", "label": "DANCE"}
+{"text": "wil je lang zal hij leven dansen", "label": "DANCE"}
+{"text": "kun je lang zal hij leven dansen", "label": "DANCE"}
+{"text": "start lang zal hij leven", "label": "DANCE"}
+{"text": "begin lang zal hij leven", "label": "DANCE"}
+{"text": "doe het dansje lang zal hij leven", "label": "DANCE"}
+{"text": "doe het liedje lang zal hij leven", "label": "DANCE"}
+{"text": "speel het liedje lang zal hij leven en dans", "label": "DANCE"}
+{"text": "zet dat liedje lang zal hij leven op en dans", "label": "DANCE"}
+{"text": "speel zie ginds komt de stoomboot af en dans", "label": "DANCE"}
+{"text": "doe zie ginds komt de stoomboot", "label": "DANCE"}
+{"text": "zet zie ginds komt de stoomboot aan", "label": "DANCE"}
+{"text": "speel gangnam style af en doe het dansje", "label": "DANCE"}
+{"text": "doe gangnam style", "label": "DANCE"}
+{"text": "zet gangnam style op en dans", "label": "DANCE"}
+{"text": "speel happy af en dans", "label": "DANCE"}
+{"text": "speel taichi af", "label": "DANCE"}
+{"text": "zet de robotdans aan", "label": "DANCE"}
+{"text": "speel de robotdans af", "label": "DANCE"}
+{"text": "doe de robotdans", "label": "DANCE"}
+{"text": "zet ateam op en dans", "label": "DANCE"}
+{"text": "speel ateam af", "label": "DANCE"}
+{"text": "zet dab aan en dans", "label": "DANCE"}
+{"text": "speel dab af", "label": "DANCE"}
+{"text": "zet yeahyeah op en dans", "label": "DANCE"}
+{"text": "speel yeahyeah af", "label": "DANCE"}
+{"text": "zet bebold aan", "label": "DANCE"}
+{"text": "speel bebold af", "label": "DANCE"}
+{"text": "doe in the stone", "label": "DANCE"}
+{"text": "zet in the stone op en dans", "label": "DANCE"}
+{"text": "speel in the stone af", "label": "DANCE"}
+{"text": "zie ginds komt de stoomboot", "label": "DANCE"}
+{"text": "doe de stoomboot", "label": "DANCE"}
+{"text": "doe het stoombootlied", "label": "DANCE"}
+{"text": "stoomboot", "label": "DANCE"}
+{"text": "de stoomboot uit spanje", "label": "DANCE"}
+{"text": "sinterklaas", "label": "DANCE"}
+{"text": "sinterklaasliedje", "label": "DANCE"}

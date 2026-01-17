@@ -1,4 +1,6 @@
 {
+  "behavior_backend": "print",
+  "debug_cmdrec": true,
   "run": {
     "status_to_console": true,
     "log_messages": true

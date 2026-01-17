@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+import threading
 from typing import Optional, Dict, Any, List
 
 from dialog.interfaces import (
@@ -13,6 +14,7 @@ from dialog.interfaces import (
     UserInput,
     LLMResult,
 )
+from dialog.backends.llm_echo import EchoLLMBackend
 
 
 def _role(msg: Any) -> Optional[str]:
@@ -41,6 +43,10 @@ class InputLLMOutputPipeline(DialogPipeline):
         log_messages_path: Optional[str] = None,
         log_meta: Optional[Dict[str, Any]] = None,
         max_history_turns: Optional[int] = None,
+        cmdrec_recognizer=None,
+        behavior_executor=None,
+        debug_cmdrec: bool = False,
+        behavior_reset_timeout_s: float = 10.0,
     ) -> None:
         self.input = input_backend
         self.llm = llm
@@ -52,6 +58,15 @@ class InputLLMOutputPipeline(DialogPipeline):
         self.log_messages_path = log_messages_path
         self.log_meta = log_meta or {}
         self.max_history_turns = max_history_turns
+
+        self._cmdrec = cmdrec_recognizer
+        self._behavior_executor = behavior_executor
+        self._behavior_reset_timeout_s = behavior_reset_timeout_s
+        self._behavior_reset_timer: Optional[threading.Timer] = None
+        self._cmdrec_mode = "DIALOG"
+        self._active_behavior: Optional[str] = None
+        self._debug_cmdrec = debug_cmdrec
+        self._last_cmdrec_debug: Optional[Dict[str, Any]] = None
 
         self._turn_idx = 0
 
@@ -113,6 +128,36 @@ class InputLLMOutputPipeline(DialogPipeline):
         cut = user_idxs[-n]
         return sys_prefix + rest[cut:]
 
+    def _log_cmdrec(self, decision, bundle_path: Optional[str]) -> None:
+        if not self._debug_cmdrec:
+            return
+        top3 = decision.top3 or []
+        top3_str = ", ".join([f"{label}:{score:.3f}" for label, score in top3])
+        if decision.is_command and decision.command:
+            print(
+                f"CMD: {decision.command.label} "
+                f"({decision.command.confidence:.3f}) top3=[{top3_str}]"
+            )
+        else:
+            print(f"DIALOG: reason={decision.reason or 'none'} top3=[{top3_str}]")
+
+    def _reset_behavior_state(self) -> None:
+        if self._behavior_reset_timer is not None:
+            self._behavior_reset_timer.cancel()
+            self._behavior_reset_timer = None
+        self._cmdrec_mode = "DIALOG"
+        self._active_behavior = None
+
+    def _schedule_behavior_reset(self) -> None:
+        if self._behavior_reset_timer is not None:
+            self._behavior_reset_timer.cancel()
+        self._behavior_reset_timer = threading.Timer(
+            self._behavior_reset_timeout_s,
+            self._reset_behavior_state,
+        )
+        self._behavior_reset_timer.daemon = True
+        self._behavior_reset_timer.start()
+
     def run_once(self, history: History | None = None) -> DialogTurn:
         user_in: UserInput = self.input.get_input()
 
@@ -125,6 +170,63 @@ class InputLLMOutputPipeline(DialogPipeline):
                 user_audio=user_in.audio,
                 stt=user_in.stt,
             )
+
+        if self._cmdrec is not None:
+            decision = self._cmdrec.route(user_in.text, self._cmdrec_mode, self._active_behavior)
+            bundle_path = getattr(self._cmdrec, "bundle_path", None)
+            bundle_value = str(bundle_path) if bundle_path else None
+            self._log_cmdrec(decision, bundle_value)
+            if self._debug_cmdrec:
+                self._last_cmdrec_debug = {
+                    "routed_as": "command" if decision.is_command else "dialog",
+                    "reason": decision.reason or None,
+                    "label": decision.command.label if decision.command else None,
+                    "confidence": decision.command.confidence if decision.command else None,
+                    "top3": decision.top3,
+                }
+            else:
+                self._last_cmdrec_debug = None
+
+            if decision.is_command and decision.command:
+                if self._behavior_executor:
+                    self._behavior_executor.execute(decision.command)
+
+                    if decision.command.label == "STOP":
+                        self._reset_behavior_state()
+                    else:
+                        self._cmdrec_mode = "PERFORMING"
+                        self._active_behavior = decision.command.label
+                        # TODO: vervang timer door echte callback als behavior-finish events beschikbaar zijn.
+                        self._schedule_behavior_reset()
+                else:
+                    self._reset_behavior_state()
+
+                reply_text = (
+                    user_in.text
+                    if isinstance(self.llm, EchoLLMBackend)
+                    else f"[CMD] {decision.command.label}"
+                )
+                llm_res = LLMResult(
+                    reply=reply_text,
+                    messages=list(history or []),
+                )
+                return DialogTurn(
+                    user_input=user_in,
+                    llm=llm_res,
+                    user_audio=user_in.audio,
+                    stt=user_in.stt,
+                )
+        elif self._debug_cmdrec:
+            self._last_cmdrec_debug = {
+                "routed_as": "dialog",
+                "reason": "disabled",
+                "label": None,
+                "confidence": None,
+                "top3": None,
+            }
+            print("DIALOG: reason=disabled top3=[]")
+        else:
+            self._last_cmdrec_debug = None
 
         messages: History = list(history or [])
 

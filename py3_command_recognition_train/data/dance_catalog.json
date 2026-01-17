@@ -3,66 +3,91 @@
     {
       "key": "ateam",
       "behavior": "dances/ateam",
-      "aliases": ["ateam", "a-team", "a team", "laat ateam zien", "doe ateam"]
+      "aliases": [
+        "ateam",
+        "a-team",
+        "a team"
+      ]
     },
     {
       "key": "bebold",
       "behavior": "dances/bebold",
-      "aliases": ["bebold", "be bold", "be-bold", "doe bebold", "doe be bold"]
+      "aliases": [
+        "bebold",
+        "be bold",
+        "be-bold"
+      ]
     },
     {
       "key": "dab",
       "behavior": "dances/dab",
-      "aliases": ["dab", "doe dab", "dab dans", "dabben"]
+      "aliases": [
+        "dab"
+      ]
     },
     {
       "key": "gangnam",
       "behavior": "dances/gangnam",
-      "aliases": ["gangnam", "gangnam style", "gangnam-style", "doe gangnam", "doe gangnam style"]
+      "aliases": [
+        "gangnam"
+      ]
     },
     {
       "key": "happy",
       "behavior": "dances/happy",
-      "aliases": ["happy", "doe happy", "happy dance", "happy-dance"]
+      "aliases": [
+        "happy"
+      ]
     },
     {
       "key": "inthestone",
       "behavior": "dances/inthestone",
-      "aliases": ["inthestone", "in the stone", "in-the-stone", "doe inthestone", "doe in the stone"]
+      "aliases": [
+        "inthestone",
+        "in the stone",
+        "in-the-stone"
+      ]
     },
     {
       "key": "langzalhijleven",
       "behavior": "dances/langzalhijleven",
-      "aliases": ["langzalhijleven", "lang zal hij leven", "lang-zal-hij-leven", "doe langzalhijleven"]
+      "aliases": [
+        "langzalhijleven",
+        "lang zal hij leven",
+        "lang-zal-hij-leven"
+      ]
     },
     {
       "key": "robot",
       "behavior": "dances/robot",
-      "aliases": ["robot", "robotdans", "robot-dans", "doe robot", "dance robot"]
+      "aliases": [
+        "robot"
+      ]
     },
     {
       "key": "taichi",
       "behavior": "dances/taichi",
-      "aliases": ["taichi", "tai chi", "tai-chi", "doe taichi", "doe tai chi"]
+      "aliases": [
+        "taichi",
+        "tai chi",
+        "tai-chi"
+      ]
     },
     {
       "key": "yeahyeah",
       "behavior": "dances/yeahyeah",
-      "aliases": ["yeahyeah", "yeah yeah", "yeah-yeah", "doe yeahyeah", "doe yeah yeah"]
+      "aliases": [
+        "yeahyeah",
+        "yeah yeah",
+        "yeah-yeah"
+      ]
     },
-
     {
       "key": "stoomboot",
       "behavior": "stoomboot",
       "aliases": [
-        "zie ginds komt de stoomboot",
-        "zie ginds komt de stoomboot dans",
-        "doe zie ginds komt de stoomboot",
-        "doe de stoomboot",
         "stoomboot",
-        "stoomboot dans",
-        "sinterklaasdans",
-        "sinterklaas dans"
+        "sinterklaas"
       ]
     }
   ]
