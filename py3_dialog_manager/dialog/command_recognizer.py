@@ -188,7 +188,15 @@ class CmdRecRecognizer(ICommandRecognizer):
                     catalog_path = fallback
             if catalog_path.exists():
                 dance_catalog = load_dance_catalog(catalog_path)
-                resolved = {"dance_key": resolve_dance(text, dance_catalog)}
+                dance_key = resolve_dance(text, dance_catalog)
+                dance_behavior = None
+                for dance in dance_catalog:
+                    if dance.get("key") == dance_key:
+                        dance_behavior = dance.get("behavior")
+                        break
+                resolved = {"dance_key": dance_key}
+                if isinstance(dance_behavior, str) and dance_behavior.strip():
+                    resolved["dance_behavior"] = dance_behavior
         elif final_decision == "LOCOMOTION_REQUEST":
             locomotion = resolve_locomotion(text).get("action", "unknown")
             resolved = {"locomotion": locomotion}

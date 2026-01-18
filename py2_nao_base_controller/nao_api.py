@@ -157,6 +157,14 @@ def ping():
     return make_response(data="pong")
 
 
+@app.route("/is_awake", methods=["GET"])
+def is_awake_ep():
+    try:
+        return make_response(data={"is_awake": bool(is_awake())})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
 @app.route("/wake_up", methods=["POST"])
 def wake_up():
     try:
@@ -257,6 +265,58 @@ def do_behavior():
 
         behavior.runBehavior(bname)
         return make_response(data="Ran behavior: " + bname)
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/stop_behavior", methods=["POST"])
+def stop_behavior():
+    try:
+        payload = request.get_json(force=True) or {}
+        bname = payload.get("behavior")
+        if not bname:
+            return make_response(status="error", error="Missing 'behavior'")
+
+        try:
+            unicode
+        except NameError:
+            unicode = str
+
+        if not isinstance(bname, unicode):
+            if isinstance(bname, str):
+                bname = bname.decode("utf-8")
+            else:
+                bname = unicode(bname)
+
+        behavior = get_proxy("ALBehaviorManager")
+        if not behavior.isBehaviorInstalled(bname):
+            return make_response(status="error", error="Behavior not installed: " + bname)
+
+        if hasattr(behavior, "isBehaviorRunning") and not behavior.isBehaviorRunning(bname):
+            return make_response(status="warning", data="Behavior not running: " + bname)
+
+        behavior.stopBehavior(bname)
+        return make_response(data="Stopped behavior: " + bname)
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/stop_all_behaviors", methods=["POST"])
+def stop_all_behaviors():
+    try:
+        behavior = get_proxy("ALBehaviorManager")
+        behavior.stopAllBehaviors()
+        return make_response(data="Stopped all behaviors")
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/stop_move", methods=["POST"])
+def stop_move():
+    try:
+        motion = get_proxy("ALMotion")
+        motion.stopMove()
+        return make_response(data="Stopped motion")
     except Exception as e:
         return make_response(status="error", error=repr(e))
 

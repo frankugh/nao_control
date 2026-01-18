@@ -3,6 +3,8 @@
   "debug_cmdrec": true,
   "cmdrec": "latest",
   "cmdrec_bundles_dir": "dist",
+  "confirm_method": "web",
+  "confirm_timeout_s": 10.0,
   "input": {
     "type": "audio",
     "mic": {

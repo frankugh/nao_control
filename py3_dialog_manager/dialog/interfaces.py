@@ -19,7 +19,7 @@ from typing import (
 
 ChatRole = Literal["system", "user", "assistant"]
 CmdRecBundle = Literal["none", "latest"] | str
-ConfirmMethod = Literal["none", "head", "enter", "popup"]
+ConfirmMethod = Literal["none", "head", "enter", "popup", "web"]
 
 
 class ChatMessage(TypedDict):
@@ -51,9 +51,9 @@ def parse_confirm_method(value: Any) -> ConfirmMethod:
     if not isinstance(value, str):
         raise ValueError("confirm_method moet een string zijn (none/head/enter/popup).")
     v = value.strip().lower()
-    if v in ("none", "head", "enter", "popup"):
+    if v in ("none", "head", "enter", "popup", "web"):
         return v  # type: ignore[return-value]
-    raise ValueError("confirm_method moet 'none', 'head', 'enter' of 'popup' zijn.")
+    raise ValueError("confirm_method moet 'none', 'head', 'enter', 'popup' of 'web' zijn.")
 
 
 @dataclass

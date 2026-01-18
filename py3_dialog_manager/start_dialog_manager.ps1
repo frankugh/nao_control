@@ -9,8 +9,8 @@ try {
   Set-Location $PSScriptRoot
 
   # Kies hier je config  
-  $config = "configs\run_laptop_whisper_echo_console.json"
-  #$config = "configs\run_laptop_whisper_echo_nao.json"
+  #$config = "configs\run_laptop_whisper_echo_console.json"
+  $config = "configs\run_laptop_whisper_echo_nao.json"
   #$config = "configs\run_laptop_whisper_ollama_cloud_console.json"
   #$config = "configs\run_laptop_whisper_ollama_cloud_nao.json"
   #$config = "configs\run_laptop_whisper_ollama_local_console.json"

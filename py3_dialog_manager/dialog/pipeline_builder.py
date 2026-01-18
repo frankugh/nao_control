@@ -9,7 +9,8 @@ from typing import Any, Dict, Optional
 from dialog.pipeline import InputLLMOutputPipeline
 from dialog.interfaces import parse_cmdrec_bundle, parse_confirm_method
 from dialog.command_recognizer import CmdRecRecognizer
-from dialog.behavior_executor import BehaviorExecutor, PrintBehaviorExecutor
+from dialog.behavior_executor import BehaviorExecutor, ConsoleAndBehaviorExecutor, PrintBehaviorExecutor
+from dialog.nao_api_router import NaoApiRouter
 
 # input backends
 from dialog.backends.input_audio import AudioInputBackend
@@ -124,8 +125,8 @@ def _extract_max_history_turns(cfg: JsonLike) -> Optional[int]:
 def _extract_cmdrec_config(cfg: JsonLike) -> JsonLike:
     cmdrec = parse_cmdrec_bundle(cfg.get("cmdrec", "none"))
     cmdrec_bundles_dir = cfg.get("cmdrec_bundles_dir", "dist")
-    confirm_method = parse_confirm_method(cfg.get("confirm_method", "none"))
-    confirm_timeout_s = cfg.get("confirm_timeout_s", 6.0)
+    confirm_method = parse_confirm_method(cfg.get("confirm_method", "web"))
+    confirm_timeout_s = cfg.get("confirm_timeout_s", 10.0)
     guarded_labels = cfg.get(
         "guarded_labels",
         ["DANCE", "LOCOMOTION_REQUEST", "WALK_WITH_ME", "BOX", "HIGH_FIVE"],
@@ -179,6 +180,50 @@ def _extract_cmdrec_config(cfg: JsonLike) -> JsonLike:
         "behavior_backend": behavior_backend,
         "guarded_labels_override": guarded_labels_override,
         "unguarded_labels_override": unguarded_labels_override,
+    }
+
+
+def _extract_nao_connection(cfg: JsonLike) -> Optional[JsonLike]:
+    nao_cfg = cfg.get("nao_connection", None)
+    if nao_cfg is None:
+        return None
+    if not isinstance(nao_cfg, dict):
+        raise ValueError("nao_connection moet een object/dict zijn.")
+
+    primary = nao_cfg.get("primary", {}) or {}
+    fallback = nao_cfg.get("fallback", {}) or {}
+    if not isinstance(primary, dict):
+        raise ValueError("nao_connection.primary moet een object/dict zijn.")
+    if not isinstance(fallback, dict):
+        raise ValueError("nao_connection.fallback moet een object/dict zijn.")
+
+    primary_base_url = primary.get("base_url", "http://127.0.0.1:5001/nao")
+    fallback_base_url = fallback.get("base_url", "http://127.0.0.1:5000")
+    health_ttl_s = nao_cfg.get("health_ttl_s", 30.0)
+    health_checks = nao_cfg.get("health_checks", ["py3_ping", "py3_nao_ping"])
+    timeout_s = nao_cfg.get("timeout_s", 3.0)
+    log_status = nao_cfg.get("log_status", True)
+
+    if not isinstance(primary_base_url, str):
+        raise ValueError("nao_connection.primary.base_url moet een string zijn.")
+    if not isinstance(fallback_base_url, str):
+        raise ValueError("nao_connection.fallback.base_url moet een string zijn.")
+    if not isinstance(health_ttl_s, (int, float)):
+        raise ValueError("nao_connection.health_ttl_s moet een getal zijn.")
+    if not isinstance(timeout_s, (int, float)):
+        raise ValueError("nao_connection.timeout_s moet een getal zijn.")
+    if not isinstance(log_status, bool):
+        raise ValueError("nao_connection.log_status moet een boolean zijn.")
+    if not isinstance(health_checks, list) or not all(isinstance(v, str) for v in health_checks):
+        raise ValueError("nao_connection.health_checks moet een lijst van strings zijn.")
+
+    return {
+        "primary_base_url": primary_base_url,
+        "fallback_base_url": fallback_base_url,
+        "health_ttl_s": float(health_ttl_s),
+        "health_checks": health_checks,
+        "timeout_s": float(timeout_s),
+        "log_status": log_status,
     }
 
 
@@ -266,7 +311,7 @@ def _make_llm(cfg: JsonLike):
     raise ValueError(f"Onbekende llm.type: {t!r}")
 
 
-def _make_output(cfg: JsonLike):
+def _make_output(cfg: JsonLike, *, api_router: Optional[NaoApiRouter] = None):
     out_cfg = _req(cfg, "output")
     t = _req(out_cfg, "type").lower()
     p = out_cfg.get("params", {}) or {}
@@ -276,7 +321,7 @@ def _make_output(cfg: JsonLike):
     if t == "none":
         return NoOpOutputBackend()
     if t in ("nao_tts", "nao_py2", "nao"):
-        return NaoTTSOutputBackend(**p)
+        return NaoTTSOutputBackend(api_router=api_router, **p)
 
     raise ValueError(f"Onbekende output.type: {t!r}")
 
@@ -311,10 +356,22 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     system_prompt = _extract_system_prompt(cfg, config_path=config_path)
     max_history_turns = _extract_max_history_turns(cfg)
     cmdrec_cfg = _extract_cmdrec_config(cfg)
+    nao_conn = _extract_nao_connection(cfg)
+    api_router = None
+    if nao_conn:
+        api_router = NaoApiRouter(
+            primary_base_url=nao_conn["primary_base_url"],
+            fallback_base_url=nao_conn["fallback_base_url"],
+            health_ttl_s=nao_conn["health_ttl_s"],
+            health_checks=nao_conn["health_checks"],
+            timeout_s=nao_conn["timeout_s"],
+            status_to_console=nao_conn["log_status"],
+        )
+        api_router.check_primary(force=True)
 
     input_backend = _make_input(cfg)
     llm = _make_llm(cfg)
-    output = _make_output(cfg)
+    output = _make_output(cfg, api_router=api_router)
 
     llm_cfg = cfg.get("llm", {}) or {}
     llm_params = (llm_cfg.get("params", {}) or {})
@@ -331,10 +388,12 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     behavior_executor = None
     if cmdrec_cfg["cmdrec"] != "none":
         cmdrec_recognizer = CmdRecRecognizer(cmdrec_cfg)
-        if cmdrec_cfg["behavior_backend"] == "print":
+        if api_router is not None:
+            behavior_executor = ConsoleAndBehaviorExecutor(BehaviorExecutor(api_router=api_router))
+        elif cmdrec_cfg["behavior_backend"] == "print":
             behavior_executor = PrintBehaviorExecutor()
         else:
-            behavior_executor = BehaviorExecutor()
+            behavior_executor = PrintBehaviorExecutor()
 
     return InputLLMOutputPipeline(
         input_backend=input_backend,

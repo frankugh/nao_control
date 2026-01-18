@@ -1,6 +1,10 @@
 {
   "behavior_backend": "print",
   "debug_cmdrec": true,
+  "confirm_method": "web",
+  "confirm_timeout_s": 10.0,
+  "cmdrec": "latest",
+  "cmdrec_bundles_dir": "dist",
   "run": {
     "status_to_console": true,
     "log_messages": true

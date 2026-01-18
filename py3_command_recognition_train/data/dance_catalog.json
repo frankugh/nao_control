@@ -84,7 +84,7 @@
     },
     {
       "key": "stoomboot",
-      "behavior": "stoomboot",
+      "behavior": "sint_stoomboot",
       "aliases": [
         "stoomboot",
         "sinterklaas"

@@ -55,6 +55,7 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - ik wil een box doen
 - Nu een boks
 - ik wil nu een box
+- Nu een box
 
 ## HIGH\_FIVE
 

@@ -32,6 +32,10 @@
       .role { font-size: 12px; color: #666; margin-bottom: 3px; }
       .bubblewrap { display: flex; flex-direction: column; }
       .debug { margin-top: 6px; font-size: 12px; color: #333; background: #f4f4f4; border: 1px dashed #cfcfcf; padding: 6px 8px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .confirm-card { margin: 8px 0; padding: 10px; border: 1px solid #d8d8d8; border-radius: 10px; background: #fffaf0; }
+      .confirm-title { font-weight: 600; margin-bottom: 4px; }
+      .confirm-meta { font-size: 12px; color: #555; margin-bottom: 8px; }
+      .confirm-actions { display: flex; gap: 8px; }
 
       .prompt { height: 520px; overflow: auto; background: #0b0b0b; color: #e8e8e8; border-radius: 12px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; white-space: pre-wrap; }
       .muted { color: #aaa; }
@@ -94,6 +98,59 @@
         chatEl.innerHTML = '';
         let lastAssistantWrap = null;
         (history || []).forEach(m => {
+          if (m.type === 'confirm_required') {
+            const msg = document.createElement('div');
+            msg.className = 'msg assistant';
+
+            const wrap = document.createElement('div');
+            wrap.className = 'bubblewrap';
+
+            const roleEl = document.createElement('div');
+            roleEl.className = 'role';
+            roleEl.textContent = 'Bot';
+
+            const card = document.createElement('div');
+            card.className = 'confirm-card';
+
+            const title = document.createElement('div');
+            title.className = 'confirm-title';
+            title.textContent = m.prompt || 'Bevestiging nodig';
+
+            const meta = document.createElement('div');
+            meta.className = 'confirm-meta';
+            const label = m.command?.label || 'UNKNOWN';
+            const conf = (m.command?.confidence != null) ? Number(m.command.confidence).toFixed(3) : 'n/a';
+            const raw = m.command?.raw_text || '';
+            meta.textContent = `Label: ${label} | Conf: ${conf} | Text: "${raw}"`;
+
+            const actions = document.createElement('div');
+            actions.className = 'confirm-actions';
+
+            const btnYes = document.createElement('button');
+            btnYes.textContent = '✅ Confirm';
+            btnYes.dataset.confirmId = m.confirmation_id || '';
+            btnYes.dataset.confirmed = 'true';
+
+            const btnNo = document.createElement('button');
+            btnNo.textContent = '❌ Cancel';
+            btnNo.dataset.confirmId = m.confirmation_id || '';
+            btnNo.dataset.confirmed = 'false';
+
+            actions.appendChild(btnYes);
+            actions.appendChild(btnNo);
+
+            card.appendChild(title);
+            card.appendChild(meta);
+            card.appendChild(actions);
+
+            wrap.appendChild(roleEl);
+            wrap.appendChild(card);
+            msg.appendChild(wrap);
+            chatEl.appendChild(msg);
+            lastAssistantWrap = wrap;
+            return;
+          }
+
           const role = m.role || 'unknown';
           const content = (m.content || '').toString();
 
@@ -205,8 +262,8 @@
 
       async function startRecording() {
         if (recording) return;
-        setStatus('🎙️ Opnemen...');
-        setRecState('recording');
+        setStatus('🎙️ Microfoon starten...');
+        setRecState('starting');
         pcmChunks = [];
 
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -224,6 +281,8 @@
         processor.connect(audioCtx.destination);
 
         recording = true;
+        setStatus('🎙️ Opnemen...');
+        setRecState('recording');
         btnRec.textContent = '⏹️ Stop';
         btnSend.disabled = true;
         startRecording._inRate = inRate;
@@ -319,6 +378,30 @@
         } finally {
           setRecState('idle');
           btnSend.disabled = !txt.value.trim();
+        }
+      });
+
+      chatEl.addEventListener('click', async (e) => {
+        const target = e.target;
+        if (!target || target.tagName !== 'BUTTON') return;
+        const confirmId = target.dataset.confirmId;
+        if (!confirmId) return;
+        const confirmed = target.dataset.confirmed === 'true';
+
+        try {
+          const r = await fetch('/api/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmation_id: confirmId, confirmed })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'confirm failed');
+          renderHistory(j.history || []);
+          renderPrompt(j.system_prompt || '');
+          txt.focus();
+        } catch (e) {
+          console.error(e);
+          setStatus('❌ Confirm fout: ' + (e?.message || e));
         }
       });
 

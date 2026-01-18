@@ -91,6 +91,10 @@ def create_app(py2_api_url=None):
         """Healthcheck van de onderliggende Py2-NAO-API."""
         return _wrap_py2_call(nao_actions.ping)
 
+    @app.route("/nao/is_awake", methods=["GET"])
+    def nao_is_awake():
+        return _wrap_py2_call(nao_actions.is_awake)
+
     @app.route("/nao/wake_up", methods=["POST"])
     def nao_wake_up():
         return _wrap_py2_call(nao_actions.wake_up)
@@ -134,6 +138,22 @@ def create_app(py2_api_url=None):
         if not bname:
             return jsonify({"status": "error", "error": "Missing 'behavior'"}), 400
         return _wrap_py2_call(nao_actions.do_behavior, bname)
+
+    @app.route("/nao/stop_behavior", methods=["POST"])
+    def nao_stop_behavior():
+        data = request.get_json(force=True, silent=True) or {}
+        bname = (data.get("behavior") or data.get("name") or "").strip()
+        if not bname:
+            return jsonify({"status": "error", "error": "Missing 'behavior'"}), 400
+        return _wrap_py2_call(nao_actions.stop_behavior, bname)
+
+    @app.route("/nao/stop_all_behaviors", methods=["POST"])
+    def nao_stop_all_behaviors():
+        return _wrap_py2_call(nao_actions.stop_all_behaviors)
+
+    @app.route("/nao/stop_move", methods=["POST"])
+    def nao_stop_move():
+        return _wrap_py2_call(nao_actions.stop_move)
 
     @app.route("/nao/set_eye_color", methods=["POST"])
     def nao_set_eye_color():

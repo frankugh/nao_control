@@ -22,6 +22,7 @@ def test_parse_cmdrec_bundle_accepts_expected_values(value, expected):
         ("head", "head"),
         ("enter", "enter"),
         ("popup", "popup"),
+        ("web", "web"),
     ],
 )
 def test_parse_confirm_method_accepts_expected_values(value, expected):

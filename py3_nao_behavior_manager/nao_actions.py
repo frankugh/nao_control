@@ -49,6 +49,12 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+    def is_awake(self, timeout=None):
+        """Check of de robot wakker is via /is_awake."""
+        resp = self._get("/is_awake", timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def wake_up(self, timeout=None):
         """Roep /wake_up aan op de Py2-API."""
         resp = self._post_json("/wake_up", {}, timeout=timeout or self.timeout)
@@ -81,6 +87,25 @@ class NaoActions(object):
         """Start een behavior via /do_behavior."""
         payload = {"behavior": behavior_name}
         resp = self._post_json("/do_behavior", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def stop_behavior(self, behavior_name, timeout=None):
+        """Stop een behavior via /stop_behavior."""
+        payload = {"behavior": behavior_name}
+        resp = self._post_json("/stop_behavior", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def stop_all_behaviors(self, timeout=None):
+        """Stop alle behaviors via /stop_all_behaviors."""
+        resp = self._post_json("/stop_all_behaviors", {}, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def stop_move(self, timeout=None):
+        """Stop motion via /stop_move."""
+        resp = self._post_json("/stop_move", {}, timeout=timeout or self.timeout)
         resp.raise_for_status()
         return resp.json()
 
