@@ -20,6 +20,7 @@ from dialog.backends.input_console import ConsoleInputBackend
 from dialog.backends.mic_laptop import LaptopMic
 from dialog.backends.mic_nao_ssh import NaoSshMic
 from dialog.backends.stt_whisper import WhisperSTTBackend
+from dialog.backends.stt_vosk import VoskSTTBackend
 
 # llm backends
 from dialog.backends.llm_echo import EchoLLMBackend
@@ -243,7 +244,7 @@ def _make_stt(stt_cfg: JsonLike):
     if t == "whisper":
         return WhisperSTTBackend(**p)
     if t == "vosk":
-        raise NotImplementedError("Vosk nog niet toegevoegd in deze builder.")
+        return VoskSTTBackend(**p)
     raise ValueError(f"Onbekende stt.type: {t!r}")
 
 

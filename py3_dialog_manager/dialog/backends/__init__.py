@@ -11,6 +11,7 @@ from dialog.backends.mic_nao_ssh import NaoSshMic
 
 # STT backends
 from dialog.backends.stt_whisper import WhisperSTTBackend
+from dialog.backends.stt_vosk import VoskSTTBackend
 
 # LLM backends
 from dialog.backends.llm_echo import EchoLLMBackend
@@ -32,6 +33,7 @@ __all__ = [
     "NaoSshMic",
     # stt
     "WhisperSTTBackend",
+    "VoskSTTBackend",
     # llm
     "EchoLLMBackend",
     "NoOpLLMBackend",

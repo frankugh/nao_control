@@ -46,3 +46,7 @@ example_audio/*.wav
 
 # === Misc ===
 *.lock
+
+# === Large local models ===
+models/vosk-model*/
+models/*.zip

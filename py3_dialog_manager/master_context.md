@@ -5,7 +5,7 @@ We bouwen een modulaire dialoog-pipeline voor een NAO robot demo (en laptop test
 Input -> (optioneel STT) -> LLM -> Output.
 Alles configureerbaar via 1 JSON per run (configs/*). Het doel is plug-and-play wisselen tussen:
 - input: console typing of audio opnemen
-- stt: whisper (later eventueel vosk)
+- stt: whisper of vosk
 - llm: none/echo, ollama local, ollama cloud
 - output: console print, NAO TTS, none
 
@@ -21,7 +21,7 @@ BELANGRIJKE BESTANDEN
 - dialog/pipeline_builder.py: build_pipeline_from_json/config
   - leest JSON schema
   - maakt input backend (console/audio)
-  - maakt STT backend (whisper)
+  - maakt STT backend (whisper/vosk)
   - maakt LLM backend (none/echo/ollama local/cloud)
   - maakt output backend (console/nao/none)
   - ondersteunt system_prompt of system_prompt_file
@@ -51,7 +51,7 @@ Top-level keys:
     "type": "console" | "audio",
     "params": { ... },
     (if audio) "mic": { "type": "laptop" | "nao_ssh", "params": {...} },
-              "stt": { "type": "whisper", "params": {...} }
+              "stt": { "type": "whisper" | "vosk", "params": {...} }
   },
   "llm": {
     "type": "none" | "echo" | "ollama_local" | "ollama_cloud",
@@ -105,6 +105,6 @@ WAT IK VAN DE NIEUWE CHAT WIL
 TYPISCHE VOLGENDE STAPPEN (VOORBEELDEN)
 - betere system prompt / master prompt tuning
 - context strategie uitbreiden (samenvatten, pinned facts)
-- vosk backend toevoegen
+- vosk backend toegevoegd
 - NAO-specific output tuning (korte TTS, interruption, status cues)
 - UX: “listening/transcribing/thinking/speaking” cues
