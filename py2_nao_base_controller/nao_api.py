@@ -5,7 +5,18 @@ import socket
 import sys
 import traceback
 import json
+import unicodedata
 from flask import Flask, request, jsonify
+
+# Py2 unicode-alias
+unicode_type = unicode
+
+# Simple replace mapper for pronunciation tweaks.
+# Add items like (u"AI", u"A Ie") to improve NAO TTS.
+TTS_REPLACE_MAP = [
+    (u"AI", u"A Ie"),
+    (u"bias", u"beias"),
+]
 
 def _setup_naoqi_paths():
     # Als PyInstaller draait: _MEIPASS, anders gewone dir
@@ -197,22 +208,30 @@ def tts_say():
         payload = request.get_json(force=True) or {}
         text = payload.get("text", u"")
 
-        try:
-            unicode
-        except NameError:
-            unicode = str
-
         # Zorg dat het UNICODE wordt, niet bytes
-        if not isinstance(text, unicode):
+        if not isinstance(text, unicode_type):
             # als het bytes is -> decode, anders cast
             if isinstance(text, str):
                 text = text.decode("utf-8")
             else:
-                text = unicode(text)
+                text = unicode_type(text)
+
+        text_for_response = text
+
+        # Normalize to ASCII-safe bytes for NAOqi.
+        text_u = text
+        for src, dst in TTS_REPLACE_MAP:
+            text_u = text_u.replace(src, dst)
+        # Strip simple markdown emphasis markers for TTS.
+        text_u = text_u.replace(u"**", u"").replace(u"*", u"")
+        text_u = text_u.replace(u"\u2019", u"'").replace(u"\u2018", u"'")
+        text_u = text_u.replace(u"\u201c", u"\"").replace(u"\u201d", u"\"")
+        text_u = unicodedata.normalize("NFKD", text_u)
+        text_tts = text_u.encode("ascii", "ignore")
 
         tts = get_proxy("ALTextToSpeech")
-        tts.say(text)
-        return make_response(data={"text": text})
+        tts.say(text_tts)
+        return make_response(data={"text": text_for_response})
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
@@ -240,17 +259,12 @@ def do_behavior():
         if not bname:
             return make_response(status="error", error="Missing 'behavior'")
 
-        try:
-            unicode
-        except NameError:
-            unicode = str
-
         # Zorg dat het UNICODE is, niet bytes
-        if not isinstance(bname, unicode):
+        if not isinstance(bname, unicode_type):
             if isinstance(bname, str):
                 bname = bname.decode("utf-8")
             else:
-                bname = unicode(bname)
+                bname = unicode_type(bname)
 
         behavior = get_proxy("ALBehaviorManager")
 
@@ -277,16 +291,11 @@ def stop_behavior():
         if not bname:
             return make_response(status="error", error="Missing 'behavior'")
 
-        try:
-            unicode
-        except NameError:
-            unicode = str
-
-        if not isinstance(bname, unicode):
+        if not isinstance(bname, unicode_type):
             if isinstance(bname, str):
                 bname = bname.decode("utf-8")
             else:
-                bname = unicode(bname)
+                bname = unicode_type(bname)
 
         behavior = get_proxy("ALBehaviorManager")
         if not behavior.isBehaviorInstalled(bname):
@@ -422,11 +431,6 @@ def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
         args = []
     if kwargs is None:
         kwargs = {}
-
-    try:
-        unicode_type = unicode  # Py2
-    except NameError:
-        unicode_type = str      # Py3 fallback
 
     # 1) module/method als bytes/str
     if isinstance(module_name, unicode_type):

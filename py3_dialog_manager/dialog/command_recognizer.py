@@ -135,6 +135,28 @@ class CmdRecRecognizer(ICommandRecognizer):
 
         self._model, self._decision_policy, self._labels = load_bundle(self._bundle_path)
 
+    def get_labels(self) -> list[str]:
+        if self._disabled:
+            return []
+        self._ensure_bundle_loaded()
+        return list(self._labels or [])
+
+    def get_dance_catalog(self) -> list[dict[str, Any]]:
+        if self._disabled or not self._bundle_path:
+            return []
+        from cmdrec.resolvers import load_dance_catalog
+
+        catalog_path = self._bundle_path / "dance_catalog.json"
+        if not catalog_path.exists():
+            dm_root = Path(__file__).resolve().parents[1]
+            repo_root = dm_root.parent
+            fallback = repo_root / "py3_command_recognition_train" / "data" / "dance_catalog.json"
+            if fallback.exists():
+                catalog_path = fallback
+        if catalog_path.exists():
+            return load_dance_catalog(catalog_path)
+        return []
+
     def is_guarded(self, label: str) -> bool:
         if self._disabled:
             return False

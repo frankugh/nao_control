@@ -35,6 +35,19 @@ from dialog.backends.output_nao import NaoTTSOutputBackend
 
 JsonLike = Dict[str, Any]
 
+_COMMAND_DESCRIPTIONS = {
+    "BOX": "boks geven",
+    "HIGH_FIVE": "high five geven",
+    "WAVE": "zwaaien",
+    "WALK_WITH_ME": "meelopen en hand vasthouden",
+    "LOCOMOTION_REQUEST": "lopen of draaien (richting op basis van je zin)",
+    "STOP": "stoppen",
+    "SITDOWN": "gaan zitten",
+    "STAND_UP": "opstaan",
+    "REST": "in ruststand gaan",
+    "DANCE": "een dansje uitvoeren (eventueel met naam)",
+}
+
 
 def _load_json(path: str) -> JsonLike:
     with open(path, "r", encoding="utf-8") as f:
@@ -121,6 +134,47 @@ def _extract_max_history_turns(cfg: JsonLike) -> Optional[int]:
     if not isinstance(v, int):
         raise ValueError("max_history_turns moet een int zijn (of weglaten).")
     return v
+
+
+def _extract_runtime_context_enabled(cfg: JsonLike) -> bool:
+    llm_cfg = cfg.get("llm", {}) or {}
+    params = (llm_cfg.get("params", {}) or {})
+    ctx = params.get("context", {}) or {}
+    if not isinstance(ctx, dict):
+        raise ValueError("llm.params.context moet een object/dict zijn.")
+    return bool(ctx.get("inject_runtime_context", False))
+
+
+def _format_available_commands(cmdrec_recognizer: Optional[CmdRecRecognizer]) -> str:
+    if cmdrec_recognizer is None:
+        return ""
+    labels = cmdrec_recognizer.get_labels()
+    if not labels:
+        return ""
+    items = sorted({label for label in labels if label and label.upper() != "NONE"})
+    lines = []
+    for label in items:
+        desc = _COMMAND_DESCRIPTIONS.get(label.upper())
+        if desc:
+            lines.append(f"- {label}: {desc}")
+        else:
+            lines.append(f"- {label}")
+    return "\n".join(lines)
+
+
+def _format_dance_catalog(cmdrec_recognizer: Optional[CmdRecRecognizer]) -> str:
+    if cmdrec_recognizer is None:
+        return ""
+    dances = cmdrec_recognizer.get_dance_catalog()
+    if not dances:
+        return ""
+    lines = []
+    for dance in dances:
+        key = dance.get("key")
+        if not isinstance(key, str) or not key.strip():
+            continue
+        lines.append(f"- {key}")
+    return "\n".join(lines)
 
 
 def _extract_cmdrec_config(cfg: JsonLike) -> JsonLike:
@@ -356,6 +410,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
 
     system_prompt = _extract_system_prompt(cfg, config_path=config_path)
     max_history_turns = _extract_max_history_turns(cfg)
+    runtime_context_enabled = _extract_runtime_context_enabled(cfg)
     cmdrec_cfg = _extract_cmdrec_config(cfg)
     nao_conn = _extract_nao_connection(cfg)
     api_router = None
@@ -381,7 +436,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         "llm_type": (llm_cfg.get("type") or ""),
         "llm_host": llm_params.get("host"),
         "llm_model": llm_params.get("model"),
-        "has_system_prompt": bool(system_prompt),
+        "has_system_prompt": bool(system_prompt or runtime_context_enabled),
         "max_history_turns": max_history_turns,
     }
 
@@ -396,6 +451,13 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         else:
             behavior_executor = PrintBehaviorExecutor()
 
+    runtime_context_static = None
+    if runtime_context_enabled:
+        runtime_context_static = {
+            "available_commands": _format_available_commands(cmdrec_recognizer),
+            "dance_catalog": _format_dance_catalog(cmdrec_recognizer),
+        }
+
     return InputLLMOutputPipeline(
         input_backend=input_backend,
         llm=llm,
@@ -408,6 +470,8 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
         cmdrec_recognizer=cmdrec_recognizer,
         behavior_executor=behavior_executor,
         debug_cmdrec=cmdrec_cfg["debug_cmdrec"],
+        runtime_context_enabled=runtime_context_enabled,
+        runtime_context_static=runtime_context_static,
     )
 
 

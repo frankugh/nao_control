@@ -1,4 +1,22 @@
 {
+  "behavior_backend": "print",
+  "debug_cmdrec": true,
+  "confirm_method": "web",
+  "confirm_timeout_s": 10.0,
+  "cmdrec": "v15",
+  "cmdrec_bundles_dir": "dist",
+  "nao_connection": {
+    "primary": {
+      "base_url": "http://127.0.0.1:5001/nao"
+    },
+    "fallback": {
+      "base_url": "http://127.0.0.1:5000"
+    },
+    "health_ttl_s": 30.0,
+    "health_checks": ["py3_ping", "py3_nao_ping"],
+    "timeout_s": 45.0,
+    "log_status": true
+  },
   "run": {
     "status_to_console": true,
     "log_messages": true
@@ -18,16 +36,15 @@
       }
     },
     "stt": {
-      "type": "whisper",
+      "type": "vosk",
       "params": {
-        "mode": "AUTO",
-        "model_cpu": "small",
-        "model_gpu": "medium",
-        "compute_type_cpu": "int8",
-        "compute_type_gpu": "float16",
+        "model_path": "../models/vosk-model-small-nl-0.22",
         "language": "nl",
-        "vad_filter": true,
-        "min_silence_duration_ms": 1000
+        "sample_rate": 16000,
+        "max_alternatives": 0,
+        "enable_words": false,
+        "grammar": null,
+        "log_level": -1
       }
     },
     "params": {
@@ -43,16 +60,17 @@
       "host": "https://ollama.com",
       "model": "gpt-oss:120b",
       "api_key": "${OLLAMA_API_KEY}",
-      "system_prompt_file": "master_prompts/default.txt",
+      "system_prompt_file": "master_prompts/atlantis.txt",
       "context": {
-        "max_history_turns": 8
+        "max_history_turns": 6,
+        "inject_runtime_context": true
       }
     }
   },
   "output": {
-    "type": "console",
+    "type": "nao_tts",
     "params": {
-      "prefix": "BOT"
+      "timeout": 45.0
     }
   }
 }

@@ -33,5 +33,11 @@ class Py2NaoTTSBackend(TTSBackend):
             resp = self.api_router.post("/tts", json=payload, timeout=self.timeout)
         else:
             url = f"{self.base_url}/tts"
-            resp = requests.post(url, json=payload, timeout=self.timeout)
-        resp.raise_for_status()
+            try:
+                resp = requests.post(url, json=payload, timeout=self.timeout)
+            except requests.RequestException as exc:
+                print("[NAO] TTS request failed: %s" % exc)
+                return
+        if resp.status_code >= 400:
+            print("[NAO] TTS returned %s; ignoring to keep dialog running" % resp.status_code)
+            return

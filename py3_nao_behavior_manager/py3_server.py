@@ -12,6 +12,7 @@ Doel:
 """
 
 import os
+import threading
 
 from flask import Flask, request, jsonify
 import requests
@@ -22,6 +23,8 @@ from nao_actions import NaoActions
 DEFAULT_PY3_WEB_HOST = "0.0.0.0"
 DEFAULT_PY3_WEB_PORT = 5001
 DEFAULT_PY2_API_URL  = "http://127.0.0.1:5000"
+DEFAULT_PY2_TIMEOUT_S = 20.0
+DEFAULT_TTS_TIMEOUT_S = 45.0
 
 
 def load_config():
@@ -36,6 +39,8 @@ def load_config():
         "WEB_HOST":        DEFAULT_PY3_WEB_HOST,
         "WEB_PORT":        DEFAULT_PY3_WEB_PORT,
         "PY2_NAO_API_URL": DEFAULT_PY2_API_URL,
+        "PY2_TIMEOUT_S":   DEFAULT_PY2_TIMEOUT_S,
+        "PY2_TTS_TIMEOUT_S": DEFAULT_TTS_TIMEOUT_S,
     }
 
     if os.path.exists(ini_path):
@@ -49,16 +54,22 @@ def load_config():
                 cfg["WEB_PORT"] = parser.getint("py3_server", "WEB_PORT")
             if parser.has_option("py3_server", "PY2_NAO_API_URL"):
                 cfg["PY2_NAO_API_URL"] = parser.get("py3_server", "PY2_NAO_API_URL")
+            if parser.has_option("py3_server", "PY2_TIMEOUT_S"):
+                cfg["PY2_TIMEOUT_S"] = parser.getfloat("py3_server", "PY2_TIMEOUT_S")
+            if parser.has_option("py3_server", "PY2_TTS_TIMEOUT_S"):
+                cfg["PY2_TTS_TIMEOUT_S"] = parser.getfloat("py3_server", "PY2_TTS_TIMEOUT_S")
 
     return cfg
 
-def create_app(py2_api_url=None):
+def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
     if py2_api_url is None:
         cfg = load_config()
         py2_api_url = cfg["PY2_NAO_API_URL"]
+        py2_timeout_s = cfg["PY2_TIMEOUT_S"]
+        py2_tts_timeout_s = cfg["PY2_TTS_TIMEOUT_S"]
 
     app = Flask(__name__)
-    nao_actions = NaoActions(py2_api_url)
+    nao_actions = NaoActions(py2_api_url, timeout=py2_timeout_s or DEFAULT_PY2_TIMEOUT_S)
 
     # ===== interne helper voor uniform error-handling =====
 
@@ -109,7 +120,19 @@ def create_app(py2_api_url=None):
         text = (data.get("text") or "").strip()
         if not text:
             return jsonify({"status": "error", "error": "Missing 'text'"}), 400
-        return _wrap_py2_call(nao_actions.say_native, text)
+        # Fire-and-forget to avoid blocking and timeouts; TTS on NAO is slow/serial.
+        tts_timeout = py2_tts_timeout_s or DEFAULT_TTS_TIMEOUT_S
+
+        def _say():
+            try:
+                result = nao_actions.say_native(text, timeout=tts_timeout)
+                if isinstance(result, dict) and result.get("status") != "ok":
+                    print("[NAO] TTS error:", result)
+            except requests.RequestException as exc:
+                print("[NAO] TTS request failed:", exc)
+
+        threading.Thread(target=_say, daemon=True).start()
+        return jsonify({"status": "ok", "data": {"text": text}})
 
     @app.route("/nao/tts_speed", methods=["POST"])
     def nao_tts_speed():
@@ -219,7 +242,11 @@ def create_app(py2_api_url=None):
 
 if __name__ == "__main__":
     cfg = load_config()
-    app = create_app(cfg["PY2_NAO_API_URL"])
+    app = create_app(
+        cfg["PY2_NAO_API_URL"],
+        py2_timeout_s=cfg["PY2_TIMEOUT_S"],
+        py2_tts_timeout_s=cfg["PY2_TTS_TIMEOUT_S"],
+    )
 
     host = cfg["WEB_HOST"]
     port = cfg["WEB_PORT"]

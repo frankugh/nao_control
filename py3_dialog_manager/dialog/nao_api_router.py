@@ -100,15 +100,26 @@ class NaoApiRouter:
 
     def request(self, method: str, path: str, **kwargs):
         timeout = kwargs.pop("timeout", self.timeout_s)
+        tts_path = path == "/tts"
         primary_ok = self.check_primary() if self.health_checks else True
 
         if primary_ok:
             try:
-                return self._request(self.primary_base_url, method, path, timeout=timeout, **kwargs)
+                resp = self._request(self.primary_base_url, method, path, timeout=timeout, **kwargs)
+                if resp.status_code >= 500:
+                    self._status("[NAO] primary returned %s; using fallback" % resp.status_code)
+                    self._primary_ok = False
+                    self._last_check = time.monotonic()
+                    if tts_path:
+                        return resp
+                else:
+                    return resp
             except requests.RequestException as exc:
                 self._status("[NAO] primary request failed; using fallback: %s" % exc)
                 self._primary_ok = False
                 self._last_check = time.monotonic()
+                if tts_path and isinstance(exc, requests.Timeout):
+                    raise
 
         return self._request(self.fallback_base_url, method, path, timeout=timeout, **kwargs)
 

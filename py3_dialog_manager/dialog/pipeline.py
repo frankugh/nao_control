@@ -47,17 +47,27 @@ class InputLLMOutputPipeline(DialogPipeline):
         behavior_executor=None,
         debug_cmdrec: bool = False,
         behavior_reset_timeout_s: float = 10.0,
+        runtime_context_enabled: bool = False,
+        runtime_context_static: Optional[Dict[str, str]] = None,
+        runtime_last_action: Optional[str] = None,
     ) -> None:
         self.input = input_backend
         self.llm = llm
         self.output = output_backend
 
         self.status_to_console = status_to_console
-        self.system_prompt = system_prompt.strip() if system_prompt else None
+        self.system_prompt_base = system_prompt.strip() if system_prompt else None
+        self.system_prompt = self.system_prompt_base
 
         self.log_messages_path = log_messages_path
         self.log_meta = log_meta or {}
         self.max_history_turns = max_history_turns
+
+        self._runtime_context_enabled = runtime_context_enabled
+        self._runtime_context_static = runtime_context_static or {}
+        self._runtime_last_action = runtime_last_action
+        self.runtime_context_enabled = self._runtime_context_enabled
+        self.runtime_context_static = dict(self._runtime_context_static)
 
         self._cmdrec = cmdrec_recognizer
         self._behavior_executor = behavior_executor
@@ -73,6 +83,39 @@ class InputLLMOutputPipeline(DialogPipeline):
     def _status(self, msg: str) -> None:
         if self.status_to_console:
             print(msg)
+
+    def get_system_prompt(self, *, last_action: Optional[str] = None) -> Optional[str]:
+        return self._build_system_prompt(last_action=last_action)
+
+    def set_last_action(self, summary: Optional[str]) -> None:
+        self._runtime_last_action = summary
+
+    def _build_runtime_context_text(self, *, last_action: Optional[str]) -> str:
+        if not self._runtime_context_enabled:
+            return ""
+        available = self._runtime_context_static.get("available_commands", "")
+        dances = self._runtime_context_static.get("dance_catalog", "")
+        last_action_text = last_action or ""
+
+        blocks = [
+            "## BESCHIKBARE_COMMANDOS (runtime)\n\n" + (available or ""),
+            "## DANS_CATALOGUS (runtime)\n\n" + (dances or ""),
+            "## LAATSTE_ACTIE (runtime, may be empty)\n\n" + (last_action_text or ""),
+        ]
+        return "\n\n".join(blocks)
+
+    def _build_system_prompt(self, *, last_action: Optional[str] = None) -> Optional[str]:
+        base = self.system_prompt_base or ""
+        context = self._build_runtime_context_text(
+            last_action=self._runtime_last_action if last_action is None else last_action
+        )
+        if not base and not context:
+            return None
+        if not context:
+            return base
+        if not base:
+            return context
+        return f"{base}\n\n---\n\n{context}"
 
     def _log_messages(self, messages: History) -> None:
         if not self.log_messages_path:
@@ -90,13 +133,14 @@ class InputLLMOutputPipeline(DialogPipeline):
             f.flush()
 
     def _prepend_system_prompt(self, messages: History) -> History:
-        if not self.system_prompt:
+        system_prompt = self._build_system_prompt()
+        if not system_prompt:
             return messages
 
         if messages and _role(messages[0]) == "system":
-            return messages
+            return [ChatMessage(role="system", content=system_prompt)] + list(messages[1:])
 
-        sys_msg = ChatMessage(role="system", content=self.system_prompt)  # type: ignore[arg-type]
+        sys_msg = ChatMessage(role="system", content=system_prompt)  # type: ignore[arg-type]
         return [sys_msg] + list(messages)
 
     def _trim_history(self, history: History) -> History:
@@ -158,6 +202,23 @@ class InputLLMOutputPipeline(DialogPipeline):
         self._behavior_reset_timer.daemon = True
         self._behavior_reset_timer.start()
 
+    def _format_action_summary(self, label: str, resolved: Optional[Dict[str, Any]]) -> str:
+        if resolved:
+            items = ", ".join([f"{k}={v}" for k, v in sorted(resolved.items())])
+            return f"Uitgevoerd: {label}; resolved: {items}"
+        return f"Uitgevoerd: {label}"
+
+    def _set_last_action_from_command(self, command: Optional[Any]) -> None:
+        if not self._runtime_context_enabled:
+            return
+        if not command:
+            return
+        label = getattr(command, "label", None)
+        if not label:
+            return
+        resolved = getattr(command, "resolved", None)
+        self._runtime_last_action = self._format_action_summary(label, resolved)
+
     def run_once(self, history: History | None = None) -> DialogTurn:
         user_in: UserInput = self.input.get_input()
 
@@ -200,6 +261,8 @@ class InputLLMOutputPipeline(DialogPipeline):
                         self._schedule_behavior_reset()
                 else:
                     self._reset_behavior_state()
+
+                self._set_last_action_from_command(decision.command)
 
                 reply_text = (
                     user_in.text

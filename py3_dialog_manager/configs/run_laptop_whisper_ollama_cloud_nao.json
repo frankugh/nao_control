@@ -49,9 +49,10 @@
       "host": "https://ollama.com",
       "model": "gpt-oss:120b",
       "api_key": "${OLLAMA_API_KEY}",
-      "system_prompt_file": "master_prompts/default.txt",
+      "system_prompt_file": "master_prompts/atlantis.txt",
       "context": {
-        "max_history_turns": 8
+        "max_history_turns": 6,
+        "inject_runtime_context": true
       }
     }
   },

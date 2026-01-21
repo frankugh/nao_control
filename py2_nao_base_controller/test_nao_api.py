@@ -23,7 +23,9 @@ class TestTtsRoute(unittest.TestCase):
         app = nao_api.app
         client = app.test_client()
 
-        payload = {"text": u"hé NAO"}
+        payload = {
+            "text": u"Hoi NAO, ik zei: \u201czo\u2019n test\u201d met caf\u00e9, na\u00efef en fa\u00e7ade."
+        }
         resp = client.post(
             "/tts",
             data=json.dumps(payload),
@@ -34,13 +36,15 @@ class TestTtsRoute(unittest.TestCase):
         data = json.loads(resp.data.decode("utf-8"))
         self.assertEqual(data["status"], "ok")
         self.assertIn("data", data)
-        self.assertEqual(data["data"]["text"], u"hé NAO")
+        self.assertEqual(data["data"]["text"], payload["text"])
 
         # Controleer wat er naar NAOqi gaat
         tts.say.assert_called_once()
         arg = tts.say.call_args[0][0]
-        self.assertTrue(isinstance(arg, unicode))
-        self.assertEqual(arg, u"hé NAO")
+        if not isinstance(arg, unicode):
+            arg = arg.decode("ascii")
+        expected = u"Hoi NAO, ik zei: \"zo'n test\" met cafe, naief en facade."
+        self.assertEqual(arg, expected)
 
     @patch("nao_api.get_proxy")
     def test_tts_say_missing_text_defaults_empty(self, mock_get_proxy):
@@ -64,7 +68,8 @@ class TestTtsRoute(unittest.TestCase):
 
         tts.say.assert_called_once()
         arg = tts.say.call_args[0][0]
-        self.assertTrue(isinstance(arg, unicode))
+        if not isinstance(arg, unicode):
+            arg = arg.decode("ascii")
         self.assertEqual(arg, u"")
 
 
@@ -97,7 +102,8 @@ class TestDoBehaviorRoute(unittest.TestCase):
         behavior.runBehavior.assert_called_once()
 
         arg = behavior.runBehavior.call_args[0][0]
-        self.assertTrue(isinstance(arg, unicode))
+        if not isinstance(arg, unicode):
+            arg = arg.decode("utf-8")
         self.assertEqual(arg, behavior_name)
 
     def test_do_behavior_missing_name_gives_error(self):
