@@ -327,6 +327,18 @@ def main() -> None:
     parser.add_argument("--robot-like", action="store_true", help="Keep only robot-like utterances.")
     parser.add_argument("--no-robot-like", action="store_true", help="Disable robot-like filtering.")
     parser.add_argument("--output", type=Path, default=Path("data/none.jsonl"))
+    parser.add_argument(
+        "--output-seed",
+        type=Path,
+        default=None,
+        help="Optional output path for seed-only NONE entries (JSONL).",
+    )
+    parser.add_argument(
+        "--output-external",
+        type=Path,
+        default=None,
+        help="Optional output path for external NONE entries (candidates + hf) (JSONL).",
+    )
     args = parser.parse_args()
 
     if args.robot_like and args.no_robot_like:
@@ -418,6 +430,12 @@ def main() -> None:
 
     after_cap = count_by_source(balanced)
     write_none(balanced, args.output)
+    if args.output_seed:
+        seed_only = [entry for entry in balanced if entry.get("source") == "seed"]
+        write_none(seed_only, args.output_seed)
+    if args.output_external:
+        external_only = [entry for entry in balanced if entry.get("source") != "seed"]
+        write_none(external_only, args.output_external)
     print(f"Wrote {len(balanced)} NONE utterances to {args.output}")
     print(f"Source counts before cap: {before_cap}")
     print(f"Source counts after cap: {after_cap}")

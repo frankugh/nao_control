@@ -167,6 +167,13 @@
               <select id="cfgCmdrec"></select>
             </div>
             <div>
+              <label>Confirm policy</label>
+              <select id="cfgConfirmPolicy">
+                <option value="when_guarded">when_guarded</option>
+                <option value="always">always</option>
+              </select>
+            </div>
+            <div>
               <label>Dialog (LLM)</label>
               <div class="row">
                 <select id="cfgLlmType">
@@ -224,6 +231,7 @@
       const cfgInputDevice = document.getElementById('cfgInputDevice');
       const cfgStt = document.getElementById('cfgStt');
       const cfgCmdrec = document.getElementById('cfgCmdrec');
+      const cfgConfirmPolicy = document.getElementById('cfgConfirmPolicy');
       const cfgLlmType = document.getElementById('cfgLlmType');
       const cfgLlmModel = document.getElementById('cfgLlmModel');
       const cfgMasterPrompt = document.getElementById('cfgMasterPrompt');
@@ -255,6 +263,20 @@
       let continuousPoll = null;
       let phaseStickyUntil = 0;
       let lastPhase = 'idle';
+      let lastTranscript = null;
+      const resolvedConfirms = new Set();
+
+      function disableConfirmCard(card, label) {
+        const buttons = card.querySelectorAll('button');
+        buttons.forEach(btn => { btn.disabled = true; });
+        let note = card.querySelector('.confirm-note');
+        if (!note) {
+          note = document.createElement('div');
+          note.className = 'confirm-meta confirm-note';
+          card.appendChild(note);
+        }
+        note.textContent = label;
+      }
 
       function setStatus(msg) { statusEl.textContent = msg; }
       function setRecState(label, phase) {
@@ -429,6 +451,24 @@
             card.appendChild(meta);
             card.appendChild(actions);
 
+            const confirmId = m.confirmation_id || '';
+            const createdAt = Number(m.created_at || 0);
+            const timeoutS = Number(m.timeout_s || 0);
+            const nowSec = Date.now() / 1000;
+            const expired = createdAt && timeoutS && (nowSec - createdAt > timeoutS);
+            if (confirmId && resolvedConfirms.has(confirmId)) {
+              disableConfirmCard(card, 'Afgehandeld');
+            } else if (expired) {
+              disableConfirmCard(card, 'Verlopen');
+            } else if (createdAt && timeoutS) {
+              const remainingMs = Math.max(0, (createdAt + timeoutS - nowSec) * 1000);
+              setTimeout(() => {
+                if (!resolvedConfirms.has(confirmId)) {
+                  disableConfirmCard(card, 'Verlopen');
+                }
+              }, remainingMs + 50);
+            }
+
             wrap.appendChild(roleEl);
             wrap.appendChild(card);
             msg.appendChild(wrap);
@@ -535,6 +575,7 @@
           input_device: inputDevice,
           stt_type: cfgStt.value,
           cmdrec: cfgCmdrec.value,
+          confirm_policy: cfgConfirmPolicy.value,
           llm_type: cfgLlmType.value,
           llm_model: (cfgLlmModel.value || '').trim(),
           master_prompt_file: cfgMasterPrompt.value || null
@@ -564,6 +605,7 @@
           cfgCmdrec.appendChild(opt);
         }
         cfgCmdrec.value = cmdrecValue;
+        cfgConfirmPolicy.value = cfg.confirm_policy || 'when_guarded';
         cfgLlmType.value = cfg.llm_type || 'echo';
         cfgLlmModel.value = cfg.llm_model || '';
         cfgLlmModel.classList.toggle('dirty', false);
@@ -914,6 +956,8 @@
         if (j.ok) {
           renderHistory(j.history || []);
           renderPrompt(j.system_prompt || '');
+          lastTranscript = null;
+          txt.value = '';
         }
       }
 
@@ -1030,6 +1074,7 @@
         if (!j.ok) throw new Error(j.error || 'transcribe failed');
 
         txt.value = (j.transcript || '').trim();
+        lastTranscript = txt.value ? txt.value : null;
         btnSend.disabled = !txt.value.trim();
         setStatus('✅ Transcript klaar. Edit en druk op Send.');
         setRecState('idle');
@@ -1045,6 +1090,7 @@
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'transcribe failed');
           txt.value = (j.transcript || '').trim();
+          lastTranscript = txt.value ? txt.value : null;
           btnSend.disabled = !txt.value.trim();
           setStatus('Transcript klaar. Edit en druk op Send.');
         } finally {
@@ -1117,6 +1163,9 @@
       btnSend.addEventListener('click', async () => {
         const text = txt.value.trim();
         if (!text) return;
+        const sttUsed = !!lastTranscript;
+        const sttEdited = sttUsed && text !== lastTranscript;
+        const input_meta = { stt_used: sttUsed, stt_edited: sttEdited };
         btnSend.disabled = true;
         setStatus('🤖 LLM + output...');
         setRecState('thinking');
@@ -1124,7 +1173,7 @@
           const r = await fetch('/api/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text })
+            body: JSON.stringify({ text, input_meta })
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'send failed');
@@ -1133,6 +1182,7 @@
           renderPrompt(j.system_prompt || '');
           txt.value = '';
           txt.focus();
+          lastTranscript = null;
           setStatus('✅ Klaar. Je kunt opnieuw opnemen.');
         } catch (e) {
           console.error(e);
@@ -1158,11 +1208,18 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'confirm failed');
+          resolvedConfirms.add(confirmId);
           renderHistory(j.history || []);
           renderPrompt(j.system_prompt || '');
           txt.focus();
         } catch (e) {
           console.error(e);
+          const card = target.closest('.confirm-card');
+          const msg = (e?.message || '').toLowerCase();
+          if (card && msg.includes('verlopen')) {
+            resolvedConfirms.add(confirmId);
+            disableConfirmCard(card, 'Verlopen');
+          }
           setStatus('❌ Confirm fout: ' + (e?.message || e));
         }
       });
@@ -1247,6 +1304,7 @@
 
       cfgCmdrec.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgStt.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      cfgConfirmPolicy.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgLlmModel.addEventListener('change', () => {
         const cfg = getConfigFromForm();
         if (canApplyLlm(cfg)) {

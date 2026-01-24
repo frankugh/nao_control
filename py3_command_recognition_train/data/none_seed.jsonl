@@ -1,0 +1,1482 @@
+{"text": "Hoi", "label": "NONE", "source": "seed"}
+{"text": "Hallo", "label": "NONE", "source": "seed"}
+{"text": "Goedemorgen", "label": "NONE", "source": "seed"}
+{"text": "Goedenavond", "label": "NONE", "source": "seed"}
+{"text": "Ben je daar?", "label": "NONE", "source": "seed"}
+{"text": "Luister je?", "label": "NONE", "source": "seed"}
+{"text": "Hoor je me?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me verstaan?", "label": "NONE", "source": "seed"}
+{"text": "Is je microfoon aan?", "label": "NONE", "source": "seed"}
+{"text": "Werkt je geluid?", "label": "NONE", "source": "seed"}
+{"text": "Kun je wat harder praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je wat zachter praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je jezelf voorstellen?", "label": "NONE", "source": "seed"}
+{"text": "Hoe heet jij?", "label": "NONE", "source": "seed"}
+{"text": "Hoe heet jij ook alweer?", "label": "NONE", "source": "seed"}
+{"text": "Wat kun jij allemaal?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je precies?", "label": "NONE", "source": "seed"}
+{"text": "Waar ben je voor gemaakt?", "label": "NONE", "source": "seed"}
+{"text": "Wie heeft jou gemaakt?", "label": "NONE", "source": "seed"}
+{"text": "Ben jij een robot?", "label": "NONE", "source": "seed"}
+{"text": "Ben jij een NAO?", "label": "NONE", "source": "seed"}
+{"text": "Hoe oud ben je?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel kan je onthouden?", "label": "NONE", "source": "seed"}
+{"text": "Kun je Nederlands praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook Engels?", "label": "NONE", "source": "seed"}
+{"text": "Wat is jouw favoriete kleur?", "label": "NONE", "source": "seed"}
+{"text": "Wat is jouw lievelingsliedje?", "label": "NONE", "source": "seed"}
+{"text": "Wat vind jij leuk om te doen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe jij graag?", "label": "NONE", "source": "seed"}
+{"text": "Vind je het leuk hier?", "label": "NONE", "source": "seed"}
+{"text": "Heb je een naam?", "label": "NONE", "source": "seed"}
+{"text": "Waarom heet je zo?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me helpen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me iets uitleggen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een vraag beantwoorden?", "label": "NONE", "source": "seed"}
+{"text": "Mag ik je iets vragen?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben Frank", "label": "NONE", "source": "seed"}
+{"text": "Ik heet Frank", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vandaag moe", "label": "NONE", "source": "seed"}
+{"text": "Ik ben blij vandaag", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje zenuwachtig", "label": "NONE", "source": "seed"}
+{"text": "Ik heb er zin in", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd wat je kan", "label": "NONE", "source": "seed"}
+{"text": "Dit is grappig", "label": "NONE", "source": "seed"}
+{"text": "Dat is leuk", "label": "NONE", "source": "seed"}
+{"text": "Dat is vreemd", "label": "NONE", "source": "seed"}
+{"text": "Dat snap ik niet", "label": "NONE", "source": "seed"}
+{"text": "Kun je dat herhalen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je dat nog een keer zeggen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je langzamer praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je sneller praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even wachten?", "label": "NONE", "source": "seed"}
+{"text": "Wacht even alsjeblieft", "label": "NONE", "source": "seed"}
+{"text": "Ik ben zo terug", "label": "NONE", "source": "seed"}
+{"text": "Ik pak even iets", "label": "NONE", "source": "seed"}
+{"text": "Ik moet even iets pakken", "label": "NONE", "source": "seed"}
+{"text": "Ik zet iets klaar", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even bezig", "label": "NONE", "source": "seed"}
+{"text": "Kijk eens hier", "label": "NONE", "source": "seed"}
+{"text": "Zie je dit?", "label": "NONE", "source": "seed"}
+{"text": "Kun je dit zien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mij zien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn hand zien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn gezicht zien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn stem herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Ken je mijn naam?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn naam onthouden?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil iets testen", "label": "NONE", "source": "seed"}
+{"text": "We gaan even testen", "label": "NONE", "source": "seed"}
+{"text": "Ik probeer iets uit", "label": "NONE", "source": "seed"}
+{"text": "Dit is een proefje", "label": "NONE", "source": "seed"}
+{"text": "We doen een test", "label": "NONE", "source": "seed"}
+{"text": "Werkt dit goed?", "label": "NONE", "source": "seed"}
+{"text": "Gaat het goed met je?", "label": "NONE", "source": "seed"}
+{"text": "Hoe gaat het met je?", "label": "NONE", "source": "seed"}
+{"text": "Hoe voel jij je?", "label": "NONE", "source": "seed"}
+{"text": "Ben je oké?", "label": "NONE", "source": "seed"}
+{"text": "Ben je nog wakker?", "label": "NONE", "source": "seed"}
+{"text": "Ben je aan het slapen?", "label": "NONE", "source": "seed"}
+{"text": "Ben je in slaapstand?", "label": "NONE", "source": "seed"}
+{"text": "Kun je in slaapstand?", "label": "NONE", "source": "seed"}
+{"text": "Hoe word je wakker?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik je aanraken om je wakker te maken?", "label": "NONE", "source": "seed"}
+{"text": "Reageer je op je naam?", "label": "NONE", "source": "seed"}
+{"text": "Wanneer luister je wel en wanneer niet?", "label": "NONE", "source": "seed"}
+{"text": "Luister je altijd mee?", "label": "NONE", "source": "seed"}
+{"text": "Luister je nu mee?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Kun je alleen luisteren als ik je naam zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je alleen luisteren als ik je aanraak?", "label": "NONE", "source": "seed"}
+{"text": "Kun je luisteren zonder te praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even niets doen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je kalm blijven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je jezelf resetten?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je blijft hangen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je niet reageert?", "label": "NONE", "source": "seed"}
+{"text": "Waarom reageer je niet?", "label": "NONE", "source": "seed"}
+{"text": "Waarom duurde dat zo lang?", "label": "NONE", "source": "seed"}
+{"text": "Ik denk dat er iets mis is", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Je scherm doet raar", "label": "NONE", "source": "seed"}
+{"text": "Je praat niet terug", "label": "NONE", "source": "seed"}
+{"text": "Je hebt net iets anders gedaan dan ik bedoelde", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net iets anders", "label": "NONE", "source": "seed"}
+{"text": "Volgens mij begreep je me verkeerd", "label": "NONE", "source": "seed"}
+{"text": "Ik sprak te zacht denk ik", "label": "NONE", "source": "seed"}
+{"text": "Ik sprak te snel denk ik", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn accent verstaan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met dialect?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met straattaal?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met typefouten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met versprekingen?", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “tik hem aan” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “ho” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “halt” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “pauze” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Kun je lopen zonder om te vallen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je balans houden?", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Waarom wiebel je soms?", "label": "NONE", "source": "seed"}
+{"text": "Kun je één stap doen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je kleine stapjes doen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je voorzichtig bewegen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je langzaam bewegen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je sneller bewegen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als je struikelt?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als je iets raakt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je obstakels zien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je langs mij heen lopen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je om mij heen lopen?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je waar ik ben?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mij volgen zonder te praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn hand vasthouden?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn hand herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een handdruk herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een vuist herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Zie je mijn vuist?", "label": "NONE", "source": "seed"}
+{"text": "Zie je mijn hand omhoog?", "label": "NONE", "source": "seed"}
+{"text": "Als ik mijn hand omhoog houd, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een liedje zingen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je muziek maken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je klappen op de maat?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een ritme voelen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een verhaal vertellen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een quiz doen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je vragen stellen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een gesprek voeren?", "label": "NONE", "source": "seed"}
+{"text": "Kun je open dialoog voeren?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook gewoon praten zonder commando’s?", "label": "NONE", "source": "seed"}
+{"text": "Hoe kies je tussen praten en doen?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je dat iets een commando is?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je dat iets geen commando is?", "label": "NONE", "source": "seed"}
+{"text": "Kun je twijfel herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je aangeven als je het niet zeker weet?", "label": "NONE", "source": "seed"}
+{"text": "Kun je zeggen wanneer je het niet begrijpt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je vragen om verduidelijking?", "label": "NONE", "source": "seed"}
+{"text": "Kun je vragen wat ik bedoel?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een voorbeeld geven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me helpen leren hoe ik je moet aanspreken?", "label": "NONE", "source": "seed"}
+{"text": "Wat is de beste manier om jou iets te vragen?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik korte zinnen gebruiken?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik duidelijke woorden gebruiken?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik je naam eerst zeggen?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik eerst op je hoofd tikken?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik dicht bij je staan?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik langzaam praten?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik harder praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je achtergrondgeluid aan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met muziek op de achtergrond?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met meerdere mensen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je onderscheid maken tussen stemmen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je herkennen wie er praat?", "label": "NONE", "source": "seed"}
+{"text": "Kun je herkennen of ik boos ben?", "label": "NONE", "source": "seed"}
+{"text": "Kun je herkennen of ik blij ben?", "label": "NONE", "source": "seed"}
+{"text": "Kun je emoties herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je empathisch reageren?", "label": "NONE", "source": "seed"}
+{"text": "Kun je grapjes maken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je sarcasme begrijpen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn humor aan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je lachen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je knipperen met je ogen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me aankijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar boven kijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar beneden kijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je arm bewegen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hand opsteken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je op commando’s reageren zonder te praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Praat je wel eens door jezelf?", "label": "NONE", "source": "seed"}
+{"text": "Waarom praat je soms tegen jezelf?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens het lopen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je na een actie weer terug naar luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Kun je na een actie weer naar slaapstand?", "label": "NONE", "source": "seed"}
+{"text": "Kun je na een actie weer wachten op mijn naam?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even wachten op bevestiging?", "label": "NONE", "source": "seed"}
+{"text": "Kun je iets pas doen na een tik?", "label": "NONE", "source": "seed"}
+{"text": "Kun je iets weigeren als het onveilig is?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen waarom je iets niet doet?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mij waarschuwen als iets gevaarlijk is?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me zeggen wat je gaat doen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je vooraf aankondigen wat je doet?", "label": "NONE", "source": "seed"}
+{"text": "Kun je achteraf vertellen wat je deed?", "label": "NONE", "source": "seed"}
+{"text": "Kun je loggen wat ik zei?", "label": "NONE", "source": "seed"}
+{"text": "Kun je onthouden wat ik zojuist zei?", "label": "NONE", "source": "seed"}
+{"text": "Kun je samenvatten wat er net gebeurde?", "label": "NONE", "source": "seed"}
+{"text": "Kun je zeggen wat je verstaan hebt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je herhalen wat je hoorde?", "label": "NONE", "source": "seed"}
+{"text": "Kun je aangeven als je me niet goed verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Kun je zeggen dat je twijfelt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je vragen om het opnieuw te zeggen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een alternatief voorstellen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een voorbeeldzin geven die jij goed begrijpt?", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Kun je me wat vertellen over jezelf?", "label": "NONE", "source": "seed"}
+{"text": "Wat kun je allemaal?", "label": "NONE", "source": "seed"}
+{"text": "Hoe werkt jouw spraakherkenning?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me uitleggen wat je net deed?", "label": "NONE", "source": "seed"}
+{"text": "Waarom reageer je soms niet?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je precies?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me helpen met een vraag?", "label": "NONE", "source": "seed"}
+{"text": "Hoe kan ik je het beste aanspreken?", "label": "NONE", "source": "seed"}
+{"text": "Ben je er nog?", "label": "NONE", "source": "seed"}
+{"text": "Luister je nog?", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zonder commando praten?", "label": "NONE", "source": "seed"}
+{"text": "Ik weet even niet wat ik moet zeggen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje zenuwachtig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dit eigenlijk best spannend.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd hoe dit gaat.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het grappig dat je zo klein bent.", "label": "NONE", "source": "seed"}
+{"text": "Oké, ik snap het volgens mij.", "label": "NONE", "source": "seed"}
+{"text": "Wacht, ik bedoelde dat anders.", "label": "NONE", "source": "seed"}
+{"text": "Nee, laat maar.", "label": "NONE", "source": "seed"}
+{"text": "Oké, prima.", "label": "NONE", "source": "seed"}
+{"text": "Haha, oké dan.", "label": "NONE", "source": "seed"}
+{"text": "Oei, dat ging bijna mis.", "label": "NONE", "source": "seed"}
+{"text": "Ik schrok een beetje.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Het gaat goed hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben er weer.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even aan het kijken.", "label": "NONE", "source": "seed"}
+{"text": "Ik probeer het nog een keer.", "label": "NONE", "source": "seed"}
+{"text": "Dat was niet wat ik bedoelde.", "label": "NONE", "source": "seed"}
+{"text": "Dat ging niet helemaal lekker.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje in de war.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Het was meer “ho”, als uitdrukking, niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Ho, dat klinkt ouderwets.", "label": "NONE", "source": "seed"}
+{"text": "Als ik “halt” zeg, klinkt dat wel streng.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “sta stil” omdat ik zelf stil stond.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde “blijf staan” als grapje.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “pauze” omdat ik zelf pauze heb.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even in pauze-modus.", "label": "NONE", "source": "seed"}
+{"text": "Ik wacht even, ik denk na.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben aan het wachten op iemand.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben zo terug, ik ben even weg.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even bezig, moment.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik moet even schakelen.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind lopen bij jou een beetje wiebelig.", "label": "NONE", "source": "seed"}
+{"text": "Ik zag je net lopen en ik schrok.", "label": "NONE", "source": "seed"}
+{"text": "Lopen lijkt me best moeilijk voor jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik denk dat lopen best energie kost.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb zelf net een stukje gelopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben net terug van een wandeling.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vandaag veel gelopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Gangnam style blijft toch leuk.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb gisteren nog Gangnam style gehoord.", "label": "NONE", "source": "seed"}
+{"text": "Ik ken de dab van vroeger.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind “lang zal hij leven” een leuk liedje.", "label": "NONE", "source": "seed"}
+{"text": "Die stoomboot is echt Sinterklaas voor mij.", "label": "NONE", "source": "seed"}
+{"text": "Ik moest aan de stoomboot denken door het weer.", "label": "NONE", "source": "seed"}
+{"text": "Ik krijg meteen dat liedje in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben nu die melodie aan het neuriën.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben niet echt in een feeststemming vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je me slaat, hoor.", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind een fistbump meestal makkelijker.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb mijn hand al vol, sorry.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hand doet pijn vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb koude handen.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb net mijn hand gewassen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje bang dat ik je omstoot.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil je niet per ongeluk aanraken.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vandaag niet zo sociaal.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vandaag juist extra sociaal.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het leuk dat je reageert op stem.", "label": "NONE", "source": "seed"}
+{"text": "Ik praat soms door elkaar als ik enthousiast ben.", "label": "NONE", "source": "seed"}
+{"text": "Ik praat soms heel zacht.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje hees.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb een droge keel.", "label": "NONE", "source": "seed"}
+{"text": "Ik moet even hoesten.", "label": "NONE", "source": "seed"}
+{"text": "Alex, ik praat tegen jou, maar niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "René, ik test gewoon even je microfoon.", "label": "NONE", "source": "seed"}
+{"text": "NAO, ik probeer je spraakherkenning te snappen.", "label": "NONE", "source": "seed"}
+{"text": "Ik weet niet of je mij wel goed verstaat.", "label": "NONE", "source": "seed"}
+{"text": "Volgens mij verstond je me net verkeerd.", "label": "NONE", "source": "seed"}
+{"text": "Ik praat te snel, denk ik.", "label": "NONE", "source": "seed"}
+{"text": "Ik zal langzamer praten.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga wat duidelijker articuleren.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga het eenvoudiger zeggen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd hoe vaak je fouten maakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil liever gewoon even kletsen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vooral aan het experimenteren.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben aan het testen wat jij doet.", "label": "NONE", "source": "seed"}
+{"text": "Oké, dat was een misser.", "label": "NONE", "source": "seed"}
+{"text": "Dat was niet de bedoeling.", "label": "NONE", "source": "seed"}
+{"text": "Dat is niet wat ik vroeg.", "label": "NONE", "source": "seed"}
+{"text": "Dat is niet wat ik zei.", "label": "NONE", "source": "seed"}
+{"text": "Dat is wel grappig eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Dat is best knap.", "label": "NONE", "source": "seed"}
+{"text": "Dat is best schattig.", "label": "NONE", "source": "seed"}
+{"text": "Dat is een beetje vreemd.", "label": "NONE", "source": "seed"}
+{"text": "Dat is verrassend.", "label": "NONE", "source": "seed"}
+{"text": "Dat is beter.", "label": "NONE", "source": "seed"}
+{"text": "Dat is slechter.", "label": "NONE", "source": "seed"}
+{"text": "Dat was sneller dan ik dacht.", "label": "NONE", "source": "seed"}
+{"text": "Dat was langzamer dan ik dacht.", "label": "NONE", "source": "seed"}
+{"text": "Ik weet het nog niet.", "label": "NONE", "source": "seed"}
+{"text": "Ik twijfel nog.", "label": "NONE", "source": "seed"}
+{"text": "Ik denk dat dit werkt.", "label": "NONE", "source": "seed"}
+{"text": "Ik denk dat dit niet werkt.", "label": "NONE", "source": "seed"}
+{"text": "Ik moet het nog eens proberen.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Stop is een raar woord eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het woord “stop” grappig.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook dansen?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Ik zie mensen vaak mis slaan bij een high five.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “stop” vaak te snel pakt.", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "kan die zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Ik word duizelig als ik snel draai.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “loopmodus” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens een dansje?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je vastloopt?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde links in het verhaal, niet in de ruimte.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “draai”, maar ik bedoelde het in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Die robotdans is wel een klassieker.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes ken je?", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei net “stop”, maar ik bedoelde het niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel dansjes heb je?", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “boks” hetzelfde als “box”?", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zwaaien zonder dat ik het vraag?", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Rechts is waar mijn horloge zit.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Wat gebeurt er als ik 'stop' zeg?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}

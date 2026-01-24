@@ -503,8 +503,8 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - naar ruststand
 - ga terug naar rust
 - ga terug naar slaapstand
-- stop en ga rusten
-- stop en ga slapen
+- Je mag nu gaan rusten
+- Je mag nu gaan slapen
 - Alex, ga rusten
 - René, ga rusten
 - NAO, ga rusten

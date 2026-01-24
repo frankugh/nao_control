@@ -4,7 +4,14 @@ from typing import Any, Iterable
 
 
 def _normalize_labels(labels: Iterable[str]) -> set[str]:
-    return {str(label).strip().upper() for label in labels if str(label).strip()}
+    normalized: set[str] = set()
+    for label in labels:
+        raw = str(label).strip()
+        if not raw:
+            continue
+        raw = raw.replace("\\_", "_").replace("\\", "")
+        normalized.add(raw.upper())
+    return normalized
 
 
 def is_guarded(
@@ -14,9 +21,10 @@ def is_guarded(
     guarded_labels_override: list[str] | None = None,
     unguarded_labels_override: list[str] | None = None,
 ) -> bool:
-    normalized_label = str(label).strip().upper()
+    normalized_label = str(label).strip()
     if not normalized_label:
         return True
+    normalized_label = normalized_label.replace("\\_", "_").replace("\\", "").upper()
 
     if guarded_labels_override is not None:
         guarded = _normalize_labels(guarded_labels_override)

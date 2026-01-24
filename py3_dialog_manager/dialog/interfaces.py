@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import (
     Any,
     Dict,
@@ -40,8 +41,13 @@ def parse_cmdrec_bundle(value: Any) -> CmdRecBundle:
     v_lower = v.lower()
     if v_lower in ("none", "latest"):
         return v_lower
-    if v_lower.startswith("v") and v_lower[1:].isdigit():
-        return f"v{int(v_lower[1:])}"
+    match = re.match(r"^v(\d+)(?:_(\d{8}))?$", v_lower)
+    if match:
+        version = int(match.group(1))
+        date_part = match.group(2)
+        if date_part:
+            return f"v{version}_{date_part}"
+        return f"v{version}"
     raise ValueError("cmdrec moet 'none', 'latest' of 'v<nummer>' zijn.")
 
 

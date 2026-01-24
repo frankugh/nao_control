@@ -75,24 +75,28 @@ def resolve_bundle_path(cmdrec_value: str, bundles_dir: str) -> Path:
 
     value = cmdrec_value.strip().lower()
     if value == "latest":
-        versioned: list[tuple[int, Path]] = []
+        versioned: list[tuple[int, int, Path]] = []
         for path in available:
-            match = re.match(r"bundle_v(\d+)$", path.name)
+            match = re.match(r"bundle_v(\d+)(?:_(\d{8}))?$", path.name)
             if match:
-                versioned.append((int(match.group(1)), path))
+                version = int(match.group(1))
+                date_part = int(match.group(2)) if match.group(2) else 0
+                versioned.append((version, date_part, path))
         if versioned:
-            versioned.sort(key=lambda item: item[0], reverse=True)
-            return versioned[0][1].resolve()
+            versioned.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            return versioned[0][2].resolve()
         raise ValueError(
             "Geen bundles gevonden voor cmdrec=latest. "
             f"Gezocht in {searched_roots or [bundles_path]}. "
             f"Beschikbaar: {available_names or 'geen'}."
         )
 
-    match = re.match(r"^(?:bundle_)?v(\d+)$", value)
+    match = re.match(r"^(?:bundle_)?v(\d+)(?:_(\d{8}))?$", value)
     if match:
         version = int(match.group(1))
-        candidate = bundles_path / f"bundle_v{version}"
+        date_part = match.group(2)
+        suffix = f"_{date_part}" if date_part else ""
+        candidate = bundles_path / f"bundle_v{version}{suffix}"
         if candidate.is_dir():
             return candidate.resolve()
         raise ValueError(

@@ -2,9 +2,12 @@
   "behavior_backend": "print",
   "debug_cmdrec": true,
   "confirm_method": "web",
+  "confirm_policy": "when_guarded",
   "confirm_timeout_s": 10.0,
-  "cmdrec": "v15",
+  "cmdrec": "latest",
   "cmdrec_bundles_dir": "dist",
+  "nao_ip": "192.168.0.101",
+  "nao_ip_enabled": false,
   "nao_connection": {
     "primary": {
       "base_url": "http://127.0.0.1:5001/nao"

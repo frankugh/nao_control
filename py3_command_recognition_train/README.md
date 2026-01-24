@@ -39,12 +39,54 @@ python tools/export_none_candidates.py
 python tools/make_none.py --seed-file data/none_seed.txt --download-hf --max-none 7000
 ```
 
+### NONE split outputs (optioneel)
+
+Je kunt `make_none.py` ook laten splitsen in seed vs. external:
+
+```bash
+python tools/make_none.py \
+  --seed-file data/none_seed.txt \
+  --download-hf \
+  --max-none 7000 \
+  --output data/none.jsonl \
+  --output-seed data/none_seed.jsonl \
+  --output-external data/none_external.jsonl
+```
+
 ## 4) Review (optioneel)
 
 ```bash
 python tools/sample_review.py
 python tools/apply_overrides.py
 ```
+
+### Active learning review queue
+
+Gebruik deze scripts om de AL review queue te exporteren en toe te passen:
+
+```bash
+python tools/export_review_queue.py --queue data/al/review_queue.jsonl
+# edit review/al_review.csv
+python tools/apply_review_queue.py --review review/al_review.csv
+```
+
+De export sorteert op: declined eerst, daarna laagste confidence.
+Als `keep` en `reviewed_label` leeg zijn wordt de rij genegeerd.
+Gebruik:
+- `keep=1` als het suggested label klopt
+- `keep=0` om de rij te droppen
+- `reviewed_label` om het label te corrigeren
+Na apply worden alle reviewed IDs automatisch uit de queue verwijderd.
+
+Optioneel kun je auto-retrainen zodra er genoeg reviews zijn:
+
+```bash
+python tools/apply_review_queue.py --review review/al_review.csv --auto-retrain
+```
+
+Auto-retrain schrijft eerst naar `dist/experiments/` en promoot alleen naar `dist/` als de score beter is.
+Auto-retrain werkt cumulatief: reviews tellen op tot de threshold is bereikt.
+Standaard pakt auto-retrain de 25 minst zekere auto-approved samples met confidence <= 0.75.
 
 ## 5) Trainen
 
@@ -53,6 +95,26 @@ python -m cmdrec.train --commands data/commands.jsonl --none data/none.jsonl --o
 ```
 
 Training gebruikt `data/none_clean.jsonl` als die bestaat en kapt NONE tot maximaal 5x het aantal commands.
+
+### Retrain (Gold v1 + ratio)
+
+Eerst eenmalig een vaste gold-split maken:
+
+```bash
+python tools/make_gold_split.py --seed 42 --gold-ratio 0.2
+```
+
+Daarna retrainen met vaste gold-set en gecontroleerde NONE-ratio:
+
+```bash
+python tools/retrain_cmdrec.py --none-ratio 5 --out dist/bundle_v17
+```
+
+Auto-out (naam op basis van laatste bundle) kan met:
+
+```bash
+python tools/retrain_cmdrec.py --out auto
+```
 
 ## 6) Voorspellen
 

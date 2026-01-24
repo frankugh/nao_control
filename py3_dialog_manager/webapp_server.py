@@ -17,6 +17,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -124,6 +125,8 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     mic_cfg = (input_cfg.get("mic", {}) or {})
     mic_params = (mic_cfg.get("params", {}) or {})
     nao_ip = mic_params.get("host", "") if mic_cfg.get("type") == "nao_ssh" else ""
+    if not nao_ip:
+        nao_ip = cfg_src.get("nao_ip", "") or ""
     stt_cfg = (input_cfg.get("stt", {}) or {})
 
     llm_cfg = (cfg_src.get("llm", {}) or {})
@@ -138,10 +141,11 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         input_device = "nao_ssh"
 
     return {
+        "confirm_policy": (cfg_src.get("confirm_policy") or "when_guarded"),
         "nao_base_url": (fallback.get("base_url") or "").rstrip("/"),
         "behavior_manager_url": behavior_manager_url,
         "nao_ip": nao_ip or "",
-        "nao_ip_enabled": bool(nao_ip),
+        "nao_ip_enabled": bool(cfg_src.get("nao_ip_enabled")) if "nao_ip_enabled" in cfg_src else bool(nao_ip),
         "base_enabled": True,
         "behavior_enabled": True,
         "input_device": input_device,
@@ -273,6 +277,9 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     base_pipeline = build_pipeline_from_config(cfg, config_path=config_path)
     base_stt = make_stt_backend_from_config(cfg)
     pipeline_lock = threading.Lock()
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    al_dir = os.path.join(repo_root, "py3_command_recognition_train", "data", "al")
+    al_lock = threading.Lock()
 
     # In-memory session histories for intranet testing
     sessions: Dict[str, History] = {}
@@ -356,6 +363,50 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def _append_confirm_card(history: History, payload: Dict[str, Any]) -> None:
         history.append(payload)
 
+    def _al_append(filename: str, payload: Dict[str, Any]) -> None:
+        os.makedirs(al_dir, exist_ok=True)
+        path = os.path.join(al_dir, filename)
+        line = json.dumps(payload, ensure_ascii=False)
+        with al_lock:
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+
+    def _al_event(
+        sid: str,
+        text: str,
+        *,
+        suggested_label: str,
+        predicted_label: Optional[str] = None,
+        confidence: Optional[float] = None,
+        reason: Optional[str] = None,
+        top3: Optional[List[Any]] = None,
+        cmdrec_bundle: Optional[str] = None,
+        stt_used: Optional[bool] = None,
+        stt_edited: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "id": uuid.uuid4().hex,
+            "session_id": sid,
+            "text": text,
+            "suggested_label": suggested_label,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        if stt_used is not None:
+            payload["stt_used"] = bool(stt_used)
+        if stt_edited is not None:
+            payload["stt_edited"] = bool(stt_edited)
+        if predicted_label:
+            payload["predicted_label"] = predicted_label
+        if confidence is not None:
+            payload["confidence"] = confidence
+        if reason:
+            payload["reason"] = reason
+        if top3:
+            payload["top3"] = top3
+        if cmdrec_bundle:
+            payload["cmdrec_bundle"] = cmdrec_bundle
+        return payload
+
     def _make_debug(decision, debug_enabled: bool) -> Optional[Dict[str, Any]]:
         if not debug_enabled:
             return None
@@ -378,6 +429,17 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if cmd is not None:
             _set_last_action(sid, _format_action_summary("Verlopen", cmd.label, cmd.resolved))
         _append_assistant(history, "⏳ Bevestiging verlopen.")
+
+    def _extract_stt_meta(input_meta: Optional[Dict[str, Any]]) -> Tuple[Optional[bool], Optional[bool]]:
+        if not input_meta:
+            return None, None
+        stt_used = input_meta.get("stt_used") if "stt_used" in input_meta else None
+        stt_edited = input_meta.get("stt_edited") if "stt_edited" in input_meta else None
+        if stt_used is not None:
+            stt_used = bool(stt_used)
+        if stt_edited is not None:
+            stt_edited = bool(stt_edited)
+        return stt_used, stt_edited
 
     @app.get("/")
     def index():
@@ -426,8 +488,16 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         return jsonify({"ok": True, "transcript": res.text, "language": getattr(res, "language", "")})
 
 
-    def _process_text(sid: str, text: str, *, emit_req: str = "pipeline", reset: bool = False) -> Dict[str, Any]:
+    def _process_text(
+        sid: str,
+        text: str,
+        *,
+        emit_req: str = "pipeline",
+        reset: bool = False,
+        input_meta: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         emit_used = "pipeline" if str(emit_req).lower() == "pipeline" else "none"
+        stt_used, stt_edited = _extract_stt_meta(input_meta)
 
         pipeline = _get_pipeline(sid)
         debug_cmdrec, cmdrec, behavior_executor = _pipeline_props(pipeline)
@@ -461,6 +531,21 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     ),
                 )
                 _append_assistant(history, "OK. Uitgevoerd: STOP")
+                _al_append(
+                    "review_queue.jsonl",
+                    _al_event(
+                        sid,
+                        text,
+                        suggested_label=decision.command.label,
+                        predicted_label=decision.command.label,
+                        confidence=decision.command.confidence,
+                        reason="auto_executed",
+                        top3=decision.top3,
+                        cmdrec_bundle=str(getattr(cmdrec, "bundle_path", "") or ""),
+                        stt_used=stt_used,
+                        stt_edited=stt_edited,
+                    ),
+                )
                 payload = {
                     "ok": True,
                     "reply": "OK. Uitgevoerd: STOP",
@@ -508,6 +593,21 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         ),
                     )
                     _append_assistant(history, "OK. Uitgevoerd: STOP")
+                    _al_append(
+                        "review_queue.jsonl",
+                        _al_event(
+                            sid,
+                            text,
+                            suggested_label=decision.command.label,
+                            predicted_label=decision.command.label,
+                            confidence=decision.command.confidence,
+                            reason="auto_executed",
+                            top3=decision.top3,
+                            cmdrec_bundle=str(getattr(cmdrec, "bundle_path", "") or ""),
+                            stt_used=stt_used,
+                            stt_edited=stt_edited,
+                        ),
+                    )
                     payload = {
                         "ok": True,
                         "reply": "OK. Uitgevoerd: STOP",
@@ -519,7 +619,15 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         payload["debug"] = debug
                     return payload
 
-                if cmdrec.is_guarded(decision.command.label) and confirm_method != "none":
+                confirm_policy = (runtime_cfg.get("confirm_policy") or base_cfg.get("confirm_policy") or "when_guarded").lower()
+                confirm_needed = False
+                if confirm_method != "none":
+                    if confirm_policy == "always":
+                        confirm_needed = True
+                    else:
+                        confirm_needed = cmdrec.is_guarded(decision.command.label)
+
+                if confirm_needed:
                     _append_user(history, text)
                     confirmation_id = uuid.uuid4().hex
                     pending_confirms[sid] = {
@@ -527,11 +635,18 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         "command": decision.command,
                         "created_at": time.time(),
                         "timeout_s": confirm_timeout_s,
+                        "input_text": text,
+                        "input_meta": {"stt_used": stt_used, "stt_edited": stt_edited},
+                        "top3": decision.top3,
+                        "confidence": decision.command.confidence,
+                        "label": decision.command.label,
                     }
                     confirm_payload = {
                         "type": "confirm_required",
                         "role": "assistant",
                         "confirmation_id": confirmation_id,
+                        "created_at": pending_confirms[sid]["created_at"],
+                        "timeout_s": pending_confirms[sid]["timeout_s"],
                         "prompt": f"Bevestig uitvoeren: {decision.command.label} ?",
                         "command": {
                             "label": decision.command.label,
@@ -567,6 +682,21 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     ),
                 )
                 _append_assistant(history, f"OK. Uitgevoerd: {decision.command.label}")
+                _al_append(
+                    "review_queue.jsonl",
+                    _al_event(
+                        sid,
+                        text,
+                        suggested_label=decision.command.label,
+                        predicted_label=decision.command.label,
+                        confidence=decision.command.confidence,
+                        reason="auto_executed",
+                        top3=decision.top3,
+                        cmdrec_bundle=str(getattr(cmdrec, "bundle_path", "") or ""),
+                        stt_used=stt_used,
+                        stt_edited=stt_edited,
+                    ),
+                )
                 payload = {
                     "ok": True,
                     "reply": f"OK. Uitgevoerd: {decision.command.label}",
@@ -577,6 +707,23 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 if debug:
                     payload["debug"] = debug
                 return payload
+
+            if not decision.is_command and decision.reason != "disabled":
+                _al_append(
+                    "review_queue.jsonl",
+                    _al_event(
+                        sid,
+                        text,
+                        suggested_label="NONE",
+                        predicted_label=None,
+                        confidence=None,
+                        reason=decision.reason or "none",
+                        top3=decision.top3,
+                        cmdrec_bundle=str(getattr(cmdrec, "bundle_path", "") or ""),
+                        stt_used=stt_used,
+                        stt_edited=stt_edited,
+                    ),
+                )
 
         output_enabled = bool(runtime_cfg.get("base_enabled", True))
         if output_enabled:
@@ -647,6 +794,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             text,
             emit_req=emit_req,
             reset=payload.get("reset") is True,
+            input_meta=payload.get("input_meta"),
         )
         resp = jsonify(result)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
@@ -706,7 +854,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
                     try:
                         with pipeline_lock:
-                            _process_text(sid, text_in, emit_req="pipeline", reset=False)
+                            _process_text(
+                                sid,
+                                text_in,
+                                emit_req="pipeline",
+                                reset=False,
+                                input_meta={"stt_used": True, "stt_edited": False},
+                            )
                         state["phase"] = "listening"
                     except Exception as exc:
                         state["last_error"] = str(exc)
@@ -755,15 +909,56 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         pending_confirms.pop(sid, None)
         cmd = pending["command"]
+        pipeline = _get_pipeline(sid)
+        _, _, behavior_executor = _pipeline_props(pipeline)
+        stt_used, stt_edited = _extract_stt_meta(pending.get("input_meta"))
 
         if confirmed:
             if behavior_executor:
                 behavior_executor.execute(cmd)
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
             _append_assistant(history, f"✅ Uitgevoerd: {cmd.label}")
+            summary = _format_action_summary("Behavior", cmd.label, cmd.resolved)
+            if not behavior_executor:
+                summary += " (geen behavior uitgevoerd)"
+            _append_assistant(history, summary)
+            _al_append(
+                "auto_train.jsonl",
+                _al_event(
+                    sid,
+                    str(pending.get("input_text") or cmd.raw_text or ""),
+                    suggested_label=cmd.label,
+                    predicted_label=cmd.label,
+                    confidence=pending.get("confidence") or cmd.confidence,
+                    reason="approved",
+                    top3=pending.get("top3"),
+                    cmdrec_bundle=str(getattr(_get_pipeline(sid), "_cmdrec", None).bundle_path)
+                    if getattr(_get_pipeline(sid), "_cmdrec", None)
+                    else None,
+                    stt_used=stt_used,
+                    stt_edited=stt_edited,
+                ),
+            )
         else:
             _set_last_action(sid, _format_action_summary("Geannuleerd", cmd.label, cmd.resolved))
             _append_assistant(history, "❌ Geannuleerd")
+            _al_append(
+                "review_queue.jsonl",
+                _al_event(
+                    sid,
+                    str(pending.get("input_text") or cmd.raw_text or ""),
+                    suggested_label=cmd.label,
+                    predicted_label=cmd.label,
+                    confidence=pending.get("confidence") or cmd.confidence,
+                    reason="declined",
+                    top3=pending.get("top3"),
+                    cmdrec_bundle=str(getattr(_get_pipeline(sid), "_cmdrec", None).bundle_path)
+                    if getattr(_get_pipeline(sid), "_cmdrec", None)
+                    else None,
+                    stt_used=stt_used,
+                    stt_edited=stt_edited,
+                ),
+            )
 
         resp = jsonify(
             {
@@ -849,13 +1044,34 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             for name in sorted(os.listdir(bundles_dir)):
                 if name.startswith(".") or name.lower() == "backup":
                     continue
-                if name.lower().startswith("bundle_v") and name[8:].isdigit():
-                    items.append("v" + str(int(name[8:])))
-                elif name.lower().startswith("v") and name[1:].isdigit():
-                    items.append("v" + str(int(name[1:])))
+                match = re.match(r"bundle_v(\d+)(?:_(\d{8}))?$", name, re.IGNORECASE)
+                if match:
+                    version = int(match.group(1))
+                    date_part = match.group(2)
+                    if date_part:
+                        items.append(f"v{version}_{date_part}")
+                    else:
+                        items.append(f"v{version}")
+                    continue
+                match = re.match(r"v(\d+)(?:_(\d{8}))?$", name, re.IGNORECASE)
+                if match:
+                    version = int(match.group(1))
+                    date_part = match.group(2)
+                    if date_part:
+                        items.append(f"v{version}_{date_part}")
+                    else:
+                        items.append(f"v{version}")
         except OSError:
             pass
-        items = sorted({i for i in items}, key=lambda v: int(v[1:]) if v[1:].isdigit() else 0, reverse=True)
+        def _sort_key(value: str) -> tuple[int, int]:
+            match = re.match(r"v(\d+)(?:_(\d{8}))?$", value, re.IGNORECASE)
+            if not match:
+                return (0, 0)
+            version = int(match.group(1))
+            date_part = int(match.group(2)) if match.group(2) else 0
+            return (version, date_part)
+
+        items = sorted({i for i in items}, key=_sort_key, reverse=True)
         return jsonify({"ok": True, "bundles": items})
 
     @app.get("/api/master_prompts")

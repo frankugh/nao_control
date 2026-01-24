@@ -9,6 +9,7 @@ from dialog.interfaces import parse_cmdrec_bundle, parse_confirm_method
         ("none", "none"),
         ("latest", "latest"),
         ("v15", "v15"),
+        ("v1_20260124", "v1_20260124"),
     ],
 )
 def test_parse_cmdrec_bundle_accepts_expected_values(value, expected):
