@@ -30,7 +30,11 @@ class Py2NaoTTSBackend(TTSBackend):
     def speak(self, text: str) -> None:
         payload = {"text": text}
         if self.api_router is not None:
-            resp = self.api_router.post("/tts", json=payload, timeout=self.timeout)
+            try:
+                resp = self.api_router.post("/tts", json=payload, timeout=self.timeout)
+            except requests.RequestException as exc:
+                print("[NAO] TTS request failed: %s" % exc)
+                return
         else:
             url = f"{self.base_url}/tts"
             try:

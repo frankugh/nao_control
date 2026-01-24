@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>NAO dialog test (intranet)</title>
+    <title>NAO Studio</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; min-height: 100vh; }
       h2 { margin: 0 0 10px 0; }
@@ -39,10 +39,37 @@
 
       .prompt { height: 520px; overflow: auto; background: #0b0b0b; color: #e8e8e8; border-radius: 12px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; white-space: pre-wrap; }
       .muted { color: #aaa; }
+      .tabbar { display: flex; gap: 8px; align-items: center; }
+      .tab { border: 1px solid #ddd; border-radius: 999px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
+      .tab.active { background: #111; color: #fff; border-color: #111; }
+      .tabpane.hidden { display: none; }
+      .formgrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+      .formgrid label { font-size: 12px; color: #555; }
+      .formgrid input, .formgrid select { width: 100%; padding: 8px; font-size: 14px; }
+      .health { display: flex; gap: 8px; flex-wrap: wrap; }
+      .health .pill { font-size: 12px; }
+      .pill.ok { background: #e6f7e6; border-color: #b7e3b7; color: #246b24; }
+      .pill.bad { background: #ffecec; border-color: #f5b5b5; color: #7a1f1f; }
+      .device-name { font-size: 12px; color: #666; margin-top: 4px; }
+      .enable-row { display: flex; align-items: center; gap: 8px; }
+      .enable-row input { width: auto; }
+      .dirty { border-color: #d33 !important; }
+      .field-row { display: flex; align-items: center; gap: 8px; }
+      .field-row button { padding: 4px 8px; font-size: 12px; }
+      .dirty-note { font-size: 12px; color: #b00020; }
+
+      .segmented { display: inline-flex; border: 1px solid #ddd; border-radius: 999px; overflow: hidden; }
+      .segmented button { border: 0; background: #fff; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+      .segmented button + button { border-left: 1px solid #ddd; }
+      .segmented button.active { background: #111; color: #fff; }
+
+      .phase-thinking { background: #efefef; border-color: #d0d0d0; color: #333; }
+      .phase-transcribing { background: #fff2dd; border-color: #ffd0a3; color: #7a4a00; }
+      .phase-listening { background: #e8f4ff; border-color: #bcdcff; color: #235e9a; }
     </style>
   </head>
   <body>
-    <h2>NAO dialog test (thuis / intranet)</h2>
+    <h2>NAO Studio</h2>
     <div class="small">
       Flow: <span class="pill">record</span> → <span class="pill">stop</span> (STT) → <span class="pill">edit</span> → <span class="pill">send</span> (LLM+output)
     </div>
@@ -55,6 +82,13 @@
         <div class="composer">
           <textarea id="txt" placeholder="Transcript komt hier... (je kunt het editen)"></textarea>
           <div class="row" style="margin-top:10px">
+            <div id="listenMode" class="segmented">
+              <button type="button" data-mode="ptt" class="active">Push-to-talk</button>
+              <button type="button" data-mode="continuous">Continuous</button>
+            </div>
+          </div>
+          <div id="listenModeNote" class="small" style="margin-top:6px"></div>
+          <div class="row" style="margin-top:10px">
             <button id="btnRec">🎙️ Opnemen</button>
             <button id="btnSend" disabled>📨 Send</button>
             <button id="btnReset">🧹 Reset</button>
@@ -64,13 +98,99 @@
         </div>
       </div>
 
-      <!-- RIGHT: master prompt -->
+      <!-- RIGHT: master prompt / runtime config -->
       <div class="card">
-        <div class="row" style="margin-bottom:8px">
-          <b>Master prompt</b>
-          <span class="pill">system</span>
+        <div class="row tabbar" style="margin-bottom:8px">
+          <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
+          <button id="tabRuntime" class="tab" type="button">Runtime config</button>
         </div>
-        <div id="prompt" class="prompt"><span class="muted">laden…</span></div>
+        <div id="tab-prompt" class="tabpane">
+          <div class="row" style="margin-bottom:8px">
+            <span class="pill">system</span>
+          </div>
+          <div id="prompt" class="prompt"><span class="muted">laden...</span></div>
+        </div>
+        <div id="tab-runtime" class="tabpane hidden">
+          <div class="formgrid">
+            <div>
+              <label>NAO IP</label>
+              <div class="field-row">
+                <input id="cfgNaoIp" type="text" placeholder="192.168.0.101" />
+                <button id="btnApplyNaoIp" type="button" style="display:none">↻</button>
+              </div>
+              <div id="cfgNaoIpDirty" class="dirty-note" style="display:none">gewijzigd</div>
+              <label class="enable-row"><span>enable:</span><input id="cfgNaoIpEnabled" type="checkbox" /></label>
+              <div class="health">
+                <span id="healthNao" class="pill">nao: onbekend</span>
+              </div>
+            </div>
+            <div>
+              <label>NAO base connector (ip:port)</label>
+              <div class="field-row">
+                <input id="cfgNaoBase" type="text" placeholder="127.0.0.1:5000" />
+                <button id="btnApplyBase" type="button" style="display:none">↻</button>
+              </div>
+              <div id="cfgBaseDirty" class="dirty-note" style="display:none">gewijzigd</div>
+              <label class="enable-row"><span>enable:</span><input id="cfgBaseEnabled" type="checkbox" /></label>
+              <div class="health">
+                <span id="healthBase" class="pill">base: onbekend</span>
+              </div>
+            </div>
+            <div>
+              <label>Behavior manager (ip:port)</label>
+              <div class="field-row">
+                <input id="cfgBehavior" type="text" placeholder="127.0.0.1:5001" />
+                <button id="btnApplyBehavior" type="button" style="display:none">↻</button>
+              </div>
+              <div id="cfgBehaviorDirty" class="dirty-note" style="display:none">gewijzigd</div>
+              <label class="enable-row"><span>enable:</span><input id="cfgBehaviorEnabled" type="checkbox" /></label>
+              <div class="health">
+                <span id="healthBehavior" class="pill">behavior manager: onbekend</span>
+              </div>
+            </div>
+            <div>
+              <label>Input device</label>
+              <div class="row">
+                <select id="cfgInputDevice"></select>
+              </div>
+              <div id="cfgInputDeviceName" class="device-name"></div>
+            </div>
+            <div>
+              <label>STT</label>
+              <select id="cfgStt">
+                <option value="vosk">vosk</option>
+                <option value="whisper">whisper</option>
+              </select>
+            </div>
+            <div>
+              <label>Command model</label>
+              <select id="cfgCmdrec"></select>
+            </div>
+            <div>
+              <label>Dialog (LLM)</label>
+              <div class="row">
+                <select id="cfgLlmType">
+                  <option value="echo">echo</option>
+                  <option value="ollama_local">ollama_local</option>
+                  <option value="ollama_cloud">ollama_cloud</option>
+                </select>
+                <input id="cfgLlmModel" type="text" placeholder="model name" list="ollamaModels" />
+                <datalist id="ollamaModels"></datalist>
+              </div>
+            </div>
+            <div>
+              <label>Master prompt</label>
+              <select id="cfgMasterPrompt"></select>
+            </div>
+            <div class="row">
+              <button id="btnResetCfg" type="button">Reset</button>
+              <button id="btnRefreshCfg" type="button">Refresh</button>
+              <span id="cfgStatus" class="small"></span>
+            </div>
+            <div class="small">Runtime = jouw overrides. Effective = basisconfig + overrides.</div>
+            <pre id="cfgDump" class="debug" style="white-space: pre-wrap;"></pre>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -83,6 +203,46 @@
       const chatEl = document.getElementById('chat');
       const promptEl = document.getElementById('prompt');
       const recState = document.getElementById('recState');
+      const listenModeEl = document.getElementById('listenMode');
+      const listenModeNote = document.getElementById('listenModeNote');
+      const tabPrompt = document.getElementById('tabPrompt');
+      const tabRuntime = document.getElementById('tabRuntime');
+      const tabPromptPane = document.getElementById('tab-prompt');
+      const tabRuntimePane = document.getElementById('tab-runtime');
+      const cfgNaoBase = document.getElementById('cfgNaoBase');
+      const cfgBehavior = document.getElementById('cfgBehavior');
+      const cfgBaseEnabled = document.getElementById('cfgBaseEnabled');
+      const cfgBehaviorEnabled = document.getElementById('cfgBehaviorEnabled');
+      const cfgNaoIp = document.getElementById('cfgNaoIp');
+      const cfgNaoIpEnabled = document.getElementById('cfgNaoIpEnabled');
+      const btnApplyNaoIp = document.getElementById('btnApplyNaoIp');
+      const cfgNaoIpDirty = document.getElementById('cfgNaoIpDirty');
+      const btnApplyBase = document.getElementById('btnApplyBase');
+      const btnApplyBehavior = document.getElementById('btnApplyBehavior');
+      const cfgBaseDirty = document.getElementById('cfgBaseDirty');
+      const cfgBehaviorDirty = document.getElementById('cfgBehaviorDirty');
+      const cfgInputDevice = document.getElementById('cfgInputDevice');
+      const cfgStt = document.getElementById('cfgStt');
+      const cfgCmdrec = document.getElementById('cfgCmdrec');
+      const cfgLlmType = document.getElementById('cfgLlmType');
+      const cfgLlmModel = document.getElementById('cfgLlmModel');
+      const cfgMasterPrompt = document.getElementById('cfgMasterPrompt');
+      const ollamaModels = document.getElementById('ollamaModels');
+      const btnResetCfg = document.getElementById('btnResetCfg');
+      const btnRefreshCfg = document.getElementById('btnRefreshCfg');
+      const cfgStatus = document.getElementById('cfgStatus');
+      const cfgDump = document.getElementById('cfgDump');
+      const cfgInputDeviceName = document.getElementById('cfgInputDeviceName');
+      const healthBase = document.getElementById('healthBase');
+      const healthBehavior = document.getElementById('healthBehavior');
+      const healthNao = document.getElementById('healthNao');
+      const LOCAL_CFG_KEY = 'nao_runtime_config_v1';
+      let runtimeCmdrecValue = null;
+      let lastAppliedBaseUrl = '';
+      let lastAppliedBehaviorUrl = '';
+      let lastAppliedNaoIp = '';
+      let ollamaLocalModels = [];
+      let ollamaCloudModels = [];
 
       let audioCtx = null;
       let stream = null;
@@ -90,9 +250,135 @@
       let input = null;
       let recording = false;
       let pcmChunks = [];
+      let listenMode = 'ptt';
+      let continuousActive = false;
+      let continuousPoll = null;
+      let phaseStickyUntil = 0;
+      let lastPhase = 'idle';
 
       function setStatus(msg) { statusEl.textContent = msg; }
-      function setRecState(s) { recState.textContent = s; }
+      function setRecState(label, phase) {
+        const text = (label || '').toString();
+        if (recState) recState.textContent = text || 'idle';
+        const p = (phase || '').toLowerCase();
+        if (recState) {
+          recState.classList.toggle('phase-thinking', p === 'thinking');
+          recState.classList.toggle('phase-transcribing', p === 'transcribing');
+          recState.classList.toggle('phase-listening', p === 'listening');
+        }
+      }
+
+      function setListenMode(mode) {
+        listenMode = mode;
+        if (listenModeEl) {
+          const buttons = listenModeEl.querySelectorAll('button');
+          buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+          });
+        }
+        if (listenModeNote && listenMode === 'ptt') {
+          listenModeNote.textContent = '';
+        }
+        if (listenMode !== 'continuous' && continuousActive) {
+          fetch('/api/continuous_stop', { method: 'POST' }).catch(() => {});
+          continuousActive = false;
+          stopContinuousPoll();
+          setRecState('idle');
+        }
+        updateContinuousAvailability();
+        updateRecButton();
+      }
+
+      if (listenModeEl) {
+        listenModeEl.addEventListener('click', (e) => {
+          const btn = e.target;
+          if (!btn || btn.tagName !== 'BUTTON') return;
+          setListenMode(btn.dataset.mode || 'ptt');
+        });
+      }
+      setListenMode('ptt');
+      updateContinuousAvailability();
+      updateRecButton();
+      function useNaoMic() { return cfgInputDevice.value === 'nao_ssh'; }
+      function canContinuous() { return true; }
+
+      function updateContinuousAvailability() {
+        if (!listenModeEl) return;
+        const btn = listenModeEl.querySelector('button[data-mode="continuous"]');
+        if (!btn) return;
+        const ok = canContinuous();
+        btn.disabled = !ok;
+        if (!ok) {
+          if (listenModeNote) {
+            listenModeNote.textContent = 'Continuous alleen beschikbaar voor server-mic.';
+          }
+          if (listenMode === 'continuous') {
+            listenMode = 'ptt';
+            const buttons = listenModeEl.querySelectorAll('button');
+            buttons.forEach(btnEl => {
+              btnEl.classList.toggle('active', btnEl.dataset.mode === listenMode);
+            });
+            updateRecButton();
+          }
+        } else if (listenModeNote && listenMode === 'ptt') {
+          listenModeNote.textContent = '';
+        }
+      }
+
+      function updateRecButton() {
+        if (listenMode === 'continuous') {
+          btnRec.textContent = continuousActive ? 'Stop' : 'Start luisteren';
+          return;
+        }
+        btnRec.textContent = recording ? 'Stop' : 'Opnemen';
+      }
+
+
+      function startContinuousPoll() {
+        if (continuousPoll) return;
+        continuousPoll = setInterval(() => {
+          refreshState().catch(() => {});
+          updateContinuousStatus().catch(() => {});
+        }, 800);
+      }
+
+
+      async function updateContinuousStatus() {
+        try {
+          const r = await fetch('/api/continuous_state');
+          const j = await r.json();
+          if (!j.ok) return;
+          const phase = (j.phase || '').toLowerCase();
+          const now = Date.now();
+          if (phase === 'transcribing' || phase === 'thinking') {
+            lastPhase = phase;
+            phaseStickyUntil = now + 800;
+          }
+          let showPhase = phase;
+          if (phase === 'listening' && now < phaseStickyUntil) {
+            showPhase = lastPhase;
+          }
+          if (showPhase === 'listening') {
+            setRecState('luisteren', 'listening');
+            setStatus('Luisteren...');
+          } else if (showPhase === 'transcribing') {
+            setRecState('transcriberen', 'transcribing');
+            setStatus('Transcriberen...');
+          } else if (showPhase === 'thinking') {
+            setRecState('denken', 'thinking');
+            setStatus('Denken...');
+          } else if (continuousActive) {
+            setRecState('idle');
+          }
+        } catch (_) {}
+      }
+
+      function stopContinuousPoll() {
+        if (!continuousPoll) return;
+        clearInterval(continuousPoll);
+        continuousPoll = null;
+      }
+
 
       function renderHistory(history, debug) {
         chatEl.innerHTML = '';
@@ -199,6 +485,429 @@
         promptEl.textContent = text ? text : '(geen system prompt ingesteld)';
       }
 
+      function setTab(which) {
+        if (which === 'runtime') {
+          tabRuntime.classList.add('active');
+          tabPrompt.classList.remove('active');
+          tabRuntimePane.classList.remove('hidden');
+          tabPromptPane.classList.add('hidden');
+        } else {
+          tabPrompt.classList.add('active');
+          tabRuntime.classList.remove('active');
+          tabPromptPane.classList.remove('hidden');
+          tabRuntimePane.classList.add('hidden');
+        }
+      }
+
+      function loadLocalConfig() {
+        try {
+          const raw = localStorage.getItem(LOCAL_CFG_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function saveLocalConfig(cfg) {
+        try {
+          localStorage.setItem(LOCAL_CFG_KEY, JSON.stringify(cfg));
+        } catch (_) {}
+      }
+
+      function getConfigFromForm() {
+        const inputDeviceValue = cfgInputDevice.value;
+        let inputDevice = null;
+        if (inputDeviceValue === 'nao_ssh') {
+          inputDevice = 'nao_ssh';
+        } else if (inputDeviceValue !== '') {
+          inputDevice = Number(inputDeviceValue);
+          if (isNaN(inputDevice)) {
+            inputDevice = null;
+          }
+        }
+        return {
+          nao_ip: (cfgNaoIp.value || '').trim(),
+          nao_ip_enabled: !!cfgNaoIpEnabled.checked,
+          nao_base_url: (cfgNaoBase.value || '').trim(),
+          behavior_manager_url: (cfgBehavior.value || '').trim(),
+          base_enabled: !!cfgBaseEnabled.checked,
+          behavior_enabled: !!cfgBehaviorEnabled.checked,
+          input_device: inputDevice,
+          stt_type: cfgStt.value,
+          cmdrec: cfgCmdrec.value,
+          llm_type: cfgLlmType.value,
+          llm_model: (cfgLlmModel.value || '').trim(),
+          master_prompt_file: cfgMasterPrompt.value || null
+        };
+      }
+
+      function applyConfigToForm(cfg) {
+        cfgNaoIp.value = cfg.nao_ip || '';
+        cfgNaoIpEnabled.checked = !!cfg.nao_ip_enabled;
+        cfgNaoBase.value = cfg.nao_base_url || '';
+        cfgBehavior.value = cfg.behavior_manager_url || '';
+        cfgBaseEnabled.checked = cfg.base_enabled !== false;
+        cfgBehaviorEnabled.checked = cfg.behavior_enabled !== false;
+        lastAppliedNaoIp = cfg.nao_ip || '';
+        lastAppliedBaseUrl = cfg.nao_base_url || '';
+        lastAppliedBehaviorUrl = cfg.behavior_manager_url || '';
+        setUrlDirty('nao', false);
+        setUrlDirty('base', false);
+        setUrlDirty('behavior', false);
+        cfgStt.value = cfg.stt_type || 'vosk';
+        const cmdrecValue = cfg.cmdrec || 'latest';
+        runtimeCmdrecValue = cmdrecValue;
+        if (![...cfgCmdrec.options].some(o => o.value === cmdrecValue)) {
+          const opt = document.createElement('option');
+          opt.value = cmdrecValue;
+          opt.textContent = cmdrecValue;
+          cfgCmdrec.appendChild(opt);
+        }
+        cfgCmdrec.value = cmdrecValue;
+        cfgLlmType.value = cfg.llm_type || 'echo';
+        cfgLlmModel.value = cfg.llm_model || '';
+        cfgLlmModel.classList.toggle('dirty', false);
+        cfgMasterPrompt.disabled = cfgLlmType.value === 'echo';
+        if (cfgMasterPrompt.disabled) {
+          cfgMasterPrompt.value = '';
+        } else if (cfg.master_prompt_file) {
+          cfgMasterPrompt.value = cfg.master_prompt_file;
+        }
+        const deviceValue = cfg.input_device == null ? '' : String(cfg.input_device);
+        if (deviceValue === 'nao_ssh' && ![...cfgInputDevice.options].some(o => o.value === 'nao_ssh')) {
+          const optNao = document.createElement('option');
+          optNao.value = 'nao_ssh';
+          optNao.textContent = 'NAO mic (SSH)';
+          cfgInputDevice.appendChild(optNao);
+        }
+        cfgInputDevice.value = deviceValue;
+        updateDeviceName();
+      }
+
+      async function loadDevices() {
+        const r = await fetch('/api/audio_devices');
+        const j = await r.json();
+        if (!j.ok) return;
+        const current = cfgInputDevice.value;
+        cfgInputDevice.innerHTML = '';
+        const optDefault = document.createElement('option');
+        optDefault.value = '';
+        optDefault.textContent = 'Default device';
+        cfgInputDevice.appendChild(optDefault);
+        const naoEnabled = cfgNaoIpEnabled.checked && (cfgNaoIp.value || '').trim();
+        if (naoEnabled || current === 'nao_ssh') {
+          const optNao = document.createElement('option');
+          optNao.value = 'nao_ssh';
+          optNao.textContent = 'NAO mic (SSH)';
+          cfgInputDevice.appendChild(optNao);
+        }
+        (j.devices || []).forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = String(d.index);
+          opt.textContent = d.name || `Device ${d.index}`;
+          cfgInputDevice.appendChild(opt);
+        });
+        if (current) {
+          cfgInputDevice.value = current;
+        }
+        updateDeviceName();
+      }
+
+      function updateDeviceName() {
+        const selected = cfgInputDevice.options[cfgInputDevice.selectedIndex];
+        if (!selected) {
+          cfgInputDeviceName.textContent = '';
+          return;
+        }
+        if (selected.value === '') {
+          cfgInputDeviceName.textContent = 'Default device';
+        } else if (selected.value === 'nao_ssh') {
+          cfgInputDeviceName.textContent = 'NAO mic (SSH)';
+        } else {
+          cfgInputDeviceName.textContent = selected.textContent;
+        }
+      }
+
+      function setUrlDirty(kind, dirty) {
+        if (kind === 'nao') {
+          cfgNaoIp.classList.toggle('dirty', !!dirty);
+          btnApplyNaoIp.style.display = dirty ? 'inline-block' : 'none';
+          cfgNaoIpDirty.style.display = dirty ? 'block' : 'none';
+        } else if (kind === 'base') {
+          cfgNaoBase.classList.toggle('dirty', !!dirty);
+          btnApplyBase.style.display = dirty ? 'inline-block' : 'none';
+          cfgBaseDirty.style.display = dirty ? 'block' : 'none';
+        } else {
+          cfgBehavior.classList.toggle('dirty', !!dirty);
+          btnApplyBehavior.style.display = dirty ? 'inline-block' : 'none';
+          cfgBehaviorDirty.style.display = dirty ? 'block' : 'none';
+        }
+      }
+
+      function buildConfigForUrlApply(kind) {
+        const cfg = getConfigFromForm();
+        if (kind !== 'nao' && cfgNaoIp.classList.contains('dirty')) {
+          cfg.nao_ip = lastAppliedNaoIp;
+        }
+        if (kind !== 'base' && cfgNaoBase.classList.contains('dirty')) {
+          cfg.nao_base_url = lastAppliedBaseUrl;
+        }
+        if (kind !== 'behavior' && cfgBehavior.classList.contains('dirty')) {
+          cfg.behavior_manager_url = lastAppliedBehaviorUrl;
+        }
+        return cfg;
+      }
+
+      function canApplyLlm(cfg) {
+        const llmType = (cfg.llm_type || '').toLowerCase();
+        if (llmType === 'echo') return true;
+        return !!(cfg.llm_model || '').trim();
+      }
+
+      async function loadCmdrecBundles() {
+        const r = await fetch('/api/cmdrec_bundles');
+        const j = await r.json();
+        if (!j.ok) return;
+        cfgCmdrec.innerHTML = '';
+        const latest = document.createElement('option');
+        latest.value = 'latest';
+        latest.textContent = 'latest';
+        cfgCmdrec.appendChild(latest);
+        const noneOpt = document.createElement('option');
+        noneOpt.value = 'none';
+        noneOpt.textContent = 'none';
+        cfgCmdrec.appendChild(noneOpt);
+        (j.bundles || []).forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          cfgCmdrec.appendChild(opt);
+        });
+        if (runtimeCmdrecValue) {
+          cfgCmdrec.value = runtimeCmdrecValue;
+        }
+      }
+
+      async function loadMasterPrompts() {
+        const r = await fetch('/api/master_prompts');
+        const j = await r.json();
+        if (!j.ok) return;
+        const current = cfgMasterPrompt.value;
+        cfgMasterPrompt.innerHTML = '';
+        (j.prompts || []).forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          cfgMasterPrompt.appendChild(opt);
+        });
+        if (current) {
+          cfgMasterPrompt.value = current;
+        }
+      }
+
+      async function loadOllamaModels(kind) {
+        const endpoint = kind === 'local' ? '/api/ollama_models_local' : '/api/ollama_models_cloud';
+        const r = await fetch(endpoint);
+        const j = await r.json();
+        if (!j.ok) return;
+        const models = (j.models || []).slice();
+        if (kind === 'local') {
+          ollamaLocalModels = models;
+        } else {
+          ollamaCloudModels = models;
+        }
+        renderOllamaModels();
+      }
+
+      function renderOllamaModels() {
+        const kind = cfgLlmType.value === 'ollama_cloud' ? 'cloud' : 'local';
+        const models = kind === 'cloud' ? ollamaCloudModels : ollamaLocalModels;
+        ollamaModels.innerHTML = '';
+        models.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          ollamaModels.appendChild(opt);
+        });
+        if (models.length && !models.includes(cfgLlmModel.value)) {
+          cfgLlmModel.value = '';
+        }
+      }
+
+      function setHealth(el, state, label) {
+        if (state === 'disabled') {
+          el.textContent = label + ': disabled';
+          el.classList.remove('ok');
+          el.classList.remove('bad');
+          return;
+        }
+        el.textContent = label + ': ' + (state ? 'ok' : 'down');
+        el.classList.toggle('ok', !!state);
+        el.classList.toggle('bad', !state);
+      }
+
+      async function refreshHealth(cfg) {
+        try {
+          if (!cfg.base_enabled && !cfg.behavior_enabled) {
+            setHealth(healthBase, false, 'base');
+            setHealth(healthBehavior, false, 'behavior');
+            return;
+          }
+          const r = await fetch('/api/runtime_health', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nao_base_url: cfg.nao_base_url,
+              behavior_manager_url: cfg.behavior_manager_url,
+              base_enabled: cfg.base_enabled,
+              behavior_enabled: cfg.behavior_enabled
+            })
+          });
+          const j = await r.json();
+          const baseOk = !!(j.base && j.base.ping);
+          const behaviorOk = !!(j.behavior && j.behavior.ping);
+          const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
+          setHealth(healthBase, baseOk, 'base');
+          setHealth(healthBehavior, behaviorOk && behaviorNaoOk, 'behavior');
+        } catch (_) {}
+      }
+
+      let healthTimer = null;
+      let lastHealthOk = null;
+      let lastNaoOk = null;
+
+      function scheduleHealth(cfg, isHealthy) {
+        if (healthTimer) clearTimeout(healthTimer);
+        if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) return;
+        const interval = isHealthy ? 30000 : 5000;
+        healthTimer = setTimeout(async () => {
+          const nextCfg = getConfigFromForm();
+          const ok = await pollHealth(nextCfg);
+          scheduleHealth(nextCfg, ok);
+        }, interval);
+      }
+
+      async function pollHealth(cfg) {
+        if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) {
+          setHealth(healthNao, 'disabled', 'nao');
+          setHealth(healthBase, 'disabled', 'base');
+          setHealth(healthBehavior, 'disabled', 'behavior manager');
+          lastHealthOk = false;
+          return false;
+        }
+        try {
+          const r = await fetch('/api/runtime_health', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nao_ip: cfg.nao_ip,
+              nao_ip_enabled: cfg.nao_ip_enabled,
+              nao_base_url: cfg.nao_base_url,
+              behavior_manager_url: cfg.behavior_manager_url,
+              base_enabled: cfg.base_enabled,
+              behavior_enabled: cfg.behavior_enabled
+            })
+          });
+          const j = await r.json();
+          if (!cfg.nao_ip_enabled) {
+            setHealth(healthNao, 'disabled', 'nao');
+            lastNaoOk = null;
+          } else {
+            const naoOk = !!(j.nao && j.nao.ping);
+            setHealth(healthNao, naoOk, 'nao');
+            lastNaoOk = naoOk;
+            if (!naoOk && cfgInputDevice.value === 'nao_ssh') {
+              cfgInputDevice.value = '';
+              updateDeviceName();
+              setStatus('NAO mic is down; switched to default device.');
+            }
+          lastNaoOk = naoOk;
+          }
+          if (!cfg.base_enabled) {
+            setHealth(healthBase, 'disabled', 'base');
+          } else {
+            const baseOk = !!(j.base && j.base.ping);
+            setHealth(healthBase, baseOk, 'base');
+          }
+          if (!cfg.behavior_enabled) {
+            setHealth(healthBehavior, 'disabled', 'behavior manager');
+          } else {
+            const behaviorOk = !!(j.behavior && j.behavior.ping);
+            const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
+            setHealth(healthBehavior, behaviorOk && behaviorNaoOk, 'behavior manager');
+          }
+          const baseOk = !!(j.base && j.base.ping);
+          const behaviorOk = !!(j.behavior && j.behavior.ping);
+          const naoOk = !!(j.nao && j.nao.ping);
+          const ok = baseOk || behaviorOk || naoOk;
+          lastHealthOk = ok;
+          return ok;
+        } catch (_) {
+          lastHealthOk = false;
+          return false;
+        }
+      }
+
+      async function applyRuntimeConfig(cfg, silent, applyUrls = true) {
+        cfgStatus.textContent = silent ? '' : 'Applying...';
+        const configToSend = { ...cfg };
+        if (!applyUrls) {
+          configToSend.nao_ip = lastAppliedNaoIp;
+          configToSend.nao_base_url = lastAppliedBaseUrl;
+          configToSend.behavior_manager_url = lastAppliedBehaviorUrl;
+        }
+        saveLocalConfig(configToSend);
+        const r = await fetch('/api/runtime_config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: configToSend })
+        });
+        const j = await r.json();
+        if (!j.ok) {
+          cfgStatus.textContent = 'Apply failed';
+          return;
+        }
+        lastAppliedNaoIp = configToSend.nao_ip || '';
+        lastAppliedBaseUrl = configToSend.nao_base_url || '';
+        lastAppliedBehaviorUrl = configToSend.behavior_manager_url || '';
+        cfgStatus.textContent = silent ? '' : 'Applied';
+        renderPrompt(j.system_prompt || '');
+        renderConfigDump(j.runtime_config || j.config || cfg, j.effective_config || null, j.output_enabled);
+      }
+
+      async function resetRuntimeConfig() {
+        localStorage.removeItem(LOCAL_CFG_KEY);
+        const r = await fetch('/api/runtime_config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reset: true })
+        });
+        const j = await r.json();
+        if (!j.ok) return;
+        applyConfigToForm(j.config || {});
+        renderConfigDump(j.config || {}, null, null);
+        cfgStatus.textContent = 'Reset';
+      }
+
+      async function refreshConfigDump() {
+        try {
+          const r = await fetch('/api/runtime_effective');
+          const j = await r.json();
+          if (!j.ok) return;
+          renderConfigDump(j.runtime_config || {}, j.effective_config || null, j.output_enabled);
+        } catch (_) {}
+      }
+
+      function renderConfigDump(runtimeCfg, effectiveCfg, outputEnabled) {
+        const lines = [];
+        lines.push('runtime_config:');
+        lines.push(JSON.stringify(runtimeCfg || {}, null, 2));
+        if (effectiveCfg) {
+          lines.push('effective_config:');
+          lines.push(JSON.stringify(effectiveCfg || {}, null, 2));
+        }
+        cfgDump.textContent = lines.join('\n');
+      }
+
       async function refreshState() {
         const r = await fetch('/api/state');
         const j = await r.json();
@@ -262,8 +971,8 @@
 
       async function startRecording() {
         if (recording) return;
-        setStatus('🎙️ Microfoon starten...');
-        setRecState('starting');
+        setStatus('Microfoon start... spreek pas zodra status "Opnemen" verschijnt.');
+        setRecState('starten');
         pcmChunks = [];
 
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -281,8 +990,8 @@
         processor.connect(audioCtx.destination);
 
         recording = true;
-        setStatus('🎙️ Opnemen...');
-        setRecState('recording');
+        setStatus('Opnemen (luistert nu).');
+        setRecState('luisteren');
         btnRec.textContent = '⏹️ Stop';
         btnSend.disabled = true;
         startRecording._inRate = inRate;
@@ -292,8 +1001,8 @@
         if (!recording) return;
         recording = false;
         btnRec.disabled = true;
-        setStatus('⏳ Uploaden + transcriben...');
-        setRecState('transcribing');
+        setStatus('Uploaden + transcriberen...');
+        setRecState('uploaden');
 
         try {
           if (processor) processor.disconnect();
@@ -326,19 +1035,72 @@
         setRecState('idle');
       }
 
+      async function transcribeViaConfiguredMic() {
+        btnRec.disabled = true;
+        btnSend.disabled = true;
+        setStatus('Luisteren via NAO mic...');
+        setRecState('luisteren');
+        try {
+          const r = await fetch('/api/transcribe_mic', { method: 'POST' });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'transcribe failed');
+          txt.value = (j.transcript || '').trim();
+          btnSend.disabled = !txt.value.trim();
+          setStatus('Transcript klaar. Edit en druk op Send.');
+        } finally {
+          setRecState('idle');
+          updateRecButton();
+          btnRec.disabled = false;
+        }
+      }
+
       btnRec.addEventListener('click', async () => {
         try {
-          if (!recording) await startRecording();
-          else await stopRecording();
+          if (useNaoMic() && lastNaoOk === false) {
+            setStatus('NAO mic is down; cannot record.');
+            return;
+          }
+          if (listenMode === 'continuous') {
+            if (continuousActive) {
+              await fetch('/api/continuous_stop', { method: 'POST' });
+              continuousActive = false;
+              stopContinuousPoll();
+              setRecState('idle');
+              setStatus('Continuous luisteren gestopt.');
+              setRecState('idle');
+              updateRecButton();
+              return;
+            }
+            const r = await fetch('/api/continuous_start', { method: 'POST' });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'continuous start failed');
+            continuousActive = true;
+            startContinuousPoll();
+            setStatus('Continuous luisteren actief.');
+            setRecState('luisteren');
+            updateRecButton();
+            return;
+          }
+
+          if (useNaoMic()) {
+            await transcribeViaConfiguredMic();
+          } else if (!recording) {
+            await startRecording();
+          } else {
+            await stopRecording();
+          }
         } catch (e) {
           console.error(e);
-          setStatus('❌ Fout: ' + (e?.message || e));
+          setStatus('Fout: ' + (e?.message || e));
           setRecState('idle');
           recording = false;
-          btnRec.textContent = '🎙️ Opnemen';
+          continuousActive = false;
+          stopContinuousPoll();
+          setRecState('idle');
+          updateRecButton();
         } finally {
-          if (!recording) {
-            btnRec.textContent = '🎙️ Opnemen';
+          if (!recording && listenMode !== 'continuous') {
+            updateRecButton();
             btnRec.disabled = false;
           }
         }
@@ -417,8 +1179,144 @@
         }
       });
 
+      tabPrompt.addEventListener('click', () => setTab('prompt'));
+      tabRuntime.addEventListener('click', () => setTab('runtime'));
+
+      btnResetCfg.addEventListener('click', async () => {
+        await resetRuntimeConfig();
+        const ok = await pollHealth(getConfigFromForm());
+        scheduleHealth(getConfigFromForm(), ok);
+      });
+
+      btnRefreshCfg.addEventListener('click', async () => {
+        await refreshConfigDump();
+        const ok = await pollHealth(getConfigFromForm());
+        scheduleHealth(getConfigFromForm(), ok);
+      });
+
+      cfgLlmType.addEventListener('change', () => {
+        cfgLlmModel.disabled = cfgLlmType.value === 'echo';
+        if (cfgLlmType.value === 'echo') {
+          cfgLlmModel.value = '';
+          cfgLlmModel.classList.remove('dirty');
+          cfgStatus.textContent = '';
+          cfgMasterPrompt.disabled = true;
+          cfgMasterPrompt.value = '';
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+          return;
+        }
+        cfgMasterPrompt.disabled = false;
+        if (cfgLlmType.value === 'ollama_local') {
+          loadOllamaModels('local').catch(() => {});
+        } else if (cfgLlmType.value === 'ollama_cloud') {
+          loadOllamaModels('cloud').catch(() => {});
+        }
+        cfgLlmModel.value = '';
+        cfgLlmModel.classList.add('dirty');
+        cfgStatus.textContent = 'Vul een LLM model in';
+      });
+
+      cfgInputDevice.addEventListener('change', () => { updateDeviceName(); updateContinuousAvailability(); updateRecButton(); });
+
+      cfgMasterPrompt.addEventListener('change', async () => {
+        await applyRuntimeConfig(getConfigFromForm(), false, false);
+      });
+
+      cfgBaseEnabled.addEventListener('change', () => {
+        const cfg = getConfigFromForm();
+        pollHealth(cfg).then(ok => scheduleHealth(cfg, ok));
+        applyRuntimeConfig(cfg, false, false);
+      });
+
+      cfgBehaviorEnabled.addEventListener('change', () => {
+        const cfg = getConfigFromForm();
+        pollHealth(cfg).then(ok => scheduleHealth(cfg, ok));
+        applyRuntimeConfig(cfg, false, false);
+      });
+
+      cfgNaoIpEnabled.addEventListener('change', () => {
+        if (!cfgNaoIpEnabled.checked && cfgInputDevice.value === 'nao_ssh') {
+          cfgInputDevice.value = '';
+          updateDeviceName();
+        }
+        const cfg = getConfigFromForm();
+        pollHealth(cfg).then(ok => scheduleHealth(cfg, ok));
+        applyRuntimeConfig(cfg, false, false);
+        loadDevices().catch(() => {});
+      });
+
+      cfgCmdrec.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      cfgStt.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      cfgLlmModel.addEventListener('change', () => {
+        const cfg = getConfigFromForm();
+        if (canApplyLlm(cfg)) {
+          cfgStatus.textContent = '';
+          cfgLlmModel.classList.remove('dirty');
+          applyRuntimeConfig(cfg, false, false);
+        } else {
+          cfgLlmModel.classList.add('dirty');
+          cfgStatus.textContent = 'Vul een LLM model in';
+        }
+      });
+
+      cfgNaoIp.addEventListener('input', () => setUrlDirty('nao', true));
+      cfgNaoBase.addEventListener('input', () => setUrlDirty('base', true));
+      cfgBehavior.addEventListener('input', () => setUrlDirty('behavior', true));
+
+      btnApplyBase.addEventListener('click', async () => {
+        const cfg = buildConfigForUrlApply('base');
+        await applyRuntimeConfig(cfg, false, true);
+        setUrlDirty('base', false);
+        const ok = await pollHealth(cfg);
+        scheduleHealth(cfg, ok);
+      });
+
+      btnApplyNaoIp.addEventListener('click', async () => {
+        const cfg = buildConfigForUrlApply('nao');
+        await applyRuntimeConfig(cfg, false, true);
+        setUrlDirty('nao', false);
+        const ok = await pollHealth(cfg);
+        scheduleHealth(cfg, ok);
+        loadDevices().catch(() => {});
+      });
+
+      btnApplyBehavior.addEventListener('click', async () => {
+        const cfg = buildConfigForUrlApply('behavior');
+        await applyRuntimeConfig(cfg, false, true);
+        setUrlDirty('behavior', false);
+        const ok = await pollHealth(cfg);
+        scheduleHealth(cfg, ok);
+      });
+
       // init
-      refreshState().catch(() => setStatus('⚠️ Kan server niet bereiken.'));
+      refreshState().catch(() => setStatus('Kan server niet bereiken.'));
+      loadDevices().catch(() => {});
+      loadCmdrecBundles().catch(() => {});
+      loadMasterPrompts().catch(() => {});
+      fetch('/api/runtime_config')
+        .then(r => r.json())
+        .then(async (j) => {
+          if (!j.ok) return;
+          let cfg = j.config || {};
+          const local = loadLocalConfig();
+          if (local) {
+            cfg = { ...cfg, ...local };
+            await applyRuntimeConfig(cfg, true);
+          }
+          applyConfigToForm(cfg);
+          loadDevices().catch(() => {});
+          cfgLlmModel.disabled = cfgLlmType.value === 'echo';
+          if (cfgLlmType.value === 'ollama_local') {
+            await loadOllamaModels('local');
+          } else if (cfgLlmType.value === 'ollama_cloud') {
+            await loadOllamaModels('cloud');
+          }
+          renderOllamaModels();
+          await refreshConfigDump();
+          const ok = await pollHealth(cfg);
+          scheduleHealth(cfg, ok);
+        })
+        .catch(() => {});
     </script>
   </body>
 </html>

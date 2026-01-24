@@ -177,6 +177,13 @@ def _format_dance_catalog(cmdrec_recognizer: Optional[CmdRecRecognizer]) -> str:
     return "\n".join(lines)
 
 
+def _preload_cmdrec(cmdrec_recognizer: Optional[CmdRecRecognizer]) -> None:
+    if cmdrec_recognizer is None:
+        return
+    # Force model bundle load now to avoid first-utterance lag.
+    cmdrec_recognizer.get_labels()
+
+
 def _extract_cmdrec_config(cfg: JsonLike) -> JsonLike:
     cmdrec = parse_cmdrec_bundle(cfg.get("cmdrec", "none"))
     cmdrec_bundles_dir = cfg.get("cmdrec_bundles_dir", "dist")
@@ -450,6 +457,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
             behavior_executor = PrintBehaviorExecutor()
         else:
             behavior_executor = PrintBehaviorExecutor()
+        _preload_cmdrec(cmdrec_recognizer)
 
     runtime_context_static = None
     if runtime_context_enabled:
