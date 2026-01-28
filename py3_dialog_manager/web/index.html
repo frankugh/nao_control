@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NAO Studio</title>
+    <link rel="icon" href="data:," />
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; min-height: 100vh; }
       h2 { margin: 0 0 10px 0; }
@@ -103,12 +104,24 @@
         <div class="row tabbar" style="margin-bottom:8px">
           <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
           <button id="tabRuntime" class="tab" type="button">Runtime config</button>
+          <button id="tabLogs" class="tab" type="button">Logs</button>
         </div>
         <div id="tab-prompt" class="tabpane">
           <div class="row" style="margin-bottom:8px">
             <span class="pill">system</span>
           </div>
           <div id="prompt" class="prompt"><span class="muted">laden...</span></div>
+        </div>
+
+        <div id="tab-logs" class="tabpane hidden">
+          <div class="row" style="margin-bottom:8px">
+            <select id="logProcess">
+              <option value="base">base controller</option>
+              <option value="behavior">behavior manager</option>
+            </select>
+            <button id="btnRefreshLogs" type="button">Refresh</button>
+          </div>
+          <pre id="procLogs" class="debug" style="white-space: pre-wrap;"></pre>
         </div>
         <div id="tab-runtime" class="tabpane hidden">
           <div class="formgrid">
@@ -135,6 +148,11 @@
               <div class="health">
                 <span id="healthBase" class="pill">base: onbekend</span>
               </div>
+              <div class="row">
+                <button id="btnStartBase" type="button">Start</button>
+                <button id="btnStopBase" type="button">Stop</button>
+                <span id="procBase" class="pill">process: onbekend</span>
+              </div>
             </div>
             <div>
               <label>Behavior manager (ip:port)</label>
@@ -146,6 +164,11 @@
               <label class="enable-row"><span>enable:</span><input id="cfgBehaviorEnabled" type="checkbox" /></label>
               <div class="health">
                 <span id="healthBehavior" class="pill">behavior manager: onbekend</span>
+              </div>
+              <div class="row">
+                <button id="btnStartBehavior" type="button">Start</button>
+                <button id="btnStopBehavior" type="button">Stop</button>
+                <span id="procBehavior" class="pill">process: onbekend</span>
               </div>
             </div>
             <div>
@@ -214,8 +237,10 @@
       const listenModeNote = document.getElementById('listenModeNote');
       const tabPrompt = document.getElementById('tabPrompt');
       const tabRuntime = document.getElementById('tabRuntime');
+      const tabLogs = document.getElementById('tabLogs');
       const tabPromptPane = document.getElementById('tab-prompt');
       const tabRuntimePane = document.getElementById('tab-runtime');
+      const tabLogsPane = document.getElementById('tab-logs');
       const cfgNaoBase = document.getElementById('cfgNaoBase');
       const cfgBehavior = document.getElementById('cfgBehavior');
       const cfgBaseEnabled = document.getElementById('cfgBaseEnabled');
@@ -228,6 +253,15 @@
       const btnApplyBehavior = document.getElementById('btnApplyBehavior');
       const cfgBaseDirty = document.getElementById('cfgBaseDirty');
       const cfgBehaviorDirty = document.getElementById('cfgBehaviorDirty');
+      const btnStartBase = document.getElementById('btnStartBase');
+      const btnStopBase = document.getElementById('btnStopBase');
+      const btnStartBehavior = document.getElementById('btnStartBehavior');
+      const btnStopBehavior = document.getElementById('btnStopBehavior');
+      const procBase = document.getElementById('procBase');
+      const procBehavior = document.getElementById('procBehavior');
+      const logProcess = document.getElementById('logProcess');
+      const btnRefreshLogs = document.getElementById('btnRefreshLogs');
+      const procLogs = document.getElementById('procLogs');
       const cfgInputDevice = document.getElementById('cfgInputDevice');
       const cfgStt = document.getElementById('cfgStt');
       const cfgCmdrec = document.getElementById('cfgCmdrec');
@@ -526,17 +560,14 @@
       }
 
       function setTab(which) {
-        if (which === 'runtime') {
-          tabRuntime.classList.add('active');
-          tabPrompt.classList.remove('active');
-          tabRuntimePane.classList.remove('hidden');
-          tabPromptPane.classList.add('hidden');
-        } else {
-          tabPrompt.classList.add('active');
-          tabRuntime.classList.remove('active');
-          tabPromptPane.classList.remove('hidden');
-          tabRuntimePane.classList.add('hidden');
-        }
+        const isRuntime = which === 'runtime';
+        const isLogs = which === 'logs';
+        tabRuntime.classList.toggle('active', isRuntime);
+        tabPrompt.classList.toggle('active', !isRuntime && !isLogs);
+        tabLogs.classList.toggle('active', isLogs);
+        tabRuntimePane.classList.toggle('hidden', !isRuntime);
+        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs);
+        tabLogsPane.classList.toggle('hidden', !isLogs);
       }
 
       function loadLocalConfig() {
@@ -565,11 +596,14 @@
             inputDevice = null;
           }
         }
+        const naoIpValue = (cfgNaoIp.value || '').trim() || lastAppliedNaoIp || '';
+        const naoBaseValue = (cfgNaoBase.value || '').trim() || lastAppliedBaseUrl || '';
+        const behaviorValue = (cfgBehavior.value || '').trim() || lastAppliedBehaviorUrl || '';
         return {
-          nao_ip: (cfgNaoIp.value || '').trim(),
+          nao_ip: naoIpValue,
           nao_ip_enabled: !!cfgNaoIpEnabled.checked,
-          nao_base_url: (cfgNaoBase.value || '').trim(),
-          behavior_manager_url: (cfgBehavior.value || '').trim(),
+          nao_base_url: naoBaseValue,
+          behavior_manager_url: behaviorValue,
           base_enabled: !!cfgBaseEnabled.checked,
           behavior_enabled: !!cfgBehaviorEnabled.checked,
           input_device: inputDevice,
@@ -805,7 +839,7 @@
             })
           });
           const j = await r.json();
-          const baseOk = !!(j.base && j.base.ping);
+          const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
           const behaviorOk = !!(j.behavior && j.behavior.ping);
           const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
           setHealth(healthBase, baseOk, 'base');
@@ -867,7 +901,7 @@
           if (!cfg.base_enabled) {
             setHealth(healthBase, 'disabled', 'base');
           } else {
-            const baseOk = !!(j.base && j.base.ping);
+            const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
             setHealth(healthBase, baseOk, 'base');
           }
           if (!cfg.behavior_enabled) {
@@ -877,7 +911,7 @@
             const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
             setHealth(healthBehavior, behaviorOk && behaviorNaoOk, 'behavior manager');
           }
-          const baseOk = !!(j.base && j.base.ping);
+          const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
           const behaviorOk = !!(j.behavior && j.behavior.ping);
           const naoOk = !!(j.nao && j.nao.ping);
           const ok = baseOk || behaviorOk || naoOk;
@@ -914,6 +948,8 @@
         cfgStatus.textContent = silent ? '' : 'Applied';
         renderPrompt(j.system_prompt || '');
         renderConfigDump(j.runtime_config || j.config || cfg, j.effective_config || null, j.output_enabled);
+        refreshProcessStatus();
+        refreshProcessLogs();
       }
 
       async function resetRuntimeConfig() {
@@ -936,6 +972,8 @@
           const j = await r.json();
           if (!j.ok) return;
           renderConfigDump(j.runtime_config || {}, j.effective_config || null, j.output_enabled);
+          refreshProcessStatus();
+          refreshProcessLogs();
         } catch (_) {}
       }
 
@@ -950,7 +988,82 @@
         cfgDump.textContent = lines.join('\n');
       }
 
-      async function refreshState() {
+      
+      async function refreshProcessStatus() {
+        try {
+          const r = await fetch('/api/process_status');
+          const j = await r.json();
+          if (!j.ok) return;
+          const base = j.processes?.base || {};
+          const behavior = j.processes?.behavior || {};
+          setProcessPill(procBase, base, 'base');
+          setProcessPill(procBehavior, behavior, 'behavior');
+        } catch (_) {}
+      }
+
+      function setProcessPill(el, status, label) {
+        if (!el) return;
+        const running = !!status.running;
+        const exitCode = status.exit_code;
+        el.classList.toggle('ok', running);
+        el.classList.toggle('bad', !running && exitCode != null);
+        if (running) {
+          el.textContent = `${label}: running`;
+        } else if (exitCode != null) {
+          el.textContent = `${label}: stopped (${exitCode})`;
+        } else {
+          el.textContent = `${label}: stopped`;
+        }
+      }
+
+      async function refreshProcessLogs() {
+        const name = (logProcess?.value || 'base');
+        try {
+          const r = await fetch(`/api/process_logs?name=${encodeURIComponent(name)}`);
+          const j = await r.json();
+          if (!j.ok) return;
+          const lines = j.lines || [];
+          procLogs.textContent = lines.length ? lines.join('\n') : '(no logs)';
+        } catch (_) {}
+      }
+
+      async function startProcess(name) {
+        try {
+          const r = await fetch('/api/process_start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'start failed');
+          await refreshProcessStatus();
+          await refreshProcessLogs();
+          const ok = await pollHealth(getConfigFromForm());
+          scheduleHealth(getConfigFromForm(), ok);
+        } catch (e) {
+          setStatus('Process start failed: ' + (e?.message || e));
+        }
+      }
+
+      async function stopProcess(name) {
+        try {
+          const r = await fetch('/api/process_stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'stop failed');
+          await refreshProcessStatus();
+          await refreshProcessLogs();
+          const ok = await pollHealth(getConfigFromForm());
+          scheduleHealth(getConfigFromForm(), ok);
+        } catch (e) {
+          setStatus('Process stop failed: ' + (e?.message || e));
+        }
+      }
+
+async function refreshState() {
         const r = await fetch('/api/state');
         const j = await r.json();
         if (j.ok) {
@@ -1238,12 +1351,21 @@
 
       tabPrompt.addEventListener('click', () => setTab('prompt'));
       tabRuntime.addEventListener('click', () => setTab('runtime'));
+      tabLogs.addEventListener('click', () => setTab('logs'));
 
       btnResetCfg.addEventListener('click', async () => {
         await resetRuntimeConfig();
         const ok = await pollHealth(getConfigFromForm());
         scheduleHealth(getConfigFromForm(), ok);
       });
+
+      
+      btnStartBase.addEventListener('click', () => startProcess('base'));
+      btnStopBase.addEventListener('click', () => stopProcess('base'));
+      btnStartBehavior.addEventListener('click', () => startProcess('behavior'));
+      btnStopBehavior.addEventListener('click', () => stopProcess('behavior'));
+      btnRefreshLogs.addEventListener('click', () => refreshProcessLogs());
+      logProcess.addEventListener('change', () => refreshProcessLogs());
 
       btnRefreshCfg.addEventListener('click', async () => {
         await refreshConfigDump();
@@ -1358,7 +1480,14 @@
           let cfg = j.config || {};
           const local = loadLocalConfig();
           if (local) {
-            cfg = { ...cfg, ...local };
+            const merged = { ...cfg, ...local };
+            const urlKeys = ['nao_ip', 'nao_base_url', 'behavior_manager_url'];
+            urlKeys.forEach((key) => {
+              if (local[key] === '' || local[key] == null) {
+                merged[key] = cfg[key];
+              }
+            });
+            cfg = merged;
             await applyRuntimeConfig(cfg, true);
           }
           applyConfigToForm(cfg);

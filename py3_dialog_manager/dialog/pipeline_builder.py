@@ -451,10 +451,8 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     behavior_executor = None
     if cmdrec_cfg["cmdrec"] != "none":
         cmdrec_recognizer = CmdRecRecognizer(cmdrec_cfg)
-        if api_router is not None:
+        if api_router is not None and cmdrec_cfg["behavior_backend"] == "nao":
             behavior_executor = ConsoleAndBehaviorExecutor(BehaviorExecutor(api_router=api_router))
-        elif cmdrec_cfg["behavior_backend"] == "print":
-            behavior_executor = PrintBehaviorExecutor()
         else:
             behavior_executor = PrintBehaviorExecutor()
         _preload_cmdrec(cmdrec_recognizer)

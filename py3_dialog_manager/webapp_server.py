@@ -14,6 +14,7 @@ Additions:
 from __future__ import annotations
 
 import argparse
+import atexit
 import copy
 import json
 import os
@@ -233,8 +234,11 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
         llm_cfg["params"] = llm_params
         cfg_out["llm"] = llm_cfg
 
-    if not base_enabled:
+    if base_enabled:
+        cfg_out["behavior_backend"] = "nao"
+    else:
         cfg_out["output"] = {"type": "none", "params": {}}
+        cfg_out["behavior_backend"] = "print"
 
     return cfg_out
 
@@ -280,6 +284,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     al_dir = os.path.join(repo_root, "py3_command_recognition_train", "data", "al")
     al_lock = threading.Lock()
+    proc_lock = threading.Lock()
+    proc_logs: Dict[str, List[str]] = {"base": [], "behavior": []}
+    proc_state: Dict[str, Dict[str, Any]] = {
+        "base": {"proc": None, "exit_code": None},
+        "behavior": {"proc": None, "exit_code": None},
+    }
+    max_log_lines = 400
 
     # In-memory session histories for intranet testing
     sessions: Dict[str, History] = {}
@@ -362,6 +373,123 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     def _append_confirm_card(history: History, payload: Dict[str, Any]) -> None:
         history.append(payload)
+
+    def _append_proc_log(name: str, line: str) -> None:
+        line = line.rstrip("\r\n")
+        if not line:
+            return
+        ts = time.strftime("%H:%M:%S", time.localtime())
+        entry = f"[{ts}] {line}"
+        with proc_lock:
+            buf = proc_logs.setdefault(name, [])
+            buf.append(entry)
+            if len(buf) > max_log_lines:
+                del buf[: len(buf) - max_log_lines]
+
+    def _stream_reader(name: str, stream, prefix: str) -> None:
+        try:
+            for raw in iter(stream.readline, ""):
+                _append_proc_log(name, f"{prefix}{raw.rstrip()}")
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def _proc_status(name: str) -> Dict[str, Any]:
+        with proc_lock:
+            entry = proc_state.get(name, {})
+            proc = entry.get("proc")
+            exit_code = entry.get("exit_code")
+        running = bool(proc and proc.poll() is None)
+        if proc and proc.poll() is not None:
+            exit_code = proc.poll()
+            with proc_lock:
+                proc_state[name]["exit_code"] = exit_code
+        return {"running": running, "pid": proc.pid if proc else None, "exit_code": exit_code}
+
+    def _start_process(name: str, cmd: List[str], cwd: str) -> Dict[str, Any]:
+        with proc_lock:
+            entry = proc_state.get(name)
+            proc = entry.get("proc") if entry else None
+        if proc and proc.poll() is None:
+            return {"ok": False, "error": f"{name} draait al."}
+        try:
+            env = os.environ.copy()
+            env.pop("WERKZEUG_SERVER_FD", None)
+            env.pop("WERKZEUG_RUN_MAIN", None)
+            env.pop("FLASK_RUN_FROM_CLI", None)
+            proc = subprocess.Popen(
+                cmd,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                env=env,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        with proc_lock:
+            proc_state[name] = {"proc": proc, "exit_code": None}
+            proc_logs.setdefault(name, []).append("--- started ---")
+
+        if proc.stdout:
+            threading.Thread(target=_stream_reader, args=(name, proc.stdout, ""), daemon=True).start()
+        if proc.stderr:
+            threading.Thread(target=_stream_reader, args=(name, proc.stderr, "[err] "), daemon=True).start()
+
+        return {"ok": True, "pid": proc.pid}
+
+    def _stop_process(name: str) -> Dict[str, Any]:
+        with proc_lock:
+            entry = proc_state.get(name)
+            proc = entry.get("proc") if entry else None
+        if not proc or proc.poll() is not None:
+            return {"ok": True, "stopped": True}
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        with proc_lock:
+            proc_state[name]["exit_code"] = proc.poll()
+            proc_logs.setdefault(name, []).append("--- stopped ---")
+        return {"ok": True, "stopped": True}
+
+    def _stop_all_processes() -> None:
+        for name in ("behavior", "base"):
+            _stop_process(name)
+
+    atexit.register(_stop_all_processes)
+
+    def _base_controller_cmd(nao_ip: str) -> Tuple[List[str], str, Optional[str]]:
+        base_dir = os.path.join(repo_root, "py2_nao_base_controller")
+        python_path = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+        script_path = os.path.join(base_dir, "nao_api.py")
+        if not os.path.exists(python_path):
+            return [], base_dir, "venv\\Scripts\\python.exe niet gevonden (py2_nao_base_controller)."
+        if not os.path.exists(script_path):
+            return [], base_dir, "nao_api.py niet gevonden."
+        cmd = [python_path, script_path]
+        if nao_ip:
+            cmd += ["--nao_ip", nao_ip]
+        return cmd, base_dir, None
+
+    def _behavior_manager_cmd() -> Tuple[List[str], str, Optional[str]]:
+        base_dir = os.path.join(repo_root, "py3_nao_behavior_manager")
+        python_path = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+        script_path = os.path.join(base_dir, "py3_server.py")
+        if not os.path.exists(python_path):
+            return [], base_dir, "venv\\Scripts\\python.exe niet gevonden (py3_nao_behavior_manager)."
+        if not os.path.exists(script_path):
+            return [], base_dir, "py3_server.py niet gevonden."
+        cmd = [python_path, script_path]
+        return cmd, base_dir, None
 
     def _al_append(filename: str, payload: Dict[str, Any]) -> None:
         os.makedirs(al_dir, exist_ok=True)
@@ -1162,8 +1290,6 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             llm_model = (runtime_cfg.get("llm_model") or "").strip()
             if llm_type != "echo" and not llm_model:
                 return jsonify({"ok": False, "error": "LLM model ontbreekt."}), 400
-            if not _check_ping(base_url, "/ping"):
-                return jsonify({"ok": False, "error": "NAO base connector niet bereikbaar."}), 400
 
         merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
         _rebuild_pipeline_for_sid(sid, merged)
@@ -1189,17 +1315,65 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         nao_ip_enabled = bool(payload.get("nao_ip_enabled", False))
         nao_host, nao_port = _parse_host_port(payload.get("nao_ip"), 9559)
         base_ping = _check_ping(base_url, "/ping") if base_enabled else False
+        base_nao_ping = _check_ping(base_url, "/is_awake") if base_enabled else False
         behavior_ping = _check_ping(behavior_url, "/ping") if behavior_enabled else False
-        behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/ping") if behavior_enabled else False
+        behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/is_awake") if behavior_enabled else False
         nao_ping = _check_tcp(nao_host, nao_port) if nao_ip_enabled else False
         return jsonify(
             {
                 "ok": True,
-                "base": {"ping": base_ping},
+                "base": {"ping": base_ping, "nao_ping": base_nao_ping},
                 "behavior": {"ping": behavior_ping, "nao_ping": behavior_nao_ping},
                 "nao": {"ping": nao_ping},
             }
         )
+
+    @app.get("/api/process_status")
+    def api_process_status():
+        status = {
+            "base": _proc_status("base"),
+            "behavior": _proc_status("behavior"),
+        }
+        return jsonify({"ok": True, "processes": status})
+
+    @app.get("/api/process_logs")
+    def api_process_logs():
+        name = (request.args.get("name") or "").strip().lower()
+        if name not in ("base", "behavior"):
+            return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        with proc_lock:
+            lines = list(proc_logs.get(name, []))
+        return jsonify({"ok": True, "name": name, "lines": lines})
+
+    @app.post("/api/process_start")
+    def api_process_start():
+        payload = request.get_json(force=True, silent=True) or {}
+        name = (payload.get("name") or "").strip().lower()
+        if name not in ("base", "behavior"):
+            return jsonify({"ok": False, "error": "Unknown process name."}), 400
+
+        if name == "base":
+            runtime_cfg = _get_runtime_cfg(_get_sid())
+            nao_ip = (runtime_cfg.get("nao_ip") or "").strip()
+            if not nao_ip or not runtime_cfg.get("nao_ip_enabled", False):
+                return jsonify({"ok": False, "error": "NAO IP ontbreekt of is disabled."}), 400
+            cmd, cwd, err = _base_controller_cmd(nao_ip)
+        else:
+            cmd, cwd, err = _behavior_manager_cmd()
+
+        if err:
+            return jsonify({"ok": False, "error": err}), 400
+        result = _start_process(name, cmd, cwd)
+        return jsonify(result)
+
+    @app.post("/api/process_stop")
+    def api_process_stop():
+        payload = request.get_json(force=True, silent=True) or {}
+        name = (payload.get("name") or "").strip().lower()
+        if name not in ("base", "behavior"):
+            return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        result = _stop_process(name)
+        return jsonify(result)
 
     return app, base_stt, base_pipeline
 
