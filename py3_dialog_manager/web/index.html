@@ -67,6 +67,11 @@
       .phase-thinking { background: #efefef; border-color: #d0d0d0; color: #333; }
       .phase-transcribing { background: #fff2dd; border-color: #ffd0a3; color: #7a4a00; }
       .phase-listening { background: #e8f4ff; border-color: #bcdcff; color: #235e9a; }
+      .behavior-item { padding: 4px 6px; cursor: pointer; border-radius: 6px; }
+      .behavior-item:hover { background: #f2f2f2; }
+      .behavior-item.selected { background: #111; color: #fff; }
+      .behavior-folder { margin: 6px 0; }
+      .behavior-folder > summary { cursor: pointer; }
     </style>
   </head>
   <body>
@@ -104,6 +109,7 @@
         <div class="row tabbar" style="margin-bottom:8px">
           <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
           <button id="tabRuntime" class="tab" type="button">Runtime config</button>
+          <button id="tabCommands" class="tab" type="button">Commands</button>
           <button id="tabLogs" class="tab" type="button">Logs</button>
         </div>
         <div id="tab-prompt" class="tabpane">
@@ -121,9 +127,33 @@
               </select>
               <button id="btnRefreshLogs" type="button">Refresh</button>
               <button id="btnClearLogs" type="button">Clear</button>
-            </div>
+          </div>
             <pre id="procLogs" class="debug" style="white-space: pre-wrap;"></pre>
           </div>
+        <div id="tab-commands" class="tabpane hidden">
+          <div>
+            <label>Commands (zonder locomotion)</label>
+            <select id="cmdList" size="10" style="width:100%"></select>
+            <div class="row" style="margin-top:8px">
+              <label style="margin:0">Dance</label>
+              <select id="danceList" style="width:100%"></select>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <button id="btnCmdRun" type="button">Run command</button>
+              <span id="cmdStatus" class="small"></span>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <label>Behaviors (van NAO)</label>
+            <div id="behaviorTree"></div>
+            <div id="behaviorSelected" class="small" style="margin-top:6px"></div>
+            <div class="row" style="margin-top:8px">
+              <button id="btnBehaviorStart" type="button">Start behavior</button>
+              <button id="btnBehaviorStop" type="button">Stop behavior</button>
+              <span id="behaviorStatus" class="small"></span>
+            </div>
+          </div>
+        </div>
         <div id="tab-runtime" class="tabpane hidden">
           <div class="formgrid">
             <div>
@@ -263,9 +293,11 @@
       const listenModeNote = document.getElementById('listenModeNote');
       const tabPrompt = document.getElementById('tabPrompt');
       const tabRuntime = document.getElementById('tabRuntime');
+      const tabCommands = document.getElementById('tabCommands');
       const tabLogs = document.getElementById('tabLogs');
       const tabPromptPane = document.getElementById('tab-prompt');
       const tabRuntimePane = document.getElementById('tab-runtime');
+      const tabCommandsPane = document.getElementById('tab-commands');
       const tabLogsPane = document.getElementById('tab-logs');
         const cfgNaoBase = document.getElementById('cfgNaoBase');
         const cfgBehavior = document.getElementById('cfgBehavior');
@@ -316,6 +348,15 @@
       const cfgStatus = document.getElementById('cfgStatus');
       const cfgDump = document.getElementById('cfgDump');
       const cfgInputDeviceName = document.getElementById('cfgInputDeviceName');
+      const cmdList = document.getElementById('cmdList');
+      const danceList = document.getElementById('danceList');
+      const btnCmdRun = document.getElementById('btnCmdRun');
+      const cmdStatus = document.getElementById('cmdStatus');
+      const behaviorTree = document.getElementById('behaviorTree');
+      const behaviorSelected = document.getElementById('behaviorSelected');
+      const btnBehaviorStart = document.getElementById('btnBehaviorStart');
+      const btnBehaviorStop = document.getElementById('btnBehaviorStop');
+      const behaviorStatus = document.getElementById('behaviorStatus');
       const healthBase = document.getElementById('healthBase');
       const healthBehavior = document.getElementById('healthBehavior');
       const healthNao = document.getElementById('healthNao');
@@ -333,6 +374,7 @@
       let input = null;
       let recording = false;
       let lastLifeFetchAt = 0;
+      let selectedBehavior = '';
       let pcmChunks = [];
       let listenMode = 'ptt';
       let continuousActive = false;
@@ -523,10 +565,10 @@
           }
         }
 
-        async function refreshNaoLife(force = false) {
-          const now = Date.now();
-          if (!force && (now - lastLifeFetchAt) < 5000) return;
-          lastLifeFetchAt = now;
+      async function refreshNaoLife(force = false) {
+        const now = Date.now();
+        if (!force && (now - lastLifeFetchAt) < 5000) return;
+        lastLifeFetchAt = now;
           try {
             const r = await fetch('/api/nao_autonomous_life_state');
             const j = await r.json();
@@ -540,10 +582,198 @@
               cfgNaoLifeState.textContent = `autonomous: ${stateLabel}`;
             }
             setNaoLifeEnabled(true, cfgNaoLifeState ? cfgNaoLifeState.textContent : '');
-          } catch (e) {
-            setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
+        } catch (e) {
+          setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
+        }
+      }
+
+      async function refreshCommands() {
+        if (!cmdList) return;
+        cmdStatus.textContent = 'laden...';
+        try {
+          const r = await fetch('/api/command_catalog');
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'command catalog failed');
+          const current = cmdList.value;
+          cmdList.innerHTML = '';
+          (j.commands || []).forEach(item => {
+            const opt = document.createElement('option');
+            const label = item.label || '';
+            const behavior = item.behavior || '';
+            opt.value = label;
+            opt.textContent = behavior ? `${label}  →  ${behavior}` : label;
+            cmdList.appendChild(opt);
+          });
+          updateDanceCommandLabel();
+          if (current) cmdList.value = current;
+          cmdStatus.textContent = '';
+        } catch (e) {
+          cmdStatus.textContent = `laden mislukt: ${e?.message || e}`;
+        }
+      }
+
+      async function refreshDances() {
+        if (!danceList) return;
+        try {
+          const r = await fetch('/api/dance_catalog');
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'dance catalog failed');
+          const current = danceList.value;
+          danceList.innerHTML = '';
+          (j.dances || []).forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.key || '';
+            opt.textContent = item.key || '';
+            opt.dataset.behavior = item.behavior || '';
+            danceList.appendChild(opt);
+          });
+          if (current) danceList.value = current;
+          updateDanceCommandLabel();
+        } catch (_) {
+        }
+      }
+
+      function updateDanceCommandLabel() {
+        if (!cmdList || !danceList) return;
+        const selectedKey = danceList.value || '';
+        const opts = cmdList.options;
+        for (let i = 0; i < opts.length; i++) {
+          const opt = opts[i];
+          if ((opt.value || '').toUpperCase() === 'DANCE') {
+            opt.textContent = selectedKey ? `DANCE  →  ${selectedKey}` : 'DANCE';
+            break;
           }
         }
+      }
+
+      async function refreshBehaviors() {
+        if (!behaviorTree) return;
+        behaviorStatus.textContent = 'laden...';
+        try {
+          const r = await fetch('/api/nao_behaviors');
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'behavior list failed');
+          const behaviors = j.behaviors || [];
+          const root = {};
+          behaviors.forEach(full => {
+            const parts = String(full).split('/').filter(Boolean);
+            if (!parts.length) return;
+            let node = root;
+            for (let i = 0; i < parts.length; i++) {
+              const part = parts[i];
+              const isLeaf = i === parts.length - 1;
+              if (isLeaf) {
+                if (!node.__items) node.__items = [];
+                node.__items.push({ name: part, full });
+              } else {
+                if (!node[part]) node[part] = {};
+                node = node[part];
+              }
+            }
+          });
+
+          behaviorTree.innerHTML = '';
+
+          function renderNode(node, container, label, depth = 0) {
+            const keys = Object.keys(node).filter(k => k !== '__items').sort();
+            const items = (node.__items || []).sort((a, b) => a.name.localeCompare(b.name));
+            const wrapper = label ? document.createElement('details') : container;
+            if (label) {
+              wrapper.className = 'behavior-folder';
+              const summary = document.createElement('summary');
+              summary.textContent = `${label} (${keys.length + items.length})`;
+              summary.style.paddingLeft = `${depth * 12}px`;
+              wrapper.appendChild(summary);
+            }
+
+            keys.forEach(key => {
+              renderNode(node[key], wrapper, key, depth + 1);
+            });
+
+            items.forEach(item => {
+              const row = document.createElement('div');
+              row.className = 'behavior-item';
+              row.textContent = item.name;
+              row.dataset.behavior = item.full;
+              row.style.paddingLeft = `${(depth + 1) * 12}px`;
+              row.addEventListener('click', () => {
+                selectedBehavior = item.full;
+                const all = behaviorTree.querySelectorAll('.behavior-item');
+                all.forEach(el => el.classList.remove('selected'));
+                row.classList.add('selected');
+                if (behaviorSelected) behaviorSelected.textContent = `geselecteerd: ${selectedBehavior}`;
+              });
+              row.addEventListener('dblclick', () => {
+                selectedBehavior = item.full;
+                if (behaviorSelected) behaviorSelected.textContent = `geselecteerd: ${selectedBehavior}`;
+                runSelectedBehavior(true);
+              });
+              wrapper.appendChild(row);
+            });
+
+            if (label) {
+              container.appendChild(wrapper);
+            }
+          }
+
+          renderNode(root, behaviorTree, null, 0);
+          if (behaviorSelected && selectedBehavior) {
+            behaviorSelected.textContent = `geselecteerd: ${selectedBehavior}`;
+          } else if (behaviorSelected) {
+            behaviorSelected.textContent = '';
+          }
+          behaviorStatus.textContent = '';
+        } catch (e) {
+          behaviorStatus.textContent = `laden mislukt: ${e?.message || e}`;
+        }
+      }
+
+      async function runSelectedCommand() {
+        const label = cmdList && cmdList.value;
+        if (!label) return;
+        cmdStatus.textContent = 'starten...';
+        try {
+          let resolved = null;
+          if (label.toUpperCase() === 'DANCE' && danceList && danceList.value) {
+            const selected = danceList.options[danceList.selectedIndex];
+            resolved = {
+              dance_key: danceList.value,
+              dance_behavior: selected && selected.dataset ? selected.dataset.behavior : null
+            };
+          }
+          const r = await fetch('/api/command_execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label, resolved })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'command failed');
+          cmdStatus.textContent = 'ok';
+        } catch (e) {
+          cmdStatus.textContent = 'mislukt';
+        }
+      }
+
+      async function runSelectedBehavior(start) {
+        const behavior = selectedBehavior;
+        if (!behavior) {
+          behaviorStatus.textContent = 'geen behavior geselecteerd';
+          return;
+        }
+        behaviorStatus.textContent = start ? 'starten...' : 'stoppen...';
+        try {
+          const r = await fetch(start ? '/api/nao_behavior_start' : '/api/nao_behavior_stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ behavior })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'behavior failed');
+          behaviorStatus.textContent = 'ok';
+        } catch (e) {
+          behaviorStatus.textContent = 'mislukt';
+        }
+      }
 
         async function setNaoLife(value) {
           try {
@@ -770,13 +1000,21 @@
 
       function setTab(which) {
         const isRuntime = which === 'runtime';
+        const isCommands = which === 'commands';
         const isLogs = which === 'logs';
         tabRuntime.classList.toggle('active', isRuntime);
-        tabPrompt.classList.toggle('active', !isRuntime && !isLogs);
+        tabPrompt.classList.toggle('active', !isRuntime && !isLogs && !isCommands);
+        tabCommands.classList.toggle('active', isCommands);
         tabLogs.classList.toggle('active', isLogs);
         tabRuntimePane.classList.toggle('hidden', !isRuntime);
-        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs);
+        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs || isCommands);
+        tabCommandsPane.classList.toggle('hidden', !isCommands);
         tabLogsPane.classList.toggle('hidden', !isLogs);
+        if (isCommands) {
+          refreshCommands().catch(() => {});
+          refreshDances().catch(() => {});
+          refreshBehaviors().catch(() => {});
+        }
       }
 
       function loadLocalConfig() {
@@ -1651,6 +1889,7 @@
 
       tabPrompt.addEventListener('click', () => setTab('prompt'));
       tabRuntime.addEventListener('click', () => setTab('runtime'));
+      tabCommands.addEventListener('click', () => setTab('commands'));
       tabLogs.addEventListener('click', () => setTab('logs'));
 
       btnResetCfg.addEventListener('click', async () => {
@@ -1768,6 +2007,18 @@
         cfgNaoLifeEnabled.addEventListener('change', () => {
           setNaoLife(cfgNaoLifeEnabled.checked);
         });
+      }
+      if (danceList) {
+        danceList.addEventListener('change', () => updateDanceCommandLabel());
+      }
+      if (btnCmdRun) {
+        btnCmdRun.addEventListener('click', () => runSelectedCommand());
+      }
+      if (btnBehaviorStart) {
+        btnBehaviorStart.addEventListener('click', () => runSelectedBehavior(true));
+      }
+      if (btnBehaviorStop) {
+        btnBehaviorStop.addEventListener('click', () => runSelectedBehavior(false));
       }
       cfgLlmModel.addEventListener('change', () => {
         const cfg = getConfigFromForm();

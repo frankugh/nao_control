@@ -487,6 +487,36 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         cleaned = _normalize_text(text)
         return any(phrase.casefold() in cleaned for phrase in _policy_list(policy, "pass_through_phrases"))
 
+    def _default_dance_resolution(cmdrec_obj) -> Dict[str, str]:
+        policy = _dance_followup_policy(cmdrec_obj)
+        dance_key = _policy_value(policy, "default_dance_key", "happy")
+        catalog = _dance_catalog(cmdrec_obj)
+        dance_behavior = None
+        for item in catalog:
+            if (item.get("key") or "").strip() == dance_key:
+                dance_behavior = item.get("behavior")
+                break
+        if not dance_behavior and isinstance(dance_key, str) and dance_key.strip():
+            dance_behavior = "dances/" + dance_key.strip()
+        return {"dance_key": dance_key, "dance_behavior": dance_behavior}  # type: ignore[return-value]
+
+    def _command_behavior_preview(label: str, cmdrec_obj, behavior_executor) -> Optional[str]:
+        if not label:
+            return None
+        if label.upper() == "DANCE":
+            resolved = _default_dance_resolution(cmdrec_obj)
+            behavior = resolved.get("dance_behavior")
+            return behavior if isinstance(behavior, str) and behavior.strip() else None
+        if behavior_executor is not None and hasattr(behavior_executor, "_behavior_for_command"):
+            try:
+                cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=None)
+                if label.upper() == "DANCE":
+                    cmd.resolved = _default_dance_resolution(cmdrec_obj)
+                return behavior_executor._behavior_for_command(cmd)  # type: ignore[attr-defined]
+            except Exception:
+                return None
+        return None
+
     def _system_prompt_for_sid(sid: str) -> str:
         pipeline = _get_pipeline(sid)
         last_action = _get_runtime_state(sid).get("last_action")
@@ -1737,6 +1767,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             enabled = str(state).lower() != "disabled"
         return {"ok": True, "state": state, "enabled": enabled}
 
+    def _flatten_behaviors(payload: Any) -> List[str]:
+        if isinstance(payload, list):
+            return [str(item) for item in payload if item]
+        if isinstance(payload, dict):
+            out: List[str] = []
+            for folder, items in payload.items():
+                if not isinstance(items, list):
+                    continue
+                for name in items:
+                    if not name:
+                        continue
+                    if folder:
+                        out.append(str(folder).rstrip("/") + "/" + str(name))
+                    else:
+                        out.append(str(name))
+            return out
+        return []
+
     @app.get("/api/nao_audio_state")
     def api_nao_audio_state():
         sid = _get_sid()
@@ -1824,6 +1872,137 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if isinstance(payload, dict):
             return jsonify({"ok": True, "state": payload.get("state"), "enabled": payload.get("enabled")})
         return jsonify({"ok": True, "state": data.get("state"), "enabled": data.get("enabled")})
+
+    @app.get("/api/command_catalog")
+    def api_command_catalog():
+        sid = _get_sid()
+        pipeline = _get_pipeline(sid)
+        _, cmdrec, behavior_executor = _pipeline_props(pipeline)
+        if cmdrec is None:
+            return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
+        try:
+            labels = cmdrec.get_labels() or []
+            exclude = {"LOCOMOTION_REQUEST", "WALK_WITH_ME"}
+            commands = []
+            for label in sorted(labels):
+                label_upper = label.upper()
+                if label_upper in exclude or "LOCOMOTION" in label_upper:
+                    continue
+                behavior = _command_behavior_preview(label, cmdrec, behavior_executor)
+                commands.append({"label": label, "behavior": behavior})
+            return jsonify({"ok": True, "commands": commands})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+    @app.get("/api/dance_catalog")
+    def api_dance_catalog():
+        sid = _get_sid()
+        pipeline = _get_pipeline(sid)
+        _, cmdrec, _ = _pipeline_props(pipeline)
+        if cmdrec is None:
+            return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
+        try:
+            catalog = _dance_catalog(cmdrec)
+            dances = []
+            for item in catalog:
+                key = item.get("key")
+                behavior = item.get("behavior")
+                if isinstance(key, str) and key.strip():
+                    dances.append({"key": key.strip(), "behavior": behavior})
+            return jsonify({"ok": True, "dances": dances})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+    @app.post("/api/command_execute")
+    def api_command_execute():
+        payload = request.get_json(force=True, silent=True) or {}
+        label = (payload.get("label") or "").strip()
+        if not label:
+            return jsonify({"ok": False, "error": "Missing 'label'."}), 400
+        sid = _get_sid()
+        pipeline = _get_pipeline(sid)
+        _, cmdrec, behavior_executor = _pipeline_props(pipeline)
+        if behavior_executor is None:
+            return jsonify({"ok": False, "error": "behavior executor niet beschikbaar."}), 400
+        resolved = payload.get("resolved") if isinstance(payload.get("resolved"), dict) else None
+        if label.upper() == "DANCE" and not resolved:
+            resolved = _default_dance_resolution(cmdrec)
+        cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=resolved)
+        try:
+            behavior_executor.execute(cmd)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True})
+
+    @app.get("/api/nao_behaviors")
+    def api_nao_behaviors():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        mode = "none"
+        if behavior_enabled and behavior_url and _check_ping(behavior_url, "/ping"):
+            base_url = behavior_url
+            mode = "behavior"
+        elif base_enabled and base_url and _check_ping(base_url, "/ping"):
+            mode = "base"
+        else:
+            return jsonify({"ok": False, "error": "Base/behavior manager is down."}), 400
+        try:
+            url = base_url + "/nao/list_behaviors" if mode == "behavior" else base_url + "/list_behaviors"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        payload = data.get("data") if isinstance(data, dict) else None
+        try:
+            behaviors = sorted(_flatten_behaviors(payload))
+            return jsonify({"ok": True, "behaviors": behaviors})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+    @app.post("/api/nao_behavior_start")
+    def api_nao_behavior_start():
+        payload = request.get_json(force=True, silent=True) or {}
+        behavior = (payload.get("behavior") or "").strip()
+        if not behavior:
+            return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+        try:
+            url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
+            resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+            return jsonify({"ok": False, "error": data.get("error") or "behavior failed"}), 400
+        return jsonify({"ok": True})
+
+    @app.post("/api/nao_behavior_stop")
+    def api_nao_behavior_stop():
+        payload = request.get_json(force=True, silent=True) or {}
+        behavior = (payload.get("behavior") or "").strip()
+        if not behavior:
+            return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+        try:
+            url = base_url + "/nao/stop_behavior" if mode == "behavior" else base_url + "/stop_behavior"
+            resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+            return jsonify({"ok": False, "error": data.get("error") or "behavior failed"}), 400
+        return jsonify({"ok": True})
 
     @app.get("/api/process_status")
     def api_process_status():

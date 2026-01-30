@@ -365,12 +365,19 @@ def do_behavior():
             )
 
         if not is_awake():
-            sys.stderr.write("[NAO] Robot is resting; behavior may not run: %s\n" % bname_u.encode("utf-8"))
-            sys.stderr.flush()
-            return make_response(
-                status="warning",
-                data={"behavior": bname_u, "is_awake": False},
-            )
+            if bname_u == u"basic/standup":
+                try:
+                    motion = get_proxy("ALMotion")
+                    motion.wakeUp()
+                except Exception:
+                    pass
+            else:
+                sys.stderr.write("[NAO] Robot is resting; behavior may not run: %s\n" % bname_u.encode("utf-8"))
+                sys.stderr.flush()
+                return make_response(
+                    status="warning",
+                    data={"behavior": bname_u, "is_awake": False},
+                )
 
         sys.stderr.write("[NAO] runBehavior start: %s\n" % bname_u.encode("utf-8"))
         sys.stderr.flush()
