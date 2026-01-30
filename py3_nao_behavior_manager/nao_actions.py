@@ -119,6 +119,14 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+    def get_tts_speed(self, timeout=None):
+        """
+        Haal TTS-snelheid op via /tts_speed (GET).
+        """
+        resp = self._get("/tts_speed", timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def set_volume(self, volume, timeout=None):
         """
         Zet outputvolume via /set_volume.
@@ -126,6 +134,14 @@ class NaoActions(object):
         """
         payload = {"volume": volume}
         resp = self._post_json("/set_volume", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_volume(self, timeout=None):
+        """
+        Haal outputvolume op via /volume (GET).
+        """
+        resp = self._get("/volume", timeout=timeout or self.timeout)
         resp.raise_for_status()
         return resp.json()
 

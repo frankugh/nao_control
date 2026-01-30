@@ -258,29 +258,67 @@ def do_behavior():
 
         if not bname:
             return make_response(status="error", error="Missing 'behavior'")
+        # Normalize for logging and NAOqi (expects byte-string in Py2).
+        if isinstance(bname, unicode_type):
+            bname_u = bname
+        elif isinstance(bname, str):
+            try:
+                bname_u = bname.decode("utf-8")
+            except Exception:
+                bname_u = unicode_type(bname)
+        else:
+            bname_u = unicode_type(bname)
+        bname_qi = bname_u.encode("utf-8")
 
-        # Zorg dat het UNICODE is, niet bytes
-        if not isinstance(bname, unicode_type):
-            if isinstance(bname, str):
-                bname = bname.decode("utf-8")
-            else:
-                bname = unicode_type(bname)
+        sys.stderr.write("[NAO] do_behavior request: %s\n" % bname_u.encode("utf-8"))
+        sys.stderr.flush()
 
         behavior = get_proxy("ALBehaviorManager")
 
-        if not behavior.isBehaviorInstalled(bname):
-            return make_response(status="error", error="Behavior not installed: " + bname)
-
-        if not is_awake():
+        installed = behavior.isBehaviorInstalled(bname_qi)
+        if not installed:
+            sys.stderr.write("[NAO] Behavior not installed: %s\n" % bname_u.encode("utf-8"))
+            sys.stderr.flush()
             return make_response(
-                status="warning",
-                data="Robot is resting, some behaviors may not run correctly"
+                status="error",
+                error="Behavior not installed: " + bname_u,
+                data={"behavior": bname_u, "installed": False},
             )
 
-        behavior.runBehavior(bname)
-        return make_response(data="Ran behavior: " + bname)
+        if not is_awake():
+            sys.stderr.write("[NAO] Robot is resting; behavior may not run: %s\n" % bname_u.encode("utf-8"))
+            sys.stderr.flush()
+            return make_response(
+                status="warning",
+                data={"behavior": bname_u, "is_awake": False},
+            )
+
+        sys.stderr.write("[NAO] runBehavior start: %s\n" % bname_u.encode("utf-8"))
+        sys.stderr.flush()
+        try:
+            behavior.runBehavior(bname_qi)
+        except Exception:
+            sys.stderr.write("[NAO] runBehavior failed: %s\n" % bname_u.encode("utf-8"))
+            sys.stderr.write(traceback.format_exc())
+            sys.stderr.flush()
+            raise
+        sys.stderr.write("[NAO] runBehavior done: %s\n" % bname_u.encode("utf-8"))
+        sys.stderr.flush()
+        return make_response(data={"behavior": bname_u, "ran": True})
     except Exception as e:
-        return make_response(status="error", error=repr(e))
+        try:
+            bname = payload.get("behavior")
+        except Exception:
+            bname = None
+        try:
+            bname_u = bname if isinstance(bname, unicode_type) else unicode_type(bname)
+            bname_log = bname_u.encode("utf-8")
+        except Exception:
+            bname_log = repr(bname)
+        sys.stderr.write("[NAO] do_behavior exception for %s\n" % bname_log)
+        sys.stderr.write(traceback.format_exc())
+        sys.stderr.flush()
+        return make_response(status="error", error=repr(e), data={"behavior": bname})
 
 
 @app.route("/stop_behavior", methods=["POST"])
@@ -350,6 +388,18 @@ def tts_speed():
     except Exception as e:
         return make_response(status="error", error=repr(e))
 
+@app.route("/tts_speed", methods=["GET"])
+def get_tts_speed():
+    """
+    Haal TTS-snelheid op.
+    """
+    try:
+        tts = get_proxy("ALTextToSpeech")
+        speed = tts.getParameter("speed")
+        return make_response(data={"speed": speed})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
 
 @app.route("/set_volume", methods=["POST"])
 def set_volume():
@@ -367,6 +417,18 @@ def set_volume():
         audio_dev = get_proxy("ALAudioDevice")
         audio_dev.setOutputVolume(volume)
 
+        return make_response(data={"volume": volume})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+@app.route("/volume", methods=["GET"])
+def get_volume():
+    """
+    Haal outputvolume op.
+    """
+    try:
+        audio_dev = get_proxy("ALAudioDevice")
+        volume = audio_dev.getOutputVolume()
         return make_response(data={"volume": volume})
     except Exception as e:
         return make_response(status="error", error=repr(e))
@@ -417,6 +479,34 @@ def naoqi_call():
             "status": "ok",
             "data": {
                 "result": safe_result
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": repr(e)
+        })
+
+
+@app.route("/posture", methods=["GET"])
+def posture():
+    """
+    Geef huidige houding terug via ALRobotPosture.
+    """
+    try:
+        posture_proxy = get_proxy("ALRobotPosture")
+        posture = posture_proxy.getPosture()
+        # Posture names are typically: Stand, StandInit, StandZero, Sit, SitRelax, Crouch, etc.
+        posture_s = posture.decode("utf-8") if isinstance(posture, str) else unicode_type(posture)
+        posture_l = posture_s.lower()
+        is_sitting = posture_l.startswith("sit")
+        is_standing = posture_l.startswith("stand")
+        return jsonify({
+            "status": "ok",
+            "data": {
+                "posture": posture_s,
+                "is_sitting": bool(is_sitting),
+                "is_standing": bool(is_standing),
             }
         })
     except Exception as e:

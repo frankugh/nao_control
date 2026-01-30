@@ -48,6 +48,13 @@ class BehaviorExecutor(ICommandExecutor):
             else:
                 resp = requests.post(f"{self.base_url}/do_behavior", json=payload, timeout=self.timeout_s)
             resp.raise_for_status()
+            # Log non-ok responses from Py2 (it returns 200 with status=warning/error).
+            try:
+                data = resp.json()
+            except ValueError:
+                data = None
+            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+                print(f"[NAO] behavior not ok: {data} payload={payload}")
         except requests.RequestException as exc:
             print(f"[NAO] behavior request failed: {exc}")
 
@@ -100,6 +107,27 @@ class BehaviorExecutor(ICommandExecutor):
         except requests.RequestException as exc:
             print(f"[NAO] rest request failed: {exc}")
 
+    def _get_posture(self) -> Optional[str]:
+        try:
+            if self.api_router is not None:
+                resp = self.api_router.get("/posture", timeout=self.timeout_s)
+            else:
+                resp = requests.get(f"{self.base_url}/posture", timeout=self.timeout_s)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            print(f"[NAO] posture request failed: {exc}")
+            return None
+
+        payload = data.get("data") or {}
+        if isinstance(payload, dict):
+            posture = payload.get("posture")
+            if isinstance(posture, str) and posture.strip():
+                return posture.strip()
+            result = payload.get("result")
+            if isinstance(result, str) and result.strip():
+                return result.strip()
+        return None
+
     def _behavior_for_command(self, cmd: CommandDecision) -> Optional[str]:
         label = self._normalize_label(cmd.label)
         if label == "DANCE":
@@ -114,11 +142,18 @@ class BehaviorExecutor(ICommandExecutor):
             if action == "exit":
                 return "basic/standup"
             return "walkwithme/walkwithme"
+        if label == "BOX":
+            posture = self._get_posture()
+            if posture:
+                posture_l = posture.lower()
+                if posture_l.startswith("sit"):
+                    return "greetings/doboxsit"
+                if posture_l.startswith("stand"):
+                    return "greetings"
 
         mapping = {
             "SITDOWN": "basic/sitdown",
             "STAND_UP": "basic/standup",
-            "BOX": "greetings/dobox",
             "HIGH_FIVE": "greetings/dohighfive",
             "WALK_WITH_ME": "walkwithme/walkwithme",
             "WAVE": "animations/Stand/Emotions/Neutral/Hello_1",

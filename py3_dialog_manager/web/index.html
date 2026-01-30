@@ -113,16 +113,17 @@
           <div id="prompt" class="prompt"><span class="muted">laden...</span></div>
         </div>
 
-        <div id="tab-logs" class="tabpane hidden">
-          <div class="row" style="margin-bottom:8px">
-            <select id="logProcess">
-              <option value="base">base controller</option>
-              <option value="behavior">behavior manager</option>
-            </select>
-            <button id="btnRefreshLogs" type="button">Refresh</button>
+          <div id="tab-logs" class="tabpane hidden">
+            <div class="row" style="margin-bottom:8px">
+              <select id="logProcess">
+                <option value="base">base controller</option>
+                <option value="behavior">behavior manager</option>
+              </select>
+              <button id="btnRefreshLogs" type="button">Refresh</button>
+              <button id="btnClearLogs" type="button">Clear</button>
+            </div>
+            <pre id="procLogs" class="debug" style="white-space: pre-wrap;"></pre>
           </div>
-          <pre id="procLogs" class="debug" style="white-space: pre-wrap;"></pre>
-        </div>
         <div id="tab-runtime" class="tabpane hidden">
           <div class="formgrid">
             <div>
@@ -137,47 +138,63 @@
                 <span id="healthNao" class="pill">nao: onbekend</span>
               </div>
             </div>
-            <div>
-              <label>NAO base connector (ip:port)</label>
-              <div class="field-row">
-                <input id="cfgNaoBase" type="text" placeholder="127.0.0.1:5000" />
-                <button id="btnApplyBase" type="button" style="display:none">↻</button>
-              </div>
-              <div id="cfgBaseDirty" class="dirty-note" style="display:none">gewijzigd</div>
-              <label class="enable-row"><span>enable:</span><input id="cfgBaseEnabled" type="checkbox" /></label>
-              <div class="health">
-                <span id="healthBase" class="pill">base: onbekend</span>
-              </div>
-              <div class="row">
-                <button id="btnStartBase" type="button">Start</button>
+              <div>
+                <label>NAO base connector (ip:port)</label>
+                <div class="field-row">
+                  <input id="cfgNaoBase" type="text" placeholder="127.0.0.1:5000" />
+                  <button id="btnApplyBase" type="button" style="display:none">↻</button>
+                </div>
+                <div id="cfgBaseDirty" class="dirty-note" style="display:none">gewijzigd</div>
+                <label class="enable-row"><span>enable:</span><input id="cfgBaseEnabled" type="checkbox" /></label>
+                <label class="enable-row"><span>autostart:</span><input id="cfgBaseAutostart" type="checkbox" /></label>
+                <div class="health">
+                  <span id="healthBase" class="pill">base: onbekend</span>
+                </div>
+                <div class="row">
+                  <button id="btnStartBase" type="button">Start</button>
                 <button id="btnStopBase" type="button">Stop</button>
                 <span id="procBase" class="pill">process: onbekend</span>
               </div>
             </div>
-            <div>
-              <label>Behavior manager (ip:port)</label>
-              <div class="field-row">
-                <input id="cfgBehavior" type="text" placeholder="127.0.0.1:5001" />
-                <button id="btnApplyBehavior" type="button" style="display:none">↻</button>
+              <div>
+                <label>Behavior manager (ip:port)</label>
+                <div class="field-row">
+                  <input id="cfgBehavior" type="text" placeholder="127.0.0.1:5001" />
+                  <button id="btnApplyBehavior" type="button" style="display:none">↻</button>
+                </div>
+                <div id="cfgBehaviorDirty" class="dirty-note" style="display:none">gewijzigd</div>
+                <label class="enable-row"><span>enable:</span><input id="cfgBehaviorEnabled" type="checkbox" /></label>
+                <label class="enable-row"><span>autostart:</span><input id="cfgBehaviorAutostart" type="checkbox" /></label>
+                <div class="health">
+                  <span id="healthBehavior" class="pill">behavior manager: onbekend</span>
+                </div>
+                <div class="row">
+                  <button id="btnStartBehavior" type="button">Start</button>
+                  <button id="btnStopBehavior" type="button">Stop</button>
+                  <span id="procBehavior" class="pill">process: onbekend</span>
+                </div>
               </div>
-              <div id="cfgBehaviorDirty" class="dirty-note" style="display:none">gewijzigd</div>
-              <label class="enable-row"><span>enable:</span><input id="cfgBehaviorEnabled" type="checkbox" /></label>
-              <div class="health">
-                <span id="healthBehavior" class="pill">behavior manager: onbekend</span>
+              <div>
+                <label>NAO audio</label>
+                <div class="field-row">
+                  <button id="btnVolDown" type="button">-</button>
+                  <input id="cfgNaoVol" type="number" min="0" max="100" step="5" placeholder="volume 0-100" />
+                  <button id="btnVolUp" type="button">+</button>
+                </div>
+                <div class="field-row" style="margin-top:8px">
+                  <button id="btnSpeedDown" type="button">-</button>
+                  <input id="cfgNaoSpeed" type="number" min="0" max="100" step="5" placeholder="spreeksnelheid 0-100" />
+                  <button id="btnSpeedUp" type="button">+</button>
+                </div>
+                <div id="cfgNaoAudioNote" class="small" style="margin-top:6px"></div>
               </div>
-              <div class="row">
-                <button id="btnStartBehavior" type="button">Start</button>
-                <button id="btnStopBehavior" type="button">Stop</button>
-                <span id="procBehavior" class="pill">process: onbekend</span>
+              <div>
+                <label>Audio input device</label>
+                <div class="row">
+                  <select id="cfgInputDevice"></select>
+                </div>
+                <div id="cfgInputDeviceName" class="device-name"></div>
               </div>
-            </div>
-            <div>
-              <label>Input device</label>
-              <div class="row">
-                <select id="cfgInputDevice"></select>
-              </div>
-              <div id="cfgInputDeviceName" class="device-name"></div>
-            </div>
             <div>
               <label>STT</label>
               <select id="cfgStt">
@@ -241,26 +258,36 @@
       const tabPromptPane = document.getElementById('tab-prompt');
       const tabRuntimePane = document.getElementById('tab-runtime');
       const tabLogsPane = document.getElementById('tab-logs');
-      const cfgNaoBase = document.getElementById('cfgNaoBase');
-      const cfgBehavior = document.getElementById('cfgBehavior');
-      const cfgBaseEnabled = document.getElementById('cfgBaseEnabled');
-      const cfgBehaviorEnabled = document.getElementById('cfgBehaviorEnabled');
-      const cfgNaoIp = document.getElementById('cfgNaoIp');
+        const cfgNaoBase = document.getElementById('cfgNaoBase');
+        const cfgBehavior = document.getElementById('cfgBehavior');
+        const cfgBaseEnabled = document.getElementById('cfgBaseEnabled');
+        const cfgBehaviorEnabled = document.getElementById('cfgBehaviorEnabled');
+        const cfgBaseAutostart = document.getElementById('cfgBaseAutostart');
+        const cfgBehaviorAutostart = document.getElementById('cfgBehaviorAutostart');
+        const cfgNaoIp = document.getElementById('cfgNaoIp');
       const cfgNaoIpEnabled = document.getElementById('cfgNaoIpEnabled');
       const btnApplyNaoIp = document.getElementById('btnApplyNaoIp');
       const cfgNaoIpDirty = document.getElementById('cfgNaoIpDirty');
       const btnApplyBase = document.getElementById('btnApplyBase');
       const btnApplyBehavior = document.getElementById('btnApplyBehavior');
-      const cfgBaseDirty = document.getElementById('cfgBaseDirty');
-      const cfgBehaviorDirty = document.getElementById('cfgBehaviorDirty');
-      const btnStartBase = document.getElementById('btnStartBase');
+        const cfgBaseDirty = document.getElementById('cfgBaseDirty');
+        const cfgBehaviorDirty = document.getElementById('cfgBehaviorDirty');
+        const cfgNaoVol = document.getElementById('cfgNaoVol');
+        const cfgNaoSpeed = document.getElementById('cfgNaoSpeed');
+        const btnVolDown = document.getElementById('btnVolDown');
+        const btnVolUp = document.getElementById('btnVolUp');
+        const btnSpeedDown = document.getElementById('btnSpeedDown');
+        const btnSpeedUp = document.getElementById('btnSpeedUp');
+        const cfgNaoAudioNote = document.getElementById('cfgNaoAudioNote');
+        const btnStartBase = document.getElementById('btnStartBase');
       const btnStopBase = document.getElementById('btnStopBase');
       const btnStartBehavior = document.getElementById('btnStartBehavior');
       const btnStopBehavior = document.getElementById('btnStopBehavior');
       const procBase = document.getElementById('procBase');
       const procBehavior = document.getElementById('procBehavior');
       const logProcess = document.getElementById('logProcess');
-      const btnRefreshLogs = document.getElementById('btnRefreshLogs');
+        const btnRefreshLogs = document.getElementById('btnRefreshLogs');
+        const btnClearLogs = document.getElementById('btnClearLogs');
       const procLogs = document.getElementById('procLogs');
       const cfgInputDevice = document.getElementById('cfgInputDevice');
       const cfgStt = document.getElementById('cfgStt');
@@ -296,9 +323,14 @@
       let continuousActive = false;
       let continuousPoll = null;
       let phaseStickyUntil = 0;
-      let lastPhase = 'idle';
-      let lastTranscript = null;
-      const resolvedConfirms = new Set();
+        let lastPhase = 'idle';
+        let lastTranscript = null;
+        let lastAudioFetchAt = 0;
+        let autoStartInProgress = false;
+        const lastAutoStartAt = { base: 0, behavior: 0 };
+        const autoStartPauseUntil = { base: 0, behavior: 0 };
+        let healthBoostUntil = 0;
+        const resolvedConfirms = new Set();
 
       function disableConfirmCard(card, label) {
         const buttons = card.querySelectorAll('button');
@@ -312,7 +344,7 @@
         note.textContent = label;
       }
 
-      function setStatus(msg) { statusEl.textContent = msg; }
+        function setStatus(msg) { statusEl.textContent = msg; }
       function setRecState(label, phase) {
         const text = (label || '').toString();
         if (recState) recState.textContent = text || 'idle';
@@ -335,12 +367,15 @@
         if (listenModeNote && listenMode === 'ptt') {
           listenModeNote.textContent = '';
         }
-        if (listenMode !== 'continuous' && continuousActive) {
-          fetch('/api/continuous_stop', { method: 'POST' }).catch(() => {});
-          continuousActive = false;
-          stopContinuousPoll();
-          setRecState('idle');
-        }
+          if (listenMode !== 'continuous') {
+            if (continuousActive) {
+              fetch('/api/continuous_stop', { method: 'POST' }).catch(() => {});
+            }
+            continuousActive = false;
+            stopContinuousPoll();
+            setRecState('idle');
+            setStatus('');
+          }
         updateContinuousAvailability();
         updateRecButton();
       }
@@ -381,13 +416,125 @@
         }
       }
 
-      function updateRecButton() {
-        if (listenMode === 'continuous') {
-          btnRec.textContent = continuousActive ? 'Stop' : 'Start luisteren';
-          return;
+        function updateRecButton() {
+          if (listenMode === 'continuous') {
+            btnRec.textContent = continuousActive ? 'Stop' : 'Start luisteren';
+            return;
+          }
+          btnRec.textContent = recording ? 'Stop' : 'Opnemen';
         }
-        btnRec.textContent = recording ? 'Stop' : 'Opnemen';
-      }
+
+        function triggerHealthSoon(delayMs = 800) {
+          if (healthTimer) clearTimeout(healthTimer);
+          if (!getConfigFromForm().base_enabled && !getConfigFromForm().behavior_enabled && !getConfigFromForm().nao_ip_enabled) {
+            return;
+          }
+          healthTimer = setTimeout(async () => {
+            const nextCfg = getConfigFromForm();
+            const ok = await pollHealth(nextCfg);
+            scheduleHealth(nextCfg, ok);
+          }, delayMs);
+        }
+
+          async function autoStartProcess(name) {
+            if (autoStartInProgress) return;
+            autoStartInProgress = true;
+            try {
+              const r = await fetch('/api/process_start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+              });
+              const j = await r.json();
+              if (j.ok) {
+                healthBoostUntil = Date.now() + 5000;
+                await refreshProcessStatus();
+                await refreshProcessLogs();
+                triggerHealthSoon(1000);
+              }
+            } catch (_) {
+            } finally {
+              autoStartInProgress = false;
+            }
+          }
+
+        function shouldAutoStart(nowMs, lastMs) {
+          return (nowMs - lastMs) > 10000;
+        }
+
+        function clampVolume(v) {
+          if (v == null || isNaN(v)) return null;
+          return Math.max(0, Math.min(100, v));
+        }
+
+        function clampSpeed(v) {
+          if (v == null || isNaN(v)) return null;
+          return Math.max(0, Math.min(100, v));
+        }
+
+        function setNaoAudioEnabled(enabled, note) {
+          const disabled = !enabled;
+          if (cfgNaoVol) cfgNaoVol.disabled = disabled;
+          if (cfgNaoSpeed) cfgNaoSpeed.disabled = disabled;
+          if (btnVolDown) btnVolDown.disabled = disabled;
+          if (btnVolUp) btnVolUp.disabled = disabled;
+          if (btnSpeedDown) btnSpeedDown.disabled = disabled;
+          if (btnSpeedUp) btnSpeedUp.disabled = disabled;
+          if (cfgNaoAudioNote) cfgNaoAudioNote.textContent = note || '';
+        }
+
+        async function refreshNaoAudio(force = false) {
+          const now = Date.now();
+          if (!force && (now - lastAudioFetchAt) < 5000) return;
+          lastAudioFetchAt = now;
+          try {
+            const r = await fetch('/api/nao_audio_state');
+            const j = await r.json();
+            if (!j.ok) {
+              setNaoAudioEnabled(false, j.error || 'NAO audio niet beschikbaar.');
+              return;
+            }
+            if (cfgNaoVol && j.volume != null) cfgNaoVol.value = String(j.volume);
+            if (cfgNaoSpeed && j.speed != null) cfgNaoSpeed.value = String(j.speed);
+            setNaoAudioEnabled(true, '');
+          } catch (e) {
+            setNaoAudioEnabled(false, 'NAO audio niet beschikbaar.');
+          }
+        }
+
+        async function setNaoVolume(value) {
+          const v = clampVolume(parseInt(value, 10));
+          if (v == null) return;
+          try {
+            const r = await fetch('/api/nao_set_volume', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ volume: v })
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'volume failed');
+            if (cfgNaoVol) cfgNaoVol.value = String(j.volume != null ? j.volume : v);
+          } catch (e) {
+            setNaoAudioEnabled(false, 'Volume instellen mislukt.');
+          }
+        }
+
+        async function setNaoSpeed(value) {
+          const v = clampSpeed(parseInt(value, 10));
+          if (isNaN(v)) return;
+          try {
+            const r = await fetch('/api/nao_set_tts_speed', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ speed: v })
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'speed failed');
+            if (cfgNaoSpeed) cfgNaoSpeed.value = String(j.speed != null ? j.speed : v);
+          } catch (e) {
+            setNaoAudioEnabled(false, 'Spreeksnelheid instellen mislukt.');
+          }
+        }
 
 
       function startContinuousPoll() {
@@ -585,9 +732,9 @@
         } catch (_) {}
       }
 
-      function getConfigFromForm() {
-        const inputDeviceValue = cfgInputDevice.value;
-        let inputDevice = null;
+        function getConfigFromForm() {
+          const inputDeviceValue = cfgInputDevice.value;
+          let inputDevice = null;
         if (inputDeviceValue === 'nao_ssh') {
           inputDevice = 'nao_ssh';
         } else if (inputDeviceValue !== '') {
@@ -599,31 +746,35 @@
         const naoIpValue = (cfgNaoIp.value || '').trim() || lastAppliedNaoIp || '';
         const naoBaseValue = (cfgNaoBase.value || '').trim() || lastAppliedBaseUrl || '';
         const behaviorValue = (cfgBehavior.value || '').trim() || lastAppliedBehaviorUrl || '';
-        return {
-          nao_ip: naoIpValue,
-          nao_ip_enabled: !!cfgNaoIpEnabled.checked,
-          nao_base_url: naoBaseValue,
-          behavior_manager_url: behaviorValue,
-          base_enabled: !!cfgBaseEnabled.checked,
-          behavior_enabled: !!cfgBehaviorEnabled.checked,
-          input_device: inputDevice,
-          stt_type: cfgStt.value,
-          cmdrec: cfgCmdrec.value,
-          confirm_policy: cfgConfirmPolicy.value,
+          return {
+            nao_ip: naoIpValue,
+            nao_ip_enabled: !!cfgNaoIpEnabled.checked,
+            nao_base_url: naoBaseValue,
+            behavior_manager_url: behaviorValue,
+            base_enabled: !!cfgBaseEnabled.checked,
+            behavior_enabled: !!cfgBehaviorEnabled.checked,
+            base_autostart: !!cfgBaseAutostart.checked,
+            behavior_autostart: !!cfgBehaviorAutostart.checked,
+            input_device: inputDevice,
+            stt_type: cfgStt.value,
+            cmdrec: cfgCmdrec.value,
+            confirm_policy: cfgConfirmPolicy.value,
           llm_type: cfgLlmType.value,
           llm_model: (cfgLlmModel.value || '').trim(),
           master_prompt_file: cfgMasterPrompt.value || null
         };
       }
 
-      function applyConfigToForm(cfg) {
-        cfgNaoIp.value = cfg.nao_ip || '';
-        cfgNaoIpEnabled.checked = !!cfg.nao_ip_enabled;
-        cfgNaoBase.value = cfg.nao_base_url || '';
-        cfgBehavior.value = cfg.behavior_manager_url || '';
-        cfgBaseEnabled.checked = cfg.base_enabled !== false;
-        cfgBehaviorEnabled.checked = cfg.behavior_enabled !== false;
-        lastAppliedNaoIp = cfg.nao_ip || '';
+        function applyConfigToForm(cfg) {
+          cfgNaoIp.value = cfg.nao_ip || '';
+          cfgNaoIpEnabled.checked = !!cfg.nao_ip_enabled;
+          cfgNaoBase.value = cfg.nao_base_url || '';
+          cfgBehavior.value = cfg.behavior_manager_url || '';
+          cfgBaseEnabled.checked = cfg.base_enabled !== false;
+          cfgBehaviorEnabled.checked = cfg.behavior_enabled !== false;
+          cfgBaseAutostart.checked = !!cfg.base_autostart;
+          cfgBehaviorAutostart.checked = !!cfg.behavior_autostart;
+          lastAppliedNaoIp = cfg.nao_ip || '';
         lastAppliedBaseUrl = cfg.nao_base_url || '';
         lastAppliedBehaviorUrl = cfg.behavior_manager_url || '';
         setUrlDirty('nao', false);
@@ -668,7 +819,7 @@
         cfgInputDevice.innerHTML = '';
         const optDefault = document.createElement('option');
         optDefault.value = '';
-        optDefault.textContent = 'Default device';
+        optDefault.textContent = 'Default mic';
         cfgInputDevice.appendChild(optDefault);
         const naoEnabled = cfgNaoIpEnabled.checked && (cfgNaoIp.value || '').trim();
         if (naoEnabled || current === 'nao_ssh') {
@@ -696,7 +847,7 @@
           return;
         }
         if (selected.value === '') {
-          cfgInputDeviceName.textContent = 'Default device';
+          cfgInputDeviceName.textContent = 'Default mic';
         } else if (selected.value === 'nao_ssh') {
           cfgInputDeviceName.textContent = 'NAO mic (SSH)';
         } else {
@@ -851,75 +1002,110 @@
       let lastHealthOk = null;
       let lastNaoOk = null;
 
-      function scheduleHealth(cfg, isHealthy) {
-        if (healthTimer) clearTimeout(healthTimer);
-        if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) return;
-        const interval = isHealthy ? 30000 : 5000;
-        healthTimer = setTimeout(async () => {
-          const nextCfg = getConfigFromForm();
-          const ok = await pollHealth(nextCfg);
-          scheduleHealth(nextCfg, ok);
-        }, interval);
-      }
-
-      async function pollHealth(cfg) {
-        if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) {
-          setHealth(healthNao, 'disabled', 'nao');
-          setHealth(healthBase, 'disabled', 'base');
-          setHealth(healthBehavior, 'disabled', 'behavior manager');
-          lastHealthOk = false;
-          return false;
+        function scheduleHealth(cfg, isHealthy) {
+          if (healthTimer) clearTimeout(healthTimer);
+          if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) return;
+          const now = Date.now();
+          const boost = now < healthBoostUntil;
+          const interval = boost ? 1000 : (isHealthy ? 30000 : 5000);
+          healthTimer = setTimeout(async () => {
+            const nextCfg = getConfigFromForm();
+            const ok = await pollHealth(nextCfg);
+            scheduleHealth(nextCfg, ok);
+          }, interval);
         }
-        try {
-          const r = await fetch('/api/runtime_health', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              nao_ip: cfg.nao_ip,
-              nao_ip_enabled: cfg.nao_ip_enabled,
-              nao_base_url: cfg.nao_base_url,
-              behavior_manager_url: cfg.behavior_manager_url,
-              base_enabled: cfg.base_enabled,
-              behavior_enabled: cfg.behavior_enabled
-            })
-          });
-          const j = await r.json();
-          if (!cfg.nao_ip_enabled) {
+
+        async function pollHealth(cfg) {
+          if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) {
             setHealth(healthNao, 'disabled', 'nao');
-            lastNaoOk = null;
-          } else {
-            const naoOk = !!(j.nao && j.nao.ping);
-            setHealth(healthNao, naoOk, 'nao');
-            lastNaoOk = naoOk;
-            if (!naoOk && cfgInputDevice.value === 'nao_ssh') {
-              cfgInputDevice.value = '';
-              updateDeviceName();
-              setStatus('NAO mic is down; switched to default device.');
-            }
-          lastNaoOk = naoOk;
-          }
-          if (!cfg.base_enabled) {
             setHealth(healthBase, 'disabled', 'base');
-          } else {
-            const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
-            setHealth(healthBase, baseOk, 'base');
-          }
-          if (!cfg.behavior_enabled) {
             setHealth(healthBehavior, 'disabled', 'behavior manager');
-          } else {
-            const behaviorOk = !!(j.behavior && j.behavior.ping);
-            const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
-            setHealth(healthBehavior, behaviorOk && behaviorNaoOk, 'behavior manager');
+            lastHealthOk = false;
+            return false;
           }
-          const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
-          const behaviorOk = !!(j.behavior && j.behavior.ping);
-          const naoOk = !!(j.nao && j.nao.ping);
-          const ok = baseOk || behaviorOk || naoOk;
-          lastHealthOk = ok;
-          return ok;
-        } catch (_) {
-          lastHealthOk = false;
-          return false;
+          try {
+            const r = await fetch('/api/runtime_health', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                nao_ip: cfg.nao_ip,
+                nao_ip_enabled: cfg.nao_ip_enabled,
+                nao_base_url: cfg.nao_base_url,
+                behavior_manager_url: cfg.behavior_manager_url,
+                base_enabled: cfg.base_enabled,
+                behavior_enabled: cfg.behavior_enabled
+              })
+            });
+            const j = await r.json();
+            if (!cfg.nao_ip_enabled) {
+              setHealth(healthNao, 'disabled', 'nao');
+              lastNaoOk = null;
+            } else {
+              const naoOk = !!(j.nao && j.nao.ping);
+              setHealth(healthNao, naoOk, 'nao');
+              lastNaoOk = naoOk;
+              if (!naoOk && cfgInputDevice.value === 'nao_ssh') {
+                cfgInputDevice.value = '';
+                updateDeviceName();
+                setStatus('NAO mic is down; switched to default device.');
+              }
+            lastNaoOk = naoOk;
+            }
+            if (!cfg.base_enabled) {
+              setHealth(healthBase, 'disabled', 'base');
+            } else {
+              const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
+              setHealth(healthBase, baseOk, 'base');
+            }
+            if (!cfg.behavior_enabled) {
+              setHealth(healthBehavior, 'disabled', 'behavior manager');
+            } else {
+              const behaviorOk = !!(j.behavior && j.behavior.ping);
+              const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
+              setHealth(healthBehavior, behaviorOk && behaviorNaoOk, 'behavior manager');
+            }
+            const baseOk = !!(j.base && j.base.ping && j.base.nao_ping);
+            const behaviorOk = !!(j.behavior && j.behavior.ping);
+            const baseNaoOk = !!(j.base && j.base.nao_ping);
+            const behaviorNaoOk = !!(j.behavior && j.behavior.nao_ping);
+            const naoOk = !!(j.nao && j.nao.ping);
+            const audioOk = baseOk || behaviorOk;
+            if (audioOk) {
+              setNaoAudioEnabled(true, '');
+              refreshNaoAudio();
+            } else {
+              setNaoAudioEnabled(false, 'NAO audio niet verbonden.');
+            }
+            const naoConnected = cfg.nao_ip_enabled && naoOk;
+            if (naoConnected) {
+              const nowMs = Date.now();
+              if (
+                cfg.base_autostart &&
+                cfg.base_enabled &&
+                !baseOk &&
+                nowMs >= autoStartPauseUntil.base &&
+                shouldAutoStart(nowMs, lastAutoStartAt.base)
+              ) {
+                lastAutoStartAt.base = nowMs;
+                autoStartProcess('base');
+              }
+              if (
+                cfg.behavior_autostart &&
+                cfg.behavior_enabled &&
+                !behaviorOk &&
+                nowMs >= autoStartPauseUntil.behavior &&
+                shouldAutoStart(nowMs, lastAutoStartAt.behavior)
+              ) {
+                lastAutoStartAt.behavior = nowMs;
+                autoStartProcess('behavior');
+              }
+            }
+            const ok = baseOk || behaviorOk || naoOk;
+            lastHealthOk = ok;
+            return ok;
+          } catch (_) {
+            lastHealthOk = false;
+            return false;
         }
       }
 
@@ -1027,52 +1213,57 @@
         } catch (_) {}
       }
 
-      async function startProcess(name) {
-        try {
-          const r = await fetch('/api/process_start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-          });
-          const j = await r.json();
-          if (!j.ok) throw new Error(j.error || 'start failed');
-          await refreshProcessStatus();
-          await refreshProcessLogs();
-          const ok = await pollHealth(getConfigFromForm());
-          scheduleHealth(getConfigFromForm(), ok);
-        } catch (e) {
-          setStatus('Process start failed: ' + (e?.message || e));
+        async function startProcess(name) {
+          try {
+            const r = await fetch('/api/process_start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name })
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'start failed');
+            healthBoostUntil = Date.now() + 5000;
+            await refreshProcessStatus();
+            await refreshProcessLogs();
+            triggerHealthSoon(800);
+          } catch (e) {
+            setStatus('Process start failed: ' + (e?.message || e));
+          }
         }
-      }
 
-      async function stopProcess(name) {
-        try {
-          const r = await fetch('/api/process_stop', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-          });
-          const j = await r.json();
-          if (!j.ok) throw new Error(j.error || 'stop failed');
-          await refreshProcessStatus();
-          await refreshProcessLogs();
-          const ok = await pollHealth(getConfigFromForm());
-          scheduleHealth(getConfigFromForm(), ok);
-        } catch (e) {
-          setStatus('Process stop failed: ' + (e?.message || e));
+        async function stopProcess(name) {
+          try {
+            const r = await fetch('/api/process_stop', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name })
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'stop failed');
+            // Prevent immediate autostart right after a manual stop.
+            autoStartPauseUntil[name] = Date.now() + 5000;
+            healthBoostUntil = Date.now() + 10000;
+            await refreshProcessStatus();
+            await refreshProcessLogs();
+            triggerHealthSoon(800);
+          } catch (e) {
+            setStatus('Process stop failed: ' + (e?.message || e));
+          }
         }
-      }
 
-async function refreshState() {
-        const r = await fetch('/api/state');
-        const j = await r.json();
-        if (j.ok) {
-          renderHistory(j.history || []);
-          renderPrompt(j.system_prompt || '');
-          lastTranscript = null;
-          txt.value = '';
+        async function refreshState() {
+          const r = await fetch('/api/state');
+          const j = await r.json();
+          if (j.ok) {
+            renderHistory(j.history || []);
+            renderPrompt(j.system_prompt || '');
+            const preserveInput = (document.activeElement === txt) || !!(txt.value && txt.value.trim());
+            if (!preserveInput) {
+              lastTranscript = null;
+              txt.value = '';
+            }
+          }
         }
-      }
 
       // --- WAV encoding helpers (mono, 16-bit PCM, 16kHz) ---
       function floatTo16BitPCM(float32Array) {
@@ -1265,7 +1456,39 @@ async function refreshState() {
         }
       });
 
-      txt.addEventListener('input', () => { btnSend.disabled = !txt.value.trim(); });
+        txt.addEventListener('input', () => { btnSend.disabled = !txt.value.trim(); });
+        if (btnVolDown && btnVolUp && cfgNaoVol) {
+          btnVolDown.addEventListener('click', () => {
+            const cur = parseInt(cfgNaoVol.value || '0', 10);
+            setNaoVolume((isNaN(cur) ? 0 : cur) - 5);
+          });
+          btnVolUp.addEventListener('click', () => {
+            const cur = parseInt(cfgNaoVol.value || '0', 10);
+            setNaoVolume((isNaN(cur) ? 0 : cur) + 5);
+          });
+          cfgNaoVol.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              setNaoVolume(cfgNaoVol.value);
+            }
+          });
+        }
+        if (btnSpeedDown && btnSpeedUp && cfgNaoSpeed) {
+          btnSpeedDown.addEventListener('click', () => {
+            const cur = parseInt(cfgNaoSpeed.value || '0', 10);
+            setNaoSpeed((isNaN(cur) ? 0 : cur) - 5);
+          });
+          btnSpeedUp.addEventListener('click', () => {
+            const cur = parseInt(cfgNaoSpeed.value || '0', 10);
+            setNaoSpeed((isNaN(cur) ? 0 : cur) + 5);
+          });
+          cfgNaoSpeed.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              setNaoSpeed(cfgNaoSpeed.value);
+            }
+          });
+        }
       txt.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
@@ -1364,7 +1587,23 @@ async function refreshState() {
       btnStopBase.addEventListener('click', () => stopProcess('base'));
       btnStartBehavior.addEventListener('click', () => startProcess('behavior'));
       btnStopBehavior.addEventListener('click', () => stopProcess('behavior'));
-      btnRefreshLogs.addEventListener('click', () => refreshProcessLogs());
+        btnRefreshLogs.addEventListener('click', () => refreshProcessLogs());
+        btnClearLogs.addEventListener('click', async () => {
+          const name = (logProcess.value || '').trim().toLowerCase();
+          if (!name) return;
+          try {
+            const r = await fetch('/api/process_logs_clear', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name })
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'clear failed');
+            refreshProcessLogs();
+          } catch (e) {
+            setStatus('Clear logs failed: ' + (e?.message || e));
+          }
+        });
       logProcess.addEventListener('change', () => refreshProcessLogs());
 
       btnRefreshCfg.addEventListener('click', async () => {
@@ -1427,6 +1666,8 @@ async function refreshState() {
       cfgCmdrec.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgStt.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgConfirmPolicy.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      cfgBaseAutostart.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      cfgBehaviorAutostart.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgLlmModel.addEventListener('change', () => {
         const cfg = getConfigFromForm();
         if (canApplyLlm(cfg)) {

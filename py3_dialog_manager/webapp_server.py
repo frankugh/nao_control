@@ -149,6 +149,8 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "nao_ip_enabled": bool(cfg_src.get("nao_ip_enabled")) if "nao_ip_enabled" in cfg_src else bool(nao_ip),
         "base_enabled": True,
         "behavior_enabled": True,
+        "base_autostart": False,
+        "behavior_autostart": False,
         "input_device": input_device,
         "stt_type": (stt_cfg.get("type") or "vosk"),
         "cmdrec": cfg_src.get("cmdrec", "latest"),
@@ -1328,6 +1330,106 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             }
         )
 
+    def _resolve_nao_audio_url(runtime_cfg: JsonLike) -> Tuple[Optional[str], str]:
+        """
+        Kies de juiste base URL voor NAO audio (volume/tts_speed).
+        Returns (base_url, mode) where mode is "behavior" or "base".
+        """
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+
+        if behavior_enabled and behavior_url:
+            return behavior_url, "behavior"
+        if base_enabled and base_url:
+            return base_url, "base"
+        return None, "none"
+
+    def _get_nao_audio_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "error": "NAO audio endpoint ontbreekt."}
+
+        try:
+            if mode == "behavior":
+                volume_url = base_url + "/nao/volume"
+                speed_url = base_url + "/nao/tts_speed"
+            else:
+                volume_url = base_url + "/volume"
+                speed_url = base_url + "/tts_speed"
+            volume_resp = requests.get(volume_url, timeout=2.5)
+            speed_resp = requests.get(speed_url, timeout=2.5)
+            volume_data = volume_resp.json() if volume_resp.ok else {}
+            speed_data = speed_resp.json() if speed_resp.ok else {}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        volume = (volume_data.get("data") or {}).get("volume")
+        speed = (speed_data.get("data") or {}).get("speed")
+        return {"ok": True, "volume": volume, "speed": speed, "mode": mode}
+
+    @app.get("/api/nao_audio_state")
+    def api_nao_audio_state():
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        return jsonify(_get_nao_audio_state(runtime_cfg))
+
+    @app.post("/api/nao_set_volume")
+    def api_nao_set_volume():
+        payload = request.get_json(force=True, silent=True) or {}
+        volume = payload.get("volume", None)
+        try:
+            volume = int(volume)
+        except Exception:
+            return jsonify({"ok": False, "error": "Ongeldige volume waarde."}), 400
+        volume = max(0, min(100, volume))
+
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO audio endpoint ontbreekt."}), 400
+
+        try:
+            if mode == "behavior":
+                url = base_url + "/nao/set_volume"
+            else:
+                url = base_url + "/set_volume"
+            resp = requests.post(url, json={"volume": volume}, timeout=3.0)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        return jsonify({"ok": True, "volume": (data.get("data") or {}).get("volume", volume)})
+
+    @app.post("/api/nao_set_tts_speed")
+    def api_nao_set_tts_speed():
+        payload = request.get_json(force=True, silent=True) or {}
+        speed = payload.get("speed", None)
+        try:
+            speed = int(speed)
+        except Exception:
+            return jsonify({"ok": False, "error": "Ongeldige speed waarde."}), 400
+
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO audio endpoint ontbreekt."}), 400
+
+        try:
+            if mode == "behavior":
+                url = base_url + "/nao/tts_speed"
+            else:
+                url = base_url + "/tts_speed"
+            resp = requests.post(url, json={"speed": speed}, timeout=3.0)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        return jsonify({"ok": True, "speed": (data.get("data") or {}).get("speed", speed)})
+
     @app.get("/api/process_status")
     def api_process_status():
         status = {
@@ -1344,6 +1446,16 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         with proc_lock:
             lines = list(proc_logs.get(name, []))
         return jsonify({"ok": True, "name": name, "lines": lines})
+
+    @app.post("/api/process_logs_clear")
+    def api_process_logs_clear():
+        payload = request.get_json(force=True, silent=True) or {}
+        name = (payload.get("name") or "").strip().lower()
+        if name not in ("base", "behavior"):
+            return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        with proc_lock:
+            proc_logs[name] = []
+        return jsonify({"ok": True, "name": name})
 
     @app.post("/api/process_start")
     def api_process_start():

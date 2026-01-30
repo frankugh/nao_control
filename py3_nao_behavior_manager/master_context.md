@@ -5,7 +5,7 @@ We bouwen een modulaire dialoog-pipeline voor een NAO robot demo (en laptop test
 Input -> (optioneel STT) -> LLM -> Output.
 Alles configureerbaar via 1 JSON per run (configs/*). Het doel is plug-and-play wisselen tussen:
 - input: console typing of audio opnemen
-- stt: whisper of vosk
+- stt: whisper (later eventueel vosk)
 - llm: none/echo, ollama local, ollama cloud
 - output: console print, NAO TTS, none
 
@@ -21,7 +21,7 @@ BELANGRIJKE BESTANDEN
 - dialog/pipeline_builder.py: build_pipeline_from_json/config
   - leest JSON schema
   - maakt input backend (console/audio)
-  - maakt STT backend (whisper/vosk)
+  - maakt STT backend (whisper)
   - maakt LLM backend (none/echo/ollama local/cloud)
   - maakt output backend (console/nao/none)
   - ondersteunt system_prompt of system_prompt_file
@@ -40,18 +40,11 @@ Top-level keys:
     "log_dir": "logs",
     "log_messages_path": "logs/whatever.jsonl"
   },
-  "cmdrec": "none" | "latest" | "v<nummer>",
-  "cmdrec_bundles_dir": "dist",
-  "confirm_method": "none" | "head" | "enter" | "popup",
-  "confirm_timeout_s": float,
-  "guarded_labels": ["DANCE", "LOCOMOTION_REQUEST", "WALK_WITH_ME", "BOX", "HIGH_FIVE"],
-  "debug_cmdrec": bool,
-  "behavior_backend": "nao" | "print",
   "input": {
     "type": "console" | "audio",
     "params": { ... },
     (if audio) "mic": { "type": "laptop" | "nao_ssh", "params": {...} },
-              "stt": { "type": "whisper" | "vosk", "params": {...} }
+              "stt": { "type": "whisper", "params": {...} }
   },
   "llm": {
     "type": "none" | "echo" | "ollama_local" | "ollama_cloud",
@@ -88,14 +81,6 @@ RUNNEN
 - Ollama local host: http://localhost:11434
 - Models list: `ollama list`
 
-ZONDER PY3 BEHAVIOR MANAGER
-Je kunt de dialog manager ook draaien zonder de Py3 behavior manager.
-Opties:
-- In JSON config: zet nao_connection.primary.base_url direct naar de Py2 base controller
-  (bijv. "http://<ip>:5000") en zet health_checks op ["py3_ping"] of [].
-- In de web UI runtime config: zet behavior_enabled = false en base_enabled = true.
-  Dan gebruikt de pipeline de Py2 base controller direct (geen Py3 proxy nodig).
-
 HUIDIGE STATUS
 - Console input + echo/none + console output werkt
 - Audio input (laptop mic) + Whisper STT + echo werkt
@@ -113,6 +98,6 @@ WAT IK VAN DE NIEUWE CHAT WIL
 TYPISCHE VOLGENDE STAPPEN (VOORBEELDEN)
 - betere system prompt / master prompt tuning
 - context strategie uitbreiden (samenvatten, pinned facts)
-- vosk backend toegevoegd
+- vosk backend toevoegen
 - NAO-specific output tuning (korte TTS, interruption, status cues)
 - UX: “listening/transcribing/thinking/speaking” cues

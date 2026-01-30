@@ -102,6 +102,11 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         """Healthcheck van de onderliggende Py2-NAO-API."""
         return _wrap_py2_call(nao_actions.ping)
 
+    @app.route("/nao/posture", methods=["GET"])
+    def nao_posture():
+        """Posture via Py2 base controller."""
+        return _wrap_py2_call(nao_actions.naoqi_call, "ALRobotPosture", "getPosture", [], {})
+
     @app.route("/nao/is_awake", methods=["GET"])
     def nao_is_awake():
         return _wrap_py2_call(nao_actions.is_awake)
@@ -142,6 +147,10 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
             return jsonify({"status": "error", "error": "Missing 'speed'"}), 400
         return _wrap_py2_call(nao_actions.set_tts_speed, speed)
 
+    @app.route("/nao/tts_speed", methods=["GET"])
+    def nao_get_tts_speed():
+        return _wrap_py2_call(nao_actions.get_tts_speed)
+
     @app.route("/nao/set_volume", methods=["POST"])
     def nao_set_volume():
         data = request.get_json(force=True, silent=True) or {}
@@ -149,6 +158,10 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         if volume is None:
             return jsonify({"status": "error", "error": "Missing 'volume'"}), 400
         return _wrap_py2_call(nao_actions.set_volume, volume)
+
+    @app.route("/nao/volume", methods=["GET"])
+    def nao_get_volume():
+        return _wrap_py2_call(nao_actions.get_volume)
 
     @app.route("/nao/list_behaviors", methods=["GET"])
     def nao_list_behaviors():

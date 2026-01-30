@@ -430,7 +430,6 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
             timeout_s=nao_conn["timeout_s"],
             status_to_console=nao_conn["log_status"],
         )
-        api_router.check_primary(force=True)
 
     input_backend = _make_input(cfg)
     llm = _make_llm(cfg)

@@ -18,6 +18,7 @@ Dubbelklik:
 Dit opent twee vensters:
 - "NAO Py2": NAO basiscontroller (wake-up, rest, behaviors, TTS native)
 - "NAO Py3": Behavior Manager + Piper-TTS + NAO-proxy API
+  (optioneel: je kunt ook alleen Py2 draaien en direct daarop targeten)
 
 Beide processen blijven draaien tot je het venster sluit.
 

@@ -28,7 +28,7 @@
         "sample_rate": 16000,
         "start_threshold_rms": 500,
         "stop_silence_ms": 1000,
-        "pre_roll_ms": 200,
+        "pre_roll_ms": 500,
         "max_utterance_s": 12.0,
         "block_ms": 20,
         "input_device": null

@@ -77,7 +77,7 @@ class TestDoBehaviorRoute(unittest.TestCase):
 
     @patch("nao_api.is_awake", return_value=True)
     @patch("nao_api.get_proxy")
-    def test_do_behavior_unicode_name(self, mock_get_proxy, mock_is_awake):
+    def test_do_behavior_unicode_name_encoded_for_naoqi(self, mock_get_proxy, mock_is_awake):
         behavior = MagicMock()
         behavior.isBehaviorInstalled.return_value = True
         mock_get_proxy.return_value = behavior
@@ -101,10 +101,16 @@ class TestDoBehaviorRoute(unittest.TestCase):
         behavior.isBehaviorInstalled.assert_called_once()
         behavior.runBehavior.assert_called_once()
 
-        arg = behavior.runBehavior.call_args[0][0]
-        if not isinstance(arg, unicode):
-            arg = arg.decode("utf-8")
-        self.assertEqual(arg, behavior_name)
+        # NAOqi (Py2) expects a byte-string, not unicode.
+        arg_installed = behavior.isBehaviorInstalled.call_args[0][0]
+        arg_run = behavior.runBehavior.call_args[0][0]
+        self.assertIsInstance(arg_installed, str)
+        self.assertIsInstance(arg_run, str)
+        self.assertEqual(arg_installed.decode("utf-8"), behavior_name)
+        self.assertEqual(arg_run.decode("utf-8"), behavior_name)
+
+        # Response should still be unicode in JSON.
+        self.assertEqual(data["data"]["behavior"], behavior_name)
 
     def test_do_behavior_missing_name_gives_error(self):
         app = nao_api.app
