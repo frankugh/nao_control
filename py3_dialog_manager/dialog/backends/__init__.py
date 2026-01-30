@@ -10,6 +10,7 @@ from dialog.backends.mic_laptop import LaptopMic
 from dialog.backends.mic_nao_ssh import NaoSshMic
 
 # STT backends
+from dialog.backends.stt_azure import AzureSTTBackend
 from dialog.backends.stt_whisper import WhisperSTTBackend
 from dialog.backends.stt_vosk import VoskSTTBackend
 
@@ -32,6 +33,7 @@ __all__ = [
     "LaptopMic",
     "NaoSshMic",
     # stt
+    "AzureSTTBackend",
     "WhisperSTTBackend",
     "VoskSTTBackend",
     # llm

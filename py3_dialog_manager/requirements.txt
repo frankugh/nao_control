@@ -8,3 +8,4 @@ sounddevice
 ollama
 webrtcvad
 prompt_toolkit
+azure-cognitiveservices-speech

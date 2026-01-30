@@ -239,6 +239,7 @@
               <select id="cfgStt">
                 <option value="vosk">vosk</option>
                 <option value="whisper">whisper</option>
+                <option value="azure">azure</option>
               </select>
             </div>
             <div>
@@ -402,6 +403,12 @@
       }
 
         function setStatus(msg) { statusEl.textContent = msg; }
+        function formatConfidence(value) {
+          if (value == null || value === '') return '';
+          const num = Number(value);
+          if (Number.isNaN(num)) return '';
+          return `conf: ${num.toFixed(2)}`;
+        }
       function setRecState(label, phase) {
         const text = (label || '').toString();
         if (recState) recState.textContent = text || 'idle';
@@ -1695,7 +1702,8 @@
         txt.value = (j.transcript || '').trim();
         lastTranscript = txt.value ? txt.value : null;
         btnSend.disabled = !txt.value.trim();
-        setStatus('✅ Transcript klaar. Edit en druk op Send.');
+        const confLabel = formatConfidence(j.confidence);
+        setStatus(confLabel ? `✅ Transcript klaar (${confLabel}). Edit en druk op Send.` : '✅ Transcript klaar. Edit en druk op Send.');
         setRecState('idle');
       }
 
@@ -1711,7 +1719,8 @@
           txt.value = (j.transcript || '').trim();
           lastTranscript = txt.value ? txt.value : null;
           btnSend.disabled = !txt.value.trim();
-          setStatus('Transcript klaar. Edit en druk op Send.');
+          const confLabel = formatConfidence(j.confidence);
+          setStatus(confLabel ? `Transcript klaar (${confLabel}). Edit en druk op Send.` : 'Transcript klaar. Edit en druk op Send.');
         } finally {
           setRecState('idle');
           updateRecButton();

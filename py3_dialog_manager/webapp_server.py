@@ -79,6 +79,15 @@ DEFAULT_WHISPER_PARAMS = {
     "min_silence_duration_ms": 1000,
 }
 
+DEFAULT_AZURE_PARAMS = {
+    "subscription_key": None,
+    "region": None,
+    "language": "nl-NL",
+    "output_format": "detailed",
+    "profanity": None,
+    "endpoint_id": None,
+}
+
 
 def _parse_host_port(raw: Optional[str], default_port: int) -> Tuple[Optional[str], int]:
     if not raw:
@@ -170,6 +179,8 @@ def _stt_params_for_type(stt_type: str, cfg_src: JsonLike) -> JsonLike:
         return copy.deepcopy(stt_cfg.get("params", {}) or {})
     if stt_type.lower() == "vosk":
         return copy.deepcopy(DEFAULT_VOSK_PARAMS)
+    if stt_type.lower() == "azure":
+        return copy.deepcopy(DEFAULT_AZURE_PARAMS)
     return copy.deepcopy(DEFAULT_WHISPER_PARAMS)
 
 
@@ -947,7 +958,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         audio = UtteranceAudio(pcm=wav_bytes, sample_rate=16000, channels=1, sample_width=2)
         res = _get_stt(sid).transcribe(audio)
-        return jsonify({"ok": True, "transcript": res.text, "language": getattr(res, "language", "")})
+        return jsonify(
+            {
+                "ok": True,
+                "transcript": res.text,
+                "language": getattr(res, "language", ""),
+                "confidence": getattr(res, "confidence", None),
+            }
+        )
 
     @app.post("/api/transcribe_mic")
     def api_transcribe_mic():
@@ -962,7 +980,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         timeout_s = float((input_cfg.get("params") or {}).get("start_timeout_s") or 10.0)
         audio = mic.capture_utterance(timeout_s=timeout_s)
         res = _get_stt(sid).transcribe(audio)
-        return jsonify({"ok": True, "transcript": res.text, "language": getattr(res, "language", "")})
+        return jsonify(
+            {
+                "ok": True,
+                "transcript": res.text,
+                "language": getattr(res, "language", ""),
+                "confidence": getattr(res, "confidence", None),
+            }
+        )
 
 
     def _process_text(

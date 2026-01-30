@@ -19,6 +19,7 @@ from dialog.backends.input_console import ConsoleInputBackend
 # mic/stt backends
 from dialog.backends.mic_laptop import LaptopMic
 from dialog.backends.mic_nao_ssh import NaoSshMic
+from dialog.backends.stt_azure import AzureSTTBackend
 from dialog.backends.stt_whisper import WhisperSTTBackend
 from dialog.backends.stt_vosk import VoskSTTBackend
 
@@ -306,6 +307,8 @@ def _make_stt(stt_cfg: JsonLike):
         return WhisperSTTBackend(**p)
     if t == "vosk":
         return VoskSTTBackend(**p)
+    if t == "azure":
+        return AzureSTTBackend(**p)
     raise ValueError(f"Onbekende stt.type: {t!r}")
 
 
