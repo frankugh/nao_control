@@ -26,6 +26,7 @@ import uuid
 import shutil
 import subprocess
 import socket
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -43,7 +44,7 @@ try:
     from dialog.backends.output_none import NoOpOutputBackend
     from dialog.backends.mic_laptop import LaptopMic
     from dialog.backends.mic_nao_ssh import NaoSshMic
-    from dialog.interfaces import UtteranceAudio, parse_confirm_method
+    from dialog.interfaces import UtteranceAudio, parse_confirm_method, CommandDecision, RouteDecision
 except Exception as e:  # pragma: no cover
     raise RuntimeError(
         "Kan projectmodules niet importeren. Run dit script vanaf de repo root, "
@@ -317,7 +318,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         return sessions.setdefault(sid, [])
 
     def _get_cmdrec_state(sid: str) -> Dict[str, Any]:
-        return cmdrec_state.setdefault(sid, {"mode": "DIALOG", "active_behavior": None})
+        return cmdrec_state.setdefault(
+            sid,
+            {"mode": "DIALOG", "active_behavior": None, "pending_dance": None},
+        )
 
     def _get_runtime_state(sid: str) -> Dict[str, Any]:
         return runtime_context_state.setdefault(sid, {"last_action": None})
@@ -358,6 +362,115 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return f"{prefix}: {label}; resolved: {items}"
         return f"{prefix}: {label}"
 
+    def _normalize_text(value: str) -> str:
+        return " ".join((value or "").casefold().split())
+
+    def _dance_catalog(cmdrec_obj) -> List[Dict[str, Any]]:
+        if cmdrec_obj is None:
+            return []
+        try:
+            return cmdrec_obj.get_dance_catalog() or []
+        except Exception:
+            return []
+
+    def _dance_followup_policy(cmdrec_obj) -> Dict[str, Any]:
+        if cmdrec_obj is not None:
+            try:
+                bundle_path = getattr(cmdrec_obj, "bundle_path", None)
+                if bundle_path:
+                    policy_path = Path(bundle_path) / "dance_followup_policy.json"
+                    if policy_path.exists():
+                        return json.loads(policy_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        # Fallback to data/ for local dev
+        dm_root = Path(__file__).resolve().parents[1]
+        repo_root = dm_root.parent
+        fallback = repo_root / "py3_command_recognition_train" / "data" / "dance_followup_policy.json"
+        if fallback.exists():
+            return json.loads(fallback.read_text(encoding="utf-8"))
+        return {}
+
+    def _policy_list(policy: Dict[str, Any], key: str) -> List[str]:
+        values = policy.get(key) or []
+        return [v for v in values if isinstance(v, str) and v.strip()]
+
+    def _policy_value(policy: Dict[str, Any], key: str, default: Any) -> Any:
+        return policy.get(key, default)
+
+    def _pick_dance_followup_prompt(policy: Dict[str, Any], hint: str) -> str:
+        prompts = _policy_list(policy, "followup_prompts")
+        if prompts:
+            choice = secrets.choice(prompts)
+            if "{hint}" in choice:
+                rendered = choice.replace("{hint}", hint or "")
+                if not hint:
+                    rendered = re.sub(r"\(\s*\)", "", rendered)
+                return re.sub(r"\s+", " ", rendered).strip()
+            return choice.strip()
+        if hint:
+            return "Natuurlijk. Welke dans wil je? (bijv. {hint})".format(hint=hint)
+        return "Natuurlijk. Welke dans wil je?"
+
+    def _emit_followup_text(
+        *,
+        pipeline: InputLLMOutputPipeline,
+        emit_used: str,
+        runtime_cfg: JsonLike,
+        text: str,
+    ) -> None:
+        if not text or emit_used != "pipeline":
+            return
+        output_enabled = bool(runtime_cfg.get("base_enabled", True))
+        if output_enabled:
+            base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+            if not _check_ping(base_url, "/ping"):
+                output_enabled = False
+        if not output_enabled:
+            return
+        try:
+            pipeline.output.emit(text)
+        except Exception:
+            return
+
+    def _dance_keys(catalog: List[Dict[str, Any]]) -> List[str]:
+        keys = []
+        for item in catalog:
+            key = item.get("key")
+            if isinstance(key, str) and key.strip():
+                keys.append(key.strip())
+        return keys
+
+    def _resolve_dance_from_text(text: str, catalog: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+        cleaned = _normalize_text(text)
+        for item in catalog:
+            key = (item.get("key") or "").strip()
+            if not key:
+                continue
+            aliases = item.get("aliases") or []
+            if key.casefold() in cleaned:
+                return key, item.get("behavior")
+            for alias in aliases:
+                if isinstance(alias, str) and alias.casefold() in cleaned:
+                    return key, item.get("behavior")
+        return None, None
+
+    def _dance_is_cancel(text: str, policy: Dict[str, Any]) -> bool:
+        cleaned = _normalize_text(text)
+        return any(phrase.casefold() in cleaned for phrase in _policy_list(policy, "cancel_phrases"))
+
+    def _dance_is_default(text: str, policy: Dict[str, Any]) -> bool:
+        cleaned = _normalize_text(text)
+        return any(phrase.casefold() in cleaned for phrase in _policy_list(policy, "default_phrases"))
+
+    def _dance_is_list_request(text: str, policy: Dict[str, Any]) -> bool:
+        cleaned = _normalize_text(text)
+        return any(phrase.casefold() in cleaned for phrase in _policy_list(policy, "list_phrases"))
+
+    def _dance_is_pass_through(text: str, policy: Dict[str, Any]) -> bool:
+        cleaned = _normalize_text(text)
+        return any(phrase.casefold() in cleaned for phrase in _policy_list(policy, "pass_through_phrases"))
+
     def _system_prompt_for_sid(sid: str) -> str:
         pipeline = _get_pipeline(sid)
         last_action = _get_runtime_state(sid).get("last_action")
@@ -375,6 +488,143 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     def _append_confirm_card(history: History, payload: Dict[str, Any]) -> None:
         history.append(payload)
+
+    def _handle_command_decision(
+        *,
+        sid: str,
+        decision: RouteDecision,
+        text: str,
+        history: History,
+        emit_used: str,
+        debug: Optional[Dict[str, Any]],
+        stt_used: Optional[bool],
+        stt_edited: Optional[bool],
+        cmdrec_obj,
+        behavior_executor,
+        runtime_cfg: JsonLike,
+    ) -> Optional[Dict[str, Any]]:
+        if not decision.is_command or not decision.command:
+            return None
+
+        state = _get_cmdrec_state(sid)
+        cmd = decision.command
+
+        if cmd.label == "STOP":
+            _append_user(history, text)
+            pending_confirms.pop(sid, None)
+            if behavior_executor:
+                behavior_executor.execute(cmd)
+            state["mode"] = "DIALOG"
+            state["active_behavior"] = None
+            _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
+            _append_assistant(history, "OK. Uitgevoerd: STOP")
+            _al_append(
+                "review_queue.jsonl",
+                _al_event(
+                    sid,
+                    text,
+                    suggested_label=cmd.label,
+                    predicted_label=cmd.label,
+                    confidence=cmd.confidence,
+                    reason="auto_executed",
+                    top3=decision.top3,
+                    cmdrec_bundle=str(getattr(cmdrec_obj, "bundle_path", "") or ""),
+                    stt_used=stt_used,
+                    stt_edited=stt_edited,
+                ),
+            )
+            payload = {
+                "ok": True,
+                "reply": "OK. Uitgevoerd: STOP",
+                "history": history,
+                "system_prompt": _system_prompt_for_sid(sid),
+                "emit_used": emit_used,
+            }
+            if debug:
+                payload["debug"] = debug
+            return payload
+
+        confirm_policy = (runtime_cfg.get("confirm_policy") or base_cfg.get("confirm_policy") or "when_guarded").lower()
+        confirm_needed = False
+        if confirm_method != "none":
+            if confirm_policy == "always":
+                confirm_needed = True
+            else:
+                confirm_needed = bool(cmdrec_obj and cmdrec_obj.is_guarded(cmd.label))
+
+        if confirm_needed:
+            _append_user(history, text)
+            confirmation_id = uuid.uuid4().hex
+            pending_confirms[sid] = {
+                "confirmation_id": confirmation_id,
+                "command": cmd,
+                "created_at": time.time(),
+                "timeout_s": confirm_timeout_s,
+                "input_text": text,
+                "input_meta": {"stt_used": stt_used, "stt_edited": stt_edited},
+                "top3": decision.top3,
+                "confidence": cmd.confidence,
+                "label": cmd.label,
+            }
+            confirm_payload = {
+                "type": "confirm_required",
+                "role": "assistant",
+                "confirmation_id": confirmation_id,
+                "created_at": pending_confirms[sid]["created_at"],
+                "timeout_s": pending_confirms[sid]["timeout_s"],
+                "prompt": f"Bevestig uitvoeren: {cmd.label} ?",
+                "command": {
+                    "label": cmd.label,
+                    "confidence": cmd.confidence,
+                    "raw_text": cmd.raw_text,
+                    "resolved": cmd.resolved,
+                },
+                "top3": decision.top3,
+            }
+            _append_confirm_card(history, confirm_payload)
+            payload = {
+                "ok": True,
+                "reply": "",
+                "history": history,
+                "system_prompt": _system_prompt_for_sid(sid),
+                "emit_used": emit_used,
+            }
+            if debug:
+                payload["debug"] = debug
+            return payload
+
+        _append_user(history, text)
+        if behavior_executor:
+            behavior_executor.execute(cmd)
+        state["mode"] = "PERFORMING"
+        state["active_behavior"] = cmd.label
+        _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
+        _append_assistant(history, f"OK. Uitgevoerd: {cmd.label}")
+        _al_append(
+            "review_queue.jsonl",
+            _al_event(
+                sid,
+                text,
+                suggested_label=cmd.label,
+                predicted_label=cmd.label,
+                confidence=cmd.confidence,
+                reason="auto_executed",
+                top3=decision.top3,
+                cmdrec_bundle=str(getattr(cmdrec_obj, "bundle_path", "") or ""),
+                stt_used=stt_used,
+                stt_edited=stt_edited,
+            ),
+        )
+        payload = {
+            "ok": True,
+            "reply": f"OK. Uitgevoerd: {cmd.label}",
+            "history": history,
+            "system_prompt": _system_prompt_for_sid(sid),
+            "emit_used": emit_used,
+        }
+        if debug:
+            payload["debug"] = debug
+        return payload
 
     def _append_proc_log(name: str, line: str) -> None:
         line = line.rstrip("\r\n")
@@ -463,7 +713,32 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             proc_logs.setdefault(name, []).append("--- stopped ---")
         return {"ok": True, "stopped": True}
 
+    def _pick_shutdown_runtime_cfg() -> JsonLike:
+        if runtime_cfg_by_sid:
+            return next(iter(runtime_cfg_by_sid.values()))
+        return _extract_runtime_config(base_cfg)
+
+    def _try_nao_rest(runtime_cfg: JsonLike, *, reason: str) -> None:
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+
+        if behavior_enabled and behavior_url and _check_ping(behavior_url, "/ping"):
+            try:
+                requests.post(behavior_url + "/nao/rest", json={}, timeout=2.0)
+                return
+            except Exception:
+                pass
+
+        if base_enabled and base_url and _check_ping(base_url, "/ping"):
+            try:
+                requests.post(base_url + "/rest", json={}, timeout=2.0)
+            except Exception:
+                pass
+
     def _stop_all_processes() -> None:
+        _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="shutdown")
         for name in ("behavior", "base"):
             _stop_process(name)
 
@@ -701,92 +976,141 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return payload
 
         debug_for_response = None
+
+        # If we are waiting for a dance choice, try to resolve before normal routing.
+        state = _get_cmdrec_state(sid)
+        if state.get("pending_dance") and cmdrec is not None:
+            catalog = _dance_catalog(cmdrec)
+            policy = _dance_followup_policy(cmdrec)
+            if _dance_is_pass_through(text, policy):
+                state["pending_dance"] = None
+            else:
+                if _dance_is_cancel(text, policy):
+                    state["pending_dance"] = None
+                    _append_user(history, text)
+                    _append_assistant(history, "OK, geen dans.")
+                    _emit_followup_text(
+                        pipeline=pipeline,
+                        emit_used=emit_used,
+                        runtime_cfg=runtime_cfg,
+                        text="OK, geen dans.",
+                    )
+                    return {
+                        "ok": True,
+                        "reply": "OK, geen dans.",
+                        "history": history,
+                        "system_prompt": _system_prompt_for_sid(sid),
+                        "emit_used": emit_used,
+                    }
+
+                if _dance_is_list_request(text, policy):
+                    keys = _dance_keys(catalog)
+                    listing = ", ".join(keys) if keys else "(geen lijst beschikbaar)"
+                    _append_user(history, text)
+                    reply_text = "Ik kan: " + listing
+                    _append_assistant(history, reply_text)
+                    _emit_followup_text(
+                        pipeline=pipeline,
+                        emit_used=emit_used,
+                        runtime_cfg=runtime_cfg,
+                        text=reply_text,
+                    )
+                    return {
+                        "ok": True,
+                        "reply": "",
+                        "history": history,
+                        "system_prompt": _system_prompt_for_sid(sid),
+                        "emit_used": emit_used,
+                    }
+
+                dance_key, dance_behavior = _resolve_dance_from_text(text, catalog)
+                if dance_key is None and _dance_is_default(text, policy):
+                    dance_key = _policy_value(policy, "default_dance_key", "happy")
+                    # fill behavior from catalog if available
+                    for item in catalog:
+                        if (item.get("key") or "").strip() == dance_key:
+                            dance_behavior = item.get("behavior")
+                            break
+
+                if dance_key is None:
+                    keys = _dance_keys(catalog)
+                    limit = int(_policy_value(policy, "prompt_examples_limit", 6))
+                    hint = ", ".join(keys[:limit]) if keys else ""
+                    _append_user(history, text)
+                    reply_text = _pick_dance_followup_prompt(policy, hint)
+                    _append_assistant(history, reply_text)
+                    _emit_followup_text(
+                        pipeline=pipeline,
+                        emit_used=emit_used,
+                        runtime_cfg=runtime_cfg,
+                        text=reply_text,
+                    )
+                    return {
+                        "ok": True,
+                        "reply": "",
+                        "history": history,
+                        "system_prompt": _system_prompt_for_sid(sid),
+                        "emit_used": emit_used,
+                    }
+
+                state["pending_dance"] = None
+                resolved = {"dance_key": dance_key}
+                if isinstance(dance_behavior, str) and dance_behavior.strip():
+                    resolved["dance_behavior"] = dance_behavior
+                decision = RouteDecision(
+                    is_command=True,
+                    command=CommandDecision(
+                        label="DANCE",
+                        confidence=1.0,
+                        raw_text=text,
+                        resolved=resolved,
+                    ),
+                    reason="dance_resolved",
+                    top3=None,
+                )
+                debug = _make_debug(decision, debug_cmdrec)
+                debug_for_response = debug
+                result = _handle_command_decision(
+                    sid=sid,
+                    decision=decision,
+                    text=text,
+                    history=history,
+                    emit_used=emit_used,
+                    debug=debug,
+                    stt_used=stt_used,
+                    stt_edited=stt_edited,
+                    cmdrec_obj=cmdrec,
+                    behavior_executor=behavior_executor,
+                    runtime_cfg=runtime_cfg,
+                )
+                if result is not None:
+                    return result
         if cmdrec is not None:
             state = _get_cmdrec_state(sid)
             decision = cmdrec.route(text, state["mode"], state["active_behavior"])
             debug = _make_debug(decision, debug_cmdrec)
             debug_for_response = debug
-            if decision.is_command and decision.command:
-                if decision.command.label == "STOP":
-                    _append_user(history, text)
-                    pending_confirms.pop(sid, None)
-                    if behavior_executor:
-                        behavior_executor.execute(decision.command)
-                    state["mode"] = "DIALOG"
-                    state["active_behavior"] = None
-                    _set_last_action(
-                        sid,
-                        _format_action_summary(
-                            "Uitgevoerd",
-                            decision.command.label,
-                            decision.command.resolved,
-                        ),
-                    )
-                    _append_assistant(history, "OK. Uitgevoerd: STOP")
-                    _al_append(
-                        "review_queue.jsonl",
-                        _al_event(
-                            sid,
-                            text,
-                            suggested_label=decision.command.label,
-                            predicted_label=decision.command.label,
-                            confidence=decision.command.confidence,
-                            reason="auto_executed",
-                            top3=decision.top3,
-                            cmdrec_bundle=str(getattr(cmdrec, "bundle_path", "") or ""),
-                            stt_used=stt_used,
-                            stt_edited=stt_edited,
-                        ),
-                    )
-                    payload = {
-                        "ok": True,
-                        "reply": "OK. Uitgevoerd: STOP",
-                        "history": history,
-                        "system_prompt": _system_prompt_for_sid(sid),
-                        "emit_used": emit_used,
-                    }
-                    if debug:
-                        payload["debug"] = debug
-                    return payload
 
-                confirm_policy = (runtime_cfg.get("confirm_policy") or base_cfg.get("confirm_policy") or "when_guarded").lower()
-                confirm_needed = False
-                if confirm_method != "none":
-                    if confirm_policy == "always":
-                        confirm_needed = True
-                    else:
-                        confirm_needed = cmdrec.is_guarded(decision.command.label)
-
-                if confirm_needed:
+            # DANCE resolved? If not, ask follow-up and mark pending.
+            if decision.is_command and decision.command and decision.command.label == "DANCE":
+                resolved = decision.command.resolved or {}
+                dance_key = resolved.get("dance_key")
+                if not dance_key or str(dance_key).strip().lower() == "unknown":
+                    state["pending_dance"] = True
+                    catalog = _dance_catalog(cmdrec)
+                    policy = _dance_followup_policy(cmdrec)
+                    keys = _dance_keys(catalog)
+                    limit = int(_policy_value(policy, "prompt_examples_limit", 6))
+                    hint = ", ".join(keys[:limit]) if keys else ""
                     _append_user(history, text)
-                    confirmation_id = uuid.uuid4().hex
-                    pending_confirms[sid] = {
-                        "confirmation_id": confirmation_id,
-                        "command": decision.command,
-                        "created_at": time.time(),
-                        "timeout_s": confirm_timeout_s,
-                        "input_text": text,
-                        "input_meta": {"stt_used": stt_used, "stt_edited": stt_edited},
-                        "top3": decision.top3,
-                        "confidence": decision.command.confidence,
-                        "label": decision.command.label,
-                    }
-                    confirm_payload = {
-                        "type": "confirm_required",
-                        "role": "assistant",
-                        "confirmation_id": confirmation_id,
-                        "created_at": pending_confirms[sid]["created_at"],
-                        "timeout_s": pending_confirms[sid]["timeout_s"],
-                        "prompt": f"Bevestig uitvoeren: {decision.command.label} ?",
-                        "command": {
-                            "label": decision.command.label,
-                            "confidence": decision.command.confidence,
-                            "raw_text": decision.command.raw_text,
-                            "resolved": decision.command.resolved,
-                        },
-                        "top3": decision.top3,
-                    }
-                    _append_confirm_card(history, confirm_payload)
+                    reply_text = _pick_dance_followup_prompt(policy, hint)
+                    _append_assistant(history, reply_text)
+                    _emit_followup_text(
+                        pipeline=pipeline,
+                        emit_used=emit_used,
+                        runtime_cfg=runtime_cfg,
+                        text=reply_text,
+                    )
                     payload = {
                         "ok": True,
                         "reply": "",
@@ -798,45 +1122,21 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         payload["debug"] = debug
                     return payload
 
-                _append_user(history, text)
-                if behavior_executor:
-                    behavior_executor.execute(decision.command)
-                state["mode"] = "PERFORMING"
-                state["active_behavior"] = decision.command.label
-                _set_last_action(
-                    sid,
-                    _format_action_summary(
-                        "Uitgevoerd",
-                        decision.command.label,
-                        decision.command.resolved,
-                    ),
-                )
-                _append_assistant(history, f"OK. Uitgevoerd: {decision.command.label}")
-                _al_append(
-                    "review_queue.jsonl",
-                    _al_event(
-                        sid,
-                        text,
-                        suggested_label=decision.command.label,
-                        predicted_label=decision.command.label,
-                        confidence=decision.command.confidence,
-                        reason="auto_executed",
-                        top3=decision.top3,
-                        cmdrec_bundle=str(getattr(cmdrec, "bundle_path", "") or ""),
-                        stt_used=stt_used,
-                        stt_edited=stt_edited,
-                    ),
-                )
-                payload = {
-                    "ok": True,
-                    "reply": f"OK. Uitgevoerd: {decision.command.label}",
-                    "history": history,
-                    "system_prompt": _system_prompt_for_sid(sid),
-                    "emit_used": emit_used,
-                }
-                if debug:
-                    payload["debug"] = debug
-                return payload
+            result = _handle_command_decision(
+                sid=sid,
+                decision=decision,
+                text=text,
+                history=history,
+                emit_used=emit_used,
+                debug=debug,
+                stt_used=stt_used,
+                stt_edited=stt_edited,
+                cmdrec_obj=cmdrec,
+                behavior_executor=behavior_executor,
+                runtime_cfg=runtime_cfg,
+            )
+            if result is not None:
+                return result
 
             if not decision.is_command and decision.reason != "disabled":
                 _al_append(
@@ -1484,6 +1784,9 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         name = (payload.get("name") or "").strip().lower()
         if name not in ("base", "behavior"):
             return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        if name == "base":
+            runtime_cfg = _get_runtime_cfg(_get_sid())
+            _try_nao_rest(runtime_cfg, reason="base_stop")
         result = _stop_process(name)
         return jsonify(result)
 

@@ -592,6 +592,12 @@ def main() -> None:
     else:
         LOGGER.warning("dance_catalog.json not found at %s", dance_catalog)
 
+    dance_followup_policy = Path("data/dance_followup_policy.json")
+    if dance_followup_policy.exists():
+        shutil.copy2(dance_followup_policy, args.out / "dance_followup_policy.json")
+    else:
+        LOGGER.warning("dance_followup_policy.json not found at %s", dance_followup_policy)
+
     LOGGER.info("Training complete.")
     LOGGER.info("Best vectorizer: %s", best.name)
     LOGGER.info("Threshold=%.2f Margin=%.2f Score=%.3f", best.threshold, best.margin, best.score)

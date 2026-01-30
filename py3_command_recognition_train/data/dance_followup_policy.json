@@ -1,0 +1,37 @@
+{
+  "default_dance_key": "happy",
+  "prompt_examples_limit": 6,
+  "followup_prompts": [
+    "Natuurlijk. Welke dans wil je? (bijv. {hint})",
+    "Welke dans zal ik doen? (bijv. {hint})",
+    "Top! Welke dans kies je? (bijv. {hint})"
+  ],
+  "cancel_phrases": [
+    "laat maar",
+    "laat maar zitten",
+    "hoeft niet",
+    "nee",
+    "annuleer",
+    "geen dans"
+  ],
+  "default_phrases": [
+    "maakt niet uit",
+    "maakt niet uit hoor",
+    "jij kiest",
+    "doe maar wat",
+    "verrassing"
+  ],
+  "list_phrases": [
+    "wat kun je",
+    "wat kan je",
+    "wat kan je dansen",
+    "wat kun je dansen",
+    "welke dans",
+    "wat voor dans",
+    "welke kun je allemaal"
+  ],
+  "pass_through_phrases": [
+    "stop",
+    "stoppen"
+  ]
+}

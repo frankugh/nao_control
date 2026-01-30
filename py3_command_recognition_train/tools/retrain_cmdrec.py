@@ -477,6 +477,12 @@ def main() -> None:
     else:
         LOGGER.warning("dance_catalog.json not found at %s", dance_catalog)
 
+    dance_followup_policy = Path("data/dance_followup_policy.json")
+    if dance_followup_policy.exists():
+        shutil.copy2(dance_followup_policy, args.out / "dance_followup_policy.json")
+    else:
+        LOGGER.warning("dance_followup_policy.json not found at %s", dance_followup_policy)
+
     if args.promote_if_better and out_auto:
         new_report = load_train_report(args.out)
         old_report = load_train_report(baseline_path) if baseline_path else None
