@@ -67,6 +67,23 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+    def get_autonomous_life(self, timeout=None):
+        """Haal autonomous life status op via /autonomous_life (GET)."""
+        resp = self._get("/autonomous_life", timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def set_autonomous_life(self, enabled=None, state=None, timeout=None):
+        """Zet autonomous life via /autonomous_life (POST)."""
+        payload = {}
+        if enabled is not None:
+            payload["enabled"] = enabled
+        if state is not None:
+            payload["state"] = state
+        resp = self._post_json("/autonomous_life", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def say_native(self, text, timeout=None):
         """
         Roep de Py2 /tts-endpoint aan met JSON {"text": ...}.

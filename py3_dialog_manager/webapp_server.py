@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import socket
 from pathlib import Path
+import signal
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -159,6 +160,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "llm_model": llm_params.get("model", ""),
         "master_prompt_file": master_prompt_file,
         "output_nao_tts": output_type in ("nao_tts", "nao_py2", "nao"),
+        "nao_auto_rest_after_s": cfg_src.get("nao_auto_rest_after_s", 0),
     }
 
 
@@ -304,6 +306,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     pipeline_by_sid: Dict[str, InputLLMOutputPipeline] = {}
     stt_by_sid: Dict[str, Any] = {}
     continuous_state: Dict[str, Dict[str, Any]] = {}
+    last_activity = {"ts": time.time()}
+    activity_lock = threading.Lock()
 
     confirm_method = parse_confirm_method(cfg.get("confirm_method", "web"))
     confirm_timeout_s = float(cfg.get("confirm_timeout_s", 10.0))
@@ -338,6 +342,17 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     # runtime pipeline helpers
     def _get_runtime_cfg(sid: str) -> JsonLike:
         return runtime_cfg_by_sid.setdefault(sid, _extract_runtime_config(base_cfg))
+
+    def _auto_rest_timeout_s(runtime_cfg: JsonLike) -> float:
+        value = runtime_cfg.get("nao_auto_rest_after_s", base_cfg.get("nao_auto_rest_after_s", 0))
+        try:
+            return float(value or 0)
+        except Exception:
+            return 0.0
+
+    def _touch_activity() -> None:
+        with activity_lock:
+            last_activity["ts"] = time.time()
 
     def _get_pipeline(sid: str) -> InputLLMOutputPipeline:
         return pipeline_by_sid.get(sid, base_pipeline)
@@ -430,6 +445,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return
         try:
             pipeline.output.emit(text)
+            _touch_activity()
         except Exception:
             return
 
@@ -514,6 +530,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             pending_confirms.pop(sid, None)
             if behavior_executor:
                 behavior_executor.execute(cmd)
+            _touch_activity()
             state["mode"] = "DIALOG"
             state["active_behavior"] = None
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
@@ -596,6 +613,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         _append_user(history, text)
         if behavior_executor:
             behavior_executor.execute(cmd)
+        _touch_activity()
         state["mode"] = "PERFORMING"
         state["active_behavior"] = cmd.label
         _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
@@ -743,6 +761,30 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             _stop_process(name)
 
     atexit.register(_stop_all_processes)
+
+    def _shutdown_rest() -> None:
+        _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="signal")
+
+    try:
+        setattr(app, "_shutdown_rest", _shutdown_rest)
+    except Exception:
+        pass
+
+    def _auto_rest_loop() -> None:
+        while True:
+            time.sleep(2.0)
+            runtime_cfg = _pick_shutdown_runtime_cfg()
+            timeout_s = _auto_rest_timeout_s(runtime_cfg)
+            if timeout_s <= 0:
+                continue
+            with activity_lock:
+                last_ts = last_activity["ts"]
+            if time.time() - last_ts < timeout_s:
+                continue
+            _try_nao_rest(runtime_cfg, reason="idle")
+            _touch_activity()
+
+    threading.Thread(target=_auto_rest_loop, daemon=True).start()
 
     def _base_controller_cmd(nao_ip: str) -> Tuple[List[str], str, Optional[str]]:
         base_dir = os.path.join(repo_root, "py2_nao_base_controller")
@@ -903,6 +945,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     ) -> Dict[str, Any]:
         emit_used = "pipeline" if str(emit_req).lower() == "pipeline" else "none"
         stt_used, stt_edited = _extract_stt_meta(input_meta)
+        _touch_activity()
 
         pipeline = _get_pipeline(sid)
         debug_cmdrec, cmdrec, behavior_executor = _pipeline_props(pipeline)
@@ -1196,6 +1239,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         turn = pipeline.run_once(history=history)
         reply = (turn.llm.reply or "").strip()
+        if reply and emit_used == "pipeline" and output_enabled:
+            _touch_activity()
 
         sessions[sid] = _append_turn(history, text, reply)
 
@@ -1669,6 +1714,29 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         speed = (speed_data.get("data") or {}).get("speed")
         return {"ok": True, "volume": volume, "speed": speed, "mode": mode}
 
+    def _get_nao_autonomous_life_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "error": "NAO audio endpoint ontbreekt."}
+        try:
+            url = base_url + "/nao/autonomous_life" if mode == "behavior" else base_url + "/autonomous_life"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        payload = data.get("data") if isinstance(data, dict) else None
+        if isinstance(payload, dict):
+            state = payload.get("state")
+            enabled = payload.get("enabled")
+        else:
+            state = data.get("state") if isinstance(data, dict) else None
+            enabled = data.get("enabled") if isinstance(data, dict) else None
+        if enabled is None and state is not None:
+            enabled = str(state).lower() != "disabled"
+        return {"ok": True, "state": state, "enabled": enabled}
+
     @app.get("/api/nao_audio_state")
     def api_nao_audio_state():
         sid = _get_sid()
@@ -1729,6 +1797,33 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return jsonify({"ok": False, "error": str(exc)}), 400
 
         return jsonify({"ok": True, "speed": (data.get("data") or {}).get("speed", speed)})
+
+    @app.get("/api/nao_autonomous_life_state")
+    def api_nao_autonomous_life_state():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        return jsonify(_get_nao_autonomous_life_state(runtime_cfg))
+
+    @app.post("/api/nao_autonomous_life_set")
+    def api_nao_autonomous_life_set():
+        payload = request.get_json(force=True, silent=True) or {}
+        enabled = payload.get("enabled", None)
+        state = payload.get("state", None)
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO audio endpoint ontbreekt."}), 400
+        try:
+            url = base_url + "/nao/autonomous_life" if mode == "behavior" else base_url + "/autonomous_life"
+            resp = requests.post(url, json={"enabled": enabled, "state": state}, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        payload = data.get("data") if isinstance(data, dict) else None
+        if isinstance(payload, dict):
+            return jsonify({"ok": True, "state": payload.get("state"), "enabled": payload.get("enabled")})
+        return jsonify({"ok": True, "state": data.get("state"), "enabled": data.get("enabled")})
 
     @app.get("/api/process_status")
     def api_process_status():
@@ -1803,6 +1898,20 @@ def main() -> None:
     config_path = args.config or DEFAULT_CONFIG_PATH
     cfg = _load_json(config_path)
     app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path))
+    def _sig_handler(signum, frame):
+        try:
+            shutdown = getattr(app, "_shutdown_rest", None)
+            if callable(shutdown):
+                shutdown()
+        except Exception:
+            pass
+        raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGINT, _sig_handler)
+        signal.signal(signal.SIGTERM, _sig_handler)
+    except Exception:
+        pass
     #app.run(host=args.host, port=args.port, debug=False, threaded=True, ssl_context="adhoc")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 

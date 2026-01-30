@@ -186,6 +186,15 @@
                   <input id="cfgNaoSpeed" type="number" min="0" max="100" step="5" placeholder="spreeksnelheid 0-100" />
                   <button id="btnSpeedUp" type="button">+</button>
                 </div>
+                <div class="field-row" style="margin-top:8px">
+                  <label class="enable-row" style="margin:0"><span>Autonomous life:</span><input id="cfgNaoLifeEnabled" type="checkbox" /></label>
+                  <span id="cfgNaoLifeState" class="pill">autonomous: onbekend</span>
+                </div>
+                <div class="field-row" style="margin-top:8px">
+                  <label class="enable-row" style="margin:0"><span>Auto-rest:</span><input id="cfgNaoAutoRestEnabled" type="checkbox" /></label>
+                  <input id="cfgNaoAutoRestSeconds" type="number" min="10" step="10" placeholder="seconds" style="max-width:140px" />
+                </div>
+                <div id="cfgNaoAutoRestNote" class="small" style="margin-top:6px"></div>
                 <div id="cfgNaoAudioNote" class="small" style="margin-top:6px"></div>
               </div>
               <div>
@@ -279,6 +288,11 @@
         const btnSpeedDown = document.getElementById('btnSpeedDown');
         const btnSpeedUp = document.getElementById('btnSpeedUp');
         const cfgNaoAudioNote = document.getElementById('cfgNaoAudioNote');
+        const cfgNaoLifeEnabled = document.getElementById('cfgNaoLifeEnabled');
+        const cfgNaoLifeState = document.getElementById('cfgNaoLifeState');
+        const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
+        const cfgNaoAutoRestSeconds = document.getElementById('cfgNaoAutoRestSeconds');
+        const cfgNaoAutoRestNote = document.getElementById('cfgNaoAutoRestNote');
         const btnStartBase = document.getElementById('btnStartBase');
       const btnStopBase = document.getElementById('btnStopBase');
       const btnStartBehavior = document.getElementById('btnStartBehavior');
@@ -318,6 +332,7 @@
       let processor = null;
       let input = null;
       let recording = false;
+      let lastLifeFetchAt = 0;
       let pcmChunks = [];
       let listenMode = 'ptt';
       let continuousActive = false;
@@ -483,6 +498,12 @@
           if (cfgNaoAudioNote) cfgNaoAudioNote.textContent = note || '';
         }
 
+        function setNaoLifeEnabled(enabled, stateText) {
+          const disabled = !enabled;
+          if (cfgNaoLifeEnabled) cfgNaoLifeEnabled.disabled = disabled;
+          if (cfgNaoLifeState) cfgNaoLifeState.textContent = stateText || 'autonomous: onbekend';
+        }
+
         async function refreshNaoAudio(force = false) {
           const now = Date.now();
           if (!force && (now - lastAudioFetchAt) < 5000) return;
@@ -499,6 +520,47 @@
             setNaoAudioEnabled(true, '');
           } catch (e) {
             setNaoAudioEnabled(false, 'NAO audio niet beschikbaar.');
+          }
+        }
+
+        async function refreshNaoLife(force = false) {
+          const now = Date.now();
+          if (!force && (now - lastLifeFetchAt) < 5000) return;
+          lastLifeFetchAt = now;
+          try {
+            const r = await fetch('/api/nao_autonomous_life_state');
+            const j = await r.json();
+            if (!j.ok) {
+              setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
+              return;
+            }
+            if (cfgNaoLifeEnabled && j.enabled != null) cfgNaoLifeEnabled.checked = !!j.enabled;
+            if (cfgNaoLifeState) {
+              const stateLabel = j.state ? String(j.state) : (j.enabled ? 'enabled' : 'disabled');
+              cfgNaoLifeState.textContent = `autonomous: ${stateLabel}`;
+            }
+            setNaoLifeEnabled(true, cfgNaoLifeState ? cfgNaoLifeState.textContent : '');
+          } catch (e) {
+            setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
+          }
+        }
+
+        async function setNaoLife(value) {
+          try {
+            const r = await fetch('/api/nao_autonomous_life_set', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: !!value })
+            });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || 'autonomous life failed');
+            if (cfgNaoLifeEnabled) cfgNaoLifeEnabled.checked = !!j.enabled;
+            if (cfgNaoLifeState) {
+              const stateLabel = j.state ? String(j.state) : (j.enabled ? 'enabled' : 'disabled');
+              cfgNaoLifeState.textContent = `autonomous: ${stateLabel}`;
+            }
+          } catch (e) {
+            setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
           }
         }
 
@@ -746,6 +808,9 @@
         const naoIpValue = (cfgNaoIp.value || '').trim() || lastAppliedNaoIp || '';
         const naoBaseValue = (cfgNaoBase.value || '').trim() || lastAppliedBaseUrl || '';
         const behaviorValue = (cfgBehavior.value || '').trim() || lastAppliedBehaviorUrl || '';
+        const autoRestEnabled = !!cfgNaoAutoRestEnabled.checked;
+        let autoRestSeconds = parseInt(cfgNaoAutoRestSeconds.value || '0', 10);
+        if (isNaN(autoRestSeconds) || autoRestSeconds < 0) autoRestSeconds = 0;
           return {
             nao_ip: naoIpValue,
             nao_ip_enabled: !!cfgNaoIpEnabled.checked,
@@ -761,7 +826,8 @@
             confirm_policy: cfgConfirmPolicy.value,
           llm_type: cfgLlmType.value,
           llm_model: (cfgLlmModel.value || '').trim(),
-          master_prompt_file: cfgMasterPrompt.value || null
+          master_prompt_file: cfgMasterPrompt.value || null,
+          nao_auto_rest_after_s: autoRestEnabled ? autoRestSeconds : 0
         };
       }
 
@@ -799,6 +865,15 @@
           cfgMasterPrompt.value = '';
         } else if (cfg.master_prompt_file) {
           cfgMasterPrompt.value = cfg.master_prompt_file;
+        }
+        const autoRestValue = Number(cfg.nao_auto_rest_after_s || 0);
+        cfgNaoAutoRestEnabled.checked = autoRestValue > 0;
+        cfgNaoAutoRestSeconds.value = String(autoRestValue > 0 ? autoRestValue : 180);
+        cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
+        if (cfgNaoAutoRestNote) {
+          cfgNaoAutoRestNote.textContent = cfgNaoAutoRestEnabled.checked
+            ? `auto-rest: aan (${cfgNaoAutoRestSeconds.value}s)`
+            : 'auto-rest: uit';
         }
         const deviceValue = cfg.input_device == null ? '' : String(cfg.input_device);
         if (deviceValue === 'nao_ssh' && ![...cfgInputDevice.options].some(o => o.value === 'nao_ssh')) {
@@ -1073,8 +1148,10 @@
             if (audioOk) {
               setNaoAudioEnabled(true, '');
               refreshNaoAudio();
+              refreshNaoLife();
             } else {
               setNaoAudioEnabled(false, 'NAO audio niet verbonden.');
+              setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
             }
             const naoConnected = cfg.nao_ip_enabled && naoOk;
             if (naoConnected) {
@@ -1668,6 +1745,30 @@
       cfgConfirmPolicy.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgBaseAutostart.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgBehaviorAutostart.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      if (cfgNaoAutoRestEnabled) {
+        cfgNaoAutoRestEnabled.addEventListener('change', () => {
+          cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
+          if (cfgNaoAutoRestNote) {
+            cfgNaoAutoRestNote.textContent = cfgNaoAutoRestEnabled.checked
+              ? `auto-rest: aan (${cfgNaoAutoRestSeconds.value || 180}s)`
+              : 'auto-rest: uit';
+          }
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgNaoAutoRestSeconds) {
+        cfgNaoAutoRestSeconds.addEventListener('change', () => {
+          if (cfgNaoAutoRestNote && cfgNaoAutoRestEnabled.checked) {
+            cfgNaoAutoRestNote.textContent = `auto-rest: aan (${cfgNaoAutoRestSeconds.value || 180}s)`;
+          }
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgNaoLifeEnabled) {
+        cfgNaoLifeEnabled.addEventListener('change', () => {
+          setNaoLife(cfgNaoLifeEnabled.checked);
+        });
+      }
       cfgLlmModel.addEventListener('change', () => {
         const cfg = getConfigFromForm();
         if (canApplyLlm(cfg)) {

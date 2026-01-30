@@ -119,6 +119,17 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
     def nao_rest():
         return _wrap_py2_call(nao_actions.rest)
 
+    @app.route("/nao/autonomous_life", methods=["GET"])
+    def nao_autonomous_life_get():
+        return _wrap_py2_call(nao_actions.get_autonomous_life)
+
+    @app.route("/nao/autonomous_life", methods=["POST"])
+    def nao_autonomous_life_set():
+        data = request.get_json(force=True, silent=True) or {}
+        enabled = data.get("enabled", None)
+        state = data.get("state", None)
+        return _wrap_py2_call(nao_actions.set_autonomous_life, enabled, state)
+
     @app.route("/nao/tts", methods=["POST"])
     def nao_tts():
         data = request.get_json(force=True, silent=True) or {}

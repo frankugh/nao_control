@@ -6,6 +6,9 @@ import sys
 import traceback
 import json
 import unicodedata
+import threading
+import signal
+import time
 from flask import Flask, request, jsonify
 
 # Py2 unicode-alias
@@ -61,6 +64,7 @@ def load_config():
         "WEB_PORT": DEFAULT_WEB_PORT,
         "NAO_IP":   DEFAULT_NAO_IP,
         "NAO_PORT": DEFAULT_NAO_PORT,
+        "AUTO_REST_AFTER_S": 0,
     }
 
     if os.path.exists(ini_path):
@@ -78,12 +82,53 @@ def load_config():
                 cfg["WEB_HOST"] = parser.get("py2_server", "WEB_HOST")
             if parser.has_option("py2_server", "WEB_PORT"):
                 cfg["WEB_PORT"] = parser.getint("py2_server", "WEB_PORT")
+            if parser.has_option("py2_server", "AUTO_REST_AFTER_S"):
+                cfg["AUTO_REST_AFTER_S"] = parser.getint("py2_server", "AUTO_REST_AFTER_S")
+
+    env_auto_rest = os.environ.get("NAO_AUTO_REST_AFTER_S")
+    if env_auto_rest:
+        try:
+            cfg["AUTO_REST_AFTER_S"] = int(env_auto_rest)
+        except Exception:
+            pass
 
     return cfg
 
 
 # ====== Flask app ======
 app = Flask(__name__)
+app.config.setdefault("AUTO_REST_AFTER_S", 0)
+
+_last_activity = {"ts": time.time()}
+_activity_lock = threading.Lock()
+
+
+def _touch_activity():
+    with _activity_lock:
+        _last_activity["ts"] = time.time()
+
+
+def _auto_rest_loop():
+    while True:
+        time.sleep(2.0)
+        timeout_s = app.config.get("AUTO_REST_AFTER_S", 0) or 0
+        try:
+            timeout_s = float(timeout_s)
+        except Exception:
+            timeout_s = 0
+        if timeout_s <= 0:
+            continue
+        with _activity_lock:
+            last_ts = _last_activity["ts"]
+        if time.time() - last_ts < timeout_s:
+            continue
+        try:
+            motion = get_proxy("ALMotion")
+            if is_awake():
+                motion.rest()
+        except Exception:
+            pass
+        _touch_activity()
 
 
 # ====== Helpers ======
@@ -179,6 +224,7 @@ def is_awake_ep():
 @app.route("/wake_up", methods=["POST"])
 def wake_up():
     try:
+        _touch_activity()
         motion = get_proxy("ALMotion")
         if not is_awake():
             motion.wakeUp()
@@ -202,9 +248,41 @@ def rest():
         return make_response(status="error", error=repr(e))
 
 
+@app.route("/autonomous_life", methods=["GET"])
+def autonomous_life_get():
+    try:
+        life = get_proxy("ALAutonomousLife")
+        state = life.getState()
+        enabled = str(state).lower() != "disabled"
+        return make_response(data={"state": state, "enabled": enabled})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/autonomous_life", methods=["POST"])
+def autonomous_life_set():
+    try:
+        _touch_activity()
+        payload = request.get_json(force=True) or {}
+        state = payload.get("state", None)
+        enabled = payload.get("enabled", None)
+        if state is None:
+            if enabled is None:
+                return make_response(status="error", error="Missing 'state' or 'enabled'")
+            state = "solitary" if bool(enabled) else "disabled"
+        life = get_proxy("ALAutonomousLife")
+        life.setState(state)
+        state_now = life.getState()
+        enabled_now = str(state_now).lower() != "disabled"
+        return make_response(data={"state": state_now, "enabled": enabled_now})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
 @app.route("/tts", methods=["POST"])
 def tts_say():
     try:
+        _touch_activity()
         payload = request.get_json(force=True) or {}
         text = payload.get("text", u"")
 
@@ -253,6 +331,7 @@ def list_behaviors_ep():
 @app.route("/do_behavior", methods=["POST"])
 def do_behavior():
     try:
+        _touch_activity()
         payload = request.get_json(force=True) or {}
         bname = payload.get("behavior")
 
@@ -640,7 +719,26 @@ if __name__ == "__main__":
     app.config["NAO_SSH_PASS"] = args.nao_ssh_pass
     app.config["NAO_SSH_PORT"] = args.nao_ssh_port
     app.config["NAO_REMOTE_AUDIO_DIR"] = args.nao_remote_audio_dir
+    app.config["AUTO_REST_AFTER_S"] = ini_cfg.get("AUTO_REST_AFTER_S", 0)
 
     local_ip = _get_local_ip()
     sys.stdout.write("Flask app beschikbaar op: http://%s:%s\n" % (local_ip, args.port))
+    if app.config.get("AUTO_REST_AFTER_S", 0):
+        t = threading.Thread(target=_auto_rest_loop)
+        t.daemon = True
+        t.start()
+    def _sigint_handler(signum, frame):
+        try:
+            motion = get_proxy("ALMotion")
+            if is_awake():
+                motion.rest()
+        except Exception:
+            pass
+        raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGINT, _sigint_handler)
+        signal.signal(signal.SIGTERM, _sigint_handler)
+    except Exception:
+        pass
     app.run(host=args.host, port=args.port)
