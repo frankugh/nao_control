@@ -73,6 +73,7 @@ class InputLLMOutputPipeline(DialogPipeline):
         self._behavior_executor = behavior_executor
         self._behavior_reset_timeout_s = behavior_reset_timeout_s
         self._behavior_reset_timer: Optional[threading.Timer] = None
+        self._behavior_finish_callback_enabled = self._register_behavior_finish_callback()
         self._cmdrec_mode = "DIALOG"
         self._active_behavior: Optional[str] = None
         self._debug_cmdrec = debug_cmdrec
@@ -202,6 +203,15 @@ class InputLLMOutputPipeline(DialogPipeline):
         self._behavior_reset_timer.daemon = True
         self._behavior_reset_timer.start()
 
+    def _register_behavior_finish_callback(self) -> bool:
+        if self._behavior_executor is None:
+            return False
+        setter = getattr(self._behavior_executor, "set_on_finish", None)
+        if callable(setter):
+            setter(self._reset_behavior_state)
+            return True
+        return False
+
     def _format_action_summary(self, label: str, resolved: Optional[Dict[str, Any]]) -> str:
         if resolved:
             items = ", ".join([f"{k}={v}" for k, v in sorted(resolved.items())])
@@ -250,15 +260,15 @@ class InputLLMOutputPipeline(DialogPipeline):
 
             if decision.is_command and decision.command:
                 if self._behavior_executor:
-                    self._behavior_executor.execute(decision.command)
-
                     if decision.command.label == "STOP":
+                        self._behavior_executor.execute(decision.command)
                         self._reset_behavior_state()
                     else:
                         self._cmdrec_mode = "PERFORMING"
                         self._active_behavior = decision.command.label
-                        # TODO: vervang timer door echte callback als behavior-finish events beschikbaar zijn.
-                        self._schedule_behavior_reset()
+                        self._behavior_executor.execute(decision.command)
+                        if not self._behavior_finish_callback_enabled:
+                            self._schedule_behavior_reset()
                 else:
                     self._reset_behavior_state()
 

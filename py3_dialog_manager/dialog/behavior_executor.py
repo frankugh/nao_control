@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Optional, Callable
 
 import requests
 
@@ -16,6 +16,7 @@ class BehaviorExecutor(ICommandExecutor):
         *,
         timeout_s: Optional[float] = None,
         api_router: Optional[NaoApiRouter] = None,
+        on_finish: Optional[Callable[[CommandDecision], None]] = None,
     ) -> None:
         self.api_router = api_router
         if self.api_router is None:
@@ -26,14 +27,28 @@ class BehaviorExecutor(ICommandExecutor):
         if timeout_s is None and self.api_router is not None:
             timeout_s = self.api_router.timeout_s
         self.timeout_s = float(timeout_s or 5.0)
+        self._on_finish = on_finish
+
+    def set_on_finish(self, on_finish: Optional[Callable[[CommandDecision], None]]) -> None:
+        self._on_finish = on_finish
+
+    def _notify_finish(self, cmd: CommandDecision) -> None:
+        if self._on_finish is None:
+            return
+        try:
+            self._on_finish(cmd)
+        except Exception as exc:
+            print(f"[NAO] on_finish callback failed: {exc}")
 
     def execute(self, cmd: CommandDecision) -> None:
         label = self._normalize_label(cmd.label)
         if label == "STOP":
             self._stop_all(timeout_s=self.timeout_s)
+            self._notify_finish(cmd)
             return
         if label == "REST":
             self._rest(timeout_s=self.timeout_s)
+            self._notify_finish(cmd)
             return
         if label == "STAND_UP":
             self._wake_up_if_rest(timeout_s=self.timeout_s)
@@ -57,6 +72,7 @@ class BehaviorExecutor(ICommandExecutor):
                 print(f"[NAO] behavior not ok: {data} payload={payload}")
         except requests.RequestException as exc:
             print(f"[NAO] behavior request failed: {exc}")
+        self._notify_finish(cmd)
 
     def _normalize_label(self, label: str) -> str:
         return label.upper().strip().replace("\\_", "_")
@@ -171,8 +187,17 @@ class ConsoleAndBehaviorExecutor(ICommandExecutor):
     def __init__(self, executor: ICommandExecutor | None) -> None:
         self._printer = PrintBehaviorExecutor()
         self._executor = executor
+        self._on_finish: Optional[Callable[[CommandDecision], None]] = None
+
+    def set_on_finish(self, on_finish: Optional[Callable[[CommandDecision], None]]) -> None:
+        self._on_finish = on_finish
 
     def execute(self, cmd: CommandDecision) -> None:
         self._printer.execute(cmd)
         if self._executor is not None:
             self._executor.execute(cmd)
+        if self._on_finish is not None:
+            try:
+                self._on_finish(cmd)
+            except Exception as exc:
+                print(f"[NAO] on_finish callback failed: {exc}")

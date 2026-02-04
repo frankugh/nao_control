@@ -14,6 +14,7 @@ Additions:
 from __future__ import annotations
 
 import argparse
+import io
 import atexit
 import copy
 import json
@@ -24,6 +25,7 @@ import threading
 import time
 import uuid
 import shutil
+import wave
 import subprocess
 import socket
 from pathlib import Path
@@ -32,6 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 import requests
+import numpy as np
 
 try:
     import sounddevice as sd
@@ -45,6 +48,7 @@ try:
     from dialog.backends.output_none import NoOpOutputBackend
     from dialog.backends.mic_laptop import LaptopMic
     from dialog.backends.mic_nao_ssh import NaoSshMic
+    from dialog.backends.vad_segmenter import RmsVadUtteranceCapturer, int16_to_wav_bytes
     from dialog.interfaces import UtteranceAudio, parse_confirm_method, CommandDecision, RouteDecision
 except Exception as e:  # pragma: no cover
     raise RuntimeError(
@@ -54,7 +58,7 @@ except Exception as e:  # pragma: no cover
     )
 
 JsonLike = Dict[str, Any]
-History = List[Dict[str, str]]
+History = List[Dict[str, Any]]
 
 DEFAULT_CONFIG_PATH = os.path.join("configs", "default.json")
 
@@ -86,7 +90,87 @@ DEFAULT_AZURE_PARAMS = {
     "output_format": "detailed",
     "profanity": None,
     "endpoint_id": None,
+    "initial_silence_ms": None,
+    "end_silence_ms": None,
 }
+
+_MIC_VAD_KEYS = {
+    "sample_rate",
+    "start_threshold_rms",
+    "stop_silence_ms",
+    "pre_roll_ms",
+    "max_utterance_s",
+    "block_ms",
+}
+
+_WAKE_MODE_VALUES = {"never", "always", "timeout"}
+_DEFAULT_WAKE_WORDS = ["NAO", "Alex"]
+
+
+def _clean_mic_params(raw: Any) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key in _MIC_VAD_KEYS:
+        if key not in raw:
+            continue
+        value = raw.get(key)
+        if value is None:
+            continue
+        if key == "max_utterance_s":
+            try:
+                out[key] = float(value)
+            except Exception:
+                continue
+        else:
+            try:
+                out[key] = int(value)
+            except Exception:
+                continue
+    return out
+
+
+def _clean_wake_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value in _WAKE_MODE_VALUES:
+        return value
+    return "never"
+
+
+def _clean_wake_timeout_s(raw: Any, *, default: int = 20) -> int:
+    try:
+        value = int(raw)
+    except Exception:
+        return int(default)
+    if value < 1:
+        return int(default)
+    return value
+
+
+def _clean_wake_words(raw: Any) -> List[str]:
+    items: List[str] = []
+    if isinstance(raw, list):
+        source = raw
+    elif isinstance(raw, str):
+        source = re.split(r"[\n,;]+", raw)
+    else:
+        source = []
+    for entry in source:
+        text = str(entry or "").strip()
+        if not text:
+            continue
+        items.append(text)
+    if not items:
+        return list(_DEFAULT_WAKE_WORDS)
+    deduped: List[str] = []
+    seen = set()
+    for item in items:
+        key = " ".join(item.casefold().split())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped or list(_DEFAULT_WAKE_WORDS)
 
 
 def _parse_host_port(raw: Optional[str], default_port: int) -> Tuple[Optional[str], int]:
@@ -135,11 +219,15 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
 
     input_cfg = cfg_src.get("input", {}) or {}
     mic_cfg = (input_cfg.get("mic", {}) or {})
+    input_params = (input_cfg.get("params", {}) or {})
     mic_params = (mic_cfg.get("params", {}) or {})
     nao_ip = mic_params.get("host", "") if mic_cfg.get("type") == "nao_ssh" else ""
     if not nao_ip:
         nao_ip = cfg_src.get("nao_ip", "") or ""
     stt_cfg = (input_cfg.get("stt", {}) or {})
+    stt_params = (stt_cfg.get("params", {}) or {})
+    mic_ptt = _clean_mic_params((mic_cfg.get("params_ptt") or mic_cfg.get("params") or {}))
+    mic_cont = _clean_mic_params((mic_cfg.get("params_continuous") or mic_cfg.get("params") or {}))
 
     llm_cfg = (cfg_src.get("llm", {}) or {})
     llm_params = (llm_cfg.get("params", {}) or {})
@@ -164,7 +252,15 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "behavior_autostart": False,
         "input_device": input_device,
         "stt_type": (stt_cfg.get("type") or "vosk"),
+        "mic_params_ptt": mic_ptt,
+        "mic_params_continuous": mic_cont,
+        "azure_initial_silence_ms": stt_params.get("initial_silence_ms"),
+        "azure_end_silence_ms": stt_params.get("end_silence_ms"),
+        "wake_mode": _clean_wake_mode(input_params.get("wake_mode", "never")),
+        "wake_timeout_s": _clean_wake_timeout_s(input_params.get("wake_timeout_s", 20), default=20),
+        "wake_words": _clean_wake_words(input_params.get("wake_words")),
         "cmdrec": cfg_src.get("cmdrec", "latest"),
+        "ptt_use_vad": bool(cfg_src.get("ptt_use_vad", False)),
         "llm_type": llm_cfg.get("type", "echo"),
         "llm_model": llm_params.get("model", ""),
         "master_prompt_file": master_prompt_file,
@@ -187,6 +283,7 @@ def _stt_params_for_type(stt_type: str, cfg_src: JsonLike) -> JsonLike:
 def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLike:
     cfg_out = copy.deepcopy(cfg_src)
     input_cfg = cfg_out.setdefault("input", {})
+    input_params = input_cfg.setdefault("params", {})
     mic_cfg = input_cfg.setdefault("mic", {})
     mic_params = mic_cfg.setdefault("params", {})
     stt_cfg = input_cfg.setdefault("stt", {})
@@ -230,6 +327,34 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     stt_cfg["type"] = stt_type
     stt_cfg["params"] = _stt_params_for_type(stt_type, cfg_src)
 
+    mic_ptt = _clean_mic_params(runtime_cfg.get("mic_params_ptt"))
+    mic_cont = _clean_mic_params(runtime_cfg.get("mic_params_continuous"))
+    if mic_ptt:
+        mic_cfg["params_ptt"] = mic_ptt
+    if mic_cont:
+        mic_cfg["params_continuous"] = mic_cont
+
+    if stt_type == "azure":
+        az_initial = runtime_cfg.get("azure_initial_silence_ms", None)
+        az_end = runtime_cfg.get("azure_end_silence_ms", None)
+        if az_initial is not None:
+            try:
+                stt_cfg["params"]["initial_silence_ms"] = int(az_initial)
+            except Exception:
+                pass
+        if az_end is not None:
+            try:
+                stt_cfg["params"]["end_silence_ms"] = int(az_end)
+            except Exception:
+                pass
+
+    input_params["wake_mode"] = _clean_wake_mode(runtime_cfg.get("wake_mode", input_params.get("wake_mode", "never")))
+    input_params["wake_timeout_s"] = _clean_wake_timeout_s(
+        runtime_cfg.get("wake_timeout_s", input_params.get("wake_timeout_s", 20)),
+        default=_clean_wake_timeout_s(input_params.get("wake_timeout_s", 20), default=20),
+    )
+    input_params["wake_words"] = _clean_wake_words(runtime_cfg.get("wake_words", input_params.get("wake_words")))
+
     cmdrec_value = runtime_cfg.get("cmdrec", None)
     if cmdrec_value:
         cfg_out["cmdrec"] = cmdrec_value
@@ -259,11 +384,21 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     return cfg_out
 
 
-def _make_mic_from_config(cfg: JsonLike):
+def _make_mic_from_config(cfg: JsonLike, *, mode: str = "ptt"):
     input_cfg = cfg.get("input", {}) or {}
     mic_cfg = input_cfg.get("mic", {}) or {}
     mic_type = (mic_cfg.get("type") or "").lower()
-    mic_params = (mic_cfg.get("params") or {})
+    base_params = (mic_cfg.get("params") or {})
+    if mode == "continuous":
+        mode_params = mic_cfg.get("params_continuous") or {}
+    else:
+        mode_params = mic_cfg.get("params_ptt") or {}
+    if not isinstance(base_params, dict):
+        base_params = {}
+    if not isinstance(mode_params, dict):
+        mode_params = {}
+    mic_params = dict(base_params)
+    mic_params.update(mode_params)
     if mic_type == "laptop":
         return LaptopMic(**mic_params)
     if mic_type == "nao_ssh":
@@ -271,9 +406,40 @@ def _make_mic_from_config(cfg: JsonLike):
     raise ValueError(f"Onbekende mic.type: {mic_type!r}")
 
 
+def _resolve_start_timeout(params: Dict[str, Any], *, default: float) -> float:
+    value = params.get("start_timeout_s", None)
+    if value is None:
+        return float(default)
+    try:
+        value_f = float(value)
+    except Exception:
+        return float(default)
+    if value_f <= 0:
+        return float(default)
+    return value_f
+
+
 def _load_json(path: str) -> JsonLike:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _wav_bytes_to_int16_mono(wav_bytes: bytes) -> Tuple[np.ndarray, int]:
+    with io.BytesIO(wav_bytes) as bio:
+        with wave.open(bio, "rb") as wf:
+            sample_rate = wf.getframerate()
+            num_channels = wf.getnchannels()
+            sample_width = wf.getsampwidth()
+            frames = wf.readframes(wf.getnframes())
+
+    if sample_width != 2:
+        raise ValueError("Verwacht 16-bit audio (sample_width=2)")
+
+    audio = np.frombuffer(frames, dtype=np.int16)
+    if num_channels > 1:
+        audio = audio.reshape(-1, num_channels).mean(axis=1).astype(np.int16)
+
+    return audio, sample_rate
 
 
 def _strip_system(history: History) -> History:
@@ -284,8 +450,9 @@ def _strip_system(history: History) -> History:
 
 def _append_turn(history: History, user_text: str, assistant_text: str) -> History:
     history = _strip_system(list(history))
-    history.append({"role": "user", "content": user_text})
-    history.append({"role": "assistant", "content": assistant_text})
+    ts = time.time()
+    history.append({"role": "user", "content": user_text, "ts": ts})
+    history.append({"role": "assistant", "content": assistant_text, "ts": ts})
     return history
 
 
@@ -293,6 +460,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     app = Flask(__name__, static_folder="web", static_url_path="")
 
     base_cfg = copy.deepcopy(cfg)
+    run_cfg = base_cfg.setdefault("run", {})
+    run_cfg["web_ui_enabled"] = True
     base_config_path = config_path
     base_pipeline = build_pipeline_from_config(cfg, config_path=config_path)
     base_stt = make_stt_backend_from_config(cfg)
@@ -317,6 +486,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     pipeline_by_sid: Dict[str, InputLLMOutputPipeline] = {}
     stt_by_sid: Dict[str, Any] = {}
     continuous_state: Dict[str, Dict[str, Any]] = {}
+    ptt_state: Dict[str, Dict[str, Any]] = {}
     last_activity = {"ts": time.time()}
     activity_lock = threading.Lock()
 
@@ -344,7 +514,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def _get_continuous_state(sid: str) -> Dict[str, Any]:
         return continuous_state.setdefault(
             sid,
-            {"running": False, "stop": None, "thread": None, "last_error": None, "phase": "idle"},
+            {
+                "running": False,
+                "stop": None,
+                "thread": None,
+                "last_error": None,
+                "phase": "idle",
+                "wake_open_until": 0.0,
+                "wake_open_once": False,
+                "wake_stt": None,
+                "wake_stt_key": None,
+                "last_wake_text": "",
+            },
+        )
+
+    def _get_ptt_state(sid: str) -> Dict[str, Any]:
+        return ptt_state.setdefault(
+            sid,
+            {"running": False, "stop": None, "thread": None, "last_error": None, "audio": None, "vad_cfg": None},
         )
 
     def _set_last_action(sid: str, summary: Optional[str]) -> None:
@@ -390,6 +577,54 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     def _normalize_text(value: str) -> str:
         return " ".join((value or "").casefold().split())
+
+    def _wake_mode(runtime_cfg: JsonLike) -> str:
+        return _clean_wake_mode(runtime_cfg.get("wake_mode", "never"))
+
+    def _wake_timeout_s(runtime_cfg: JsonLike) -> int:
+        return _clean_wake_timeout_s(runtime_cfg.get("wake_timeout_s", 20), default=20)
+
+    def _wake_words(runtime_cfg: JsonLike) -> List[str]:
+        return _clean_wake_words(runtime_cfg.get("wake_words"))
+
+    def _text_has_wake_word(text: str, wake_words: List[str]) -> bool:
+        norm = _normalize_text(text)
+        if not norm:
+            return False
+        for wake in wake_words:
+            wake_norm = _normalize_text(wake)
+            if not wake_norm:
+                continue
+            if re.search(r"(^|\s)" + re.escape(wake_norm) + r"(?=\s|$)", norm):
+                return True
+        return False
+
+    def _build_wake_stt(cfg_src: JsonLike, wake_words: List[str]):
+        wake_cfg = copy.deepcopy(cfg_src)
+        input_cfg = wake_cfg.setdefault("input", {})
+        stt_cfg = input_cfg.setdefault("stt", {})
+        stt_cfg["type"] = "vosk"
+        params = _stt_params_for_type("vosk", cfg_src)
+        grammar_words: List[str] = []
+        for raw in wake_words:
+            w = str(raw or "").strip()
+            if not w:
+                continue
+            grammar_words.append(w)
+            lower = w.casefold()
+            if lower != w:
+                grammar_words.append(lower)
+        # Deduplicate while preserving order.
+        seen = set()
+        grammar_unique: List[str] = []
+        for w in grammar_words:
+            if w in seen:
+                continue
+            seen.add(w)
+            grammar_unique.append(w)
+        params["grammar"] = grammar_unique + ["[unk]"]
+        stt_cfg["params"] = params
+        return make_stt_backend_from_config(wake_cfg)
 
     def _dance_catalog(cmdrec_obj) -> List[Dict[str, Any]]:
         if cmdrec_obj is None:
@@ -538,10 +773,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         return (sp or "").strip()
 
     def _append_assistant(history: History, text: str) -> None:
-        history.append({"role": "assistant", "content": text})
+        history.append({"role": "assistant", "content": text, "ts": time.time()})
 
     def _append_user(history: History, text: str) -> None:
-        history.append({"role": "user", "content": text})
+        history.append({"role": "user", "content": text, "ts": time.time()})
 
     def _append_confirm_card(history: History, payload: Dict[str, Any]) -> None:
         history.append(payload)
@@ -933,6 +1168,18 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def index():
         return send_from_directory("web", "index.html")
 
+    @app.get("/server")
+    def server_ui():
+        resp = send_from_directory("web", "index.html")
+        resp.set_cookie("ui_mode", "server", max_age=60 * 60 * 24 * 30, samesite="Lax")
+        return resp
+
+    @app.get("/client")
+    def client_ui():
+        resp = send_from_directory("web", "index.html")
+        resp.set_cookie("ui_mode", "client", max_age=60 * 60 * 24 * 30, samesite="Lax")
+        return resp
+
     @app.get("/health")
     def health():
         return jsonify({"ok": True})
@@ -976,10 +1223,94 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if (input_cfg.get("type") or "audio").lower() != "audio":
             return jsonify({"ok": False, "error": "Input type is geen audio."}), 400
 
-        mic = _make_mic_from_config(merged)
-        timeout_s = float((input_cfg.get("params") or {}).get("start_timeout_s") or 10.0)
+        mic = _make_mic_from_config(merged, mode="ptt")
+        timeout_s = _resolve_start_timeout((input_cfg.get("params") or {}), default=10.0)
         audio = mic.capture_utterance(timeout_s=timeout_s)
         res = _get_stt(sid).transcribe(audio)
+        return jsonify(
+            {
+                "ok": True,
+                "transcript": res.text,
+                "language": getattr(res, "language", ""),
+                "confidence": getattr(res, "confidence", None),
+            }
+        )
+
+    @app.post("/api/ptt_start")
+    def api_ptt_start():
+        sid = _get_sid()
+        state = _get_ptt_state(sid)
+        if state.get("running"):
+            return jsonify({"ok": True, "running": True})
+
+        runtime_cfg = _get_runtime_cfg(sid)
+        merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
+        input_cfg = merged.get("input", {}) or {}
+        if (input_cfg.get("type") or "audio").lower() != "audio":
+            return jsonify({"ok": False, "error": "Input type is geen audio."}), 400
+
+        try:
+            mic = _make_mic_from_config(merged, mode="ptt")
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        stop_event = threading.Event()
+        state.update(
+            {
+                "running": True,
+                "stop": stop_event,
+                "last_error": None,
+                "audio": None,
+                "vad_cfg": getattr(mic, "cfg", None),
+            }
+        )
+
+        def _worker():
+            try:
+                max_duration_s = getattr(getattr(mic, "cfg", None), "max_utterance_s", None)
+                audio = mic.record_until(stop_event, max_duration_s=max_duration_s)
+                state["audio"] = audio
+            except Exception as exc:
+                state["last_error"] = str(exc)
+            finally:
+                state["running"] = False
+
+        t = threading.Thread(target=_worker, daemon=True)
+        state["thread"] = t
+        t.start()
+        return jsonify({"ok": True, "running": True})
+
+    @app.post("/api/ptt_stop")
+    def api_ptt_stop():
+        sid = _get_sid()
+        state = _get_ptt_state(sid)
+        stop_event = state.get("stop")
+        if stop_event is not None:
+            stop_event.set()
+            state["stop"] = None
+        t = state.get("thread")
+        if t is not None and t.is_alive():
+            t.join(timeout=2.0)
+
+        audio = state.get("audio")
+        if audio is None:
+            err = state.get("last_error") or "Geen audio opgenomen."
+            return jsonify({"ok": False, "error": err}), 400
+
+        runtime_cfg = _get_runtime_cfg(sid)
+        use_vad = bool(runtime_cfg.get("ptt_use_vad", False))
+        if use_vad and state.get("vad_cfg") is not None:
+            try:
+                int16_audio, sample_rate = _wav_bytes_to_int16_mono(audio.pcm)
+                capturer = RmsVadUtteranceCapturer(state["vad_cfg"])
+                trimmed = capturer.capture_from_buffer(int16_audio)
+                wav_bytes = int16_to_wav_bytes(trimmed, sample_rate)
+                audio = UtteranceAudio(pcm=wav_bytes, sample_rate=sample_rate, channels=1, sample_width=2)
+            except Exception:
+                pass
+
+        res = _get_stt(sid).transcribe(audio)
+        state["audio"] = None
         return jsonify(
             {
                 "ok": True,
@@ -1346,20 +1677,36 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         def _worker():
             try:
                 while not stop_event.is_set():
-                    state["phase"] = "listening"
                     runtime_cfg = _get_runtime_cfg(sid)
                     merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
+                    wake_mode = _wake_mode(runtime_cfg)
+                    wake_timeout_s = _wake_timeout_s(runtime_cfg)
+                    wake_words = _wake_words(runtime_cfg)
+                    if wake_mode == "always":
+                        state["phase"] = "listening" if state.get("wake_open_once") else "wake_listening"
+                    elif wake_mode == "timeout":
+                        state["phase"] = "listening" if (time.time() <= float(state.get("wake_open_until", 0.0) or 0.0)) else "wake_listening"
+                    else:
+                        state["phase"] = "listening"
+                        state["wake_open_once"] = False
+                        state["wake_open_until"] = 0.0
                     try:
-                        mic = _make_mic_from_config(merged)
+                        mic = _make_mic_from_config(merged, mode="continuous")
                     except Exception as exc:
                         state["last_error"] = str(exc)
                         state["phase"] = "idle"
                         time.sleep(1.0)
                         continue
 
-                    timeout_s = float((merged.get("input", {}).get("params") or {}).get("start_timeout_s") or 10.0)
+                    timeout_s = _resolve_start_timeout(
+                        (merged.get("input", {}).get("params") or {}),
+                        default=10**9,
+                    )
                     try:
                         audio = mic.capture_utterance(timeout_s=timeout_s)
+                    except TimeoutError:
+                        state["phase"] = "listening"
+                        continue
                     except Exception as exc:
                         state["last_error"] = str(exc)
                         state["phase"] = "idle"
@@ -1368,6 +1715,47 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
                     if stop_event.is_set():
                         break
+
+                    use_wake_gate = wake_mode != "never"
+                    if use_wake_gate:
+                        now_s = time.time()
+                        if wake_mode == "always":
+                            gate_open = bool(state.get("wake_open_once"))
+                        else:
+                            gate_open = now_s <= float(state.get("wake_open_until", 0.0) or 0.0)
+                    else:
+                        gate_open = True
+
+                    if not gate_open:
+                        state["phase"] = "wake_listening"
+                        wake_key = (tuple([_normalize_text(w) for w in wake_words]),)
+                        if state.get("wake_stt_key") != wake_key or state.get("wake_stt") is None:
+                            try:
+                                state["wake_stt"] = _build_wake_stt(merged, wake_words)
+                                state["wake_stt_key"] = wake_key
+                            except Exception as exc:
+                                state["last_error"] = "wake-stt: " + str(exc)
+                                state["phase"] = "idle"
+                                time.sleep(0.5)
+                                continue
+                        try:
+                            wake_res = state["wake_stt"].transcribe(audio)
+                            wake_text = (wake_res.text or "").strip()
+                            state["last_wake_text"] = wake_text
+                        except Exception as exc:
+                            state["last_error"] = "wake-stt: " + str(exc)
+                            state["phase"] = "idle"
+                            continue
+                        if not _text_has_wake_word(wake_text, wake_words):
+                            state["phase"] = "wake_listening"
+                            continue
+                        state["last_error"] = None
+                        if wake_mode == "always":
+                            state["wake_open_once"] = True
+                        else:
+                            state["wake_open_until"] = time.time() + float(wake_timeout_s)
+                        state["phase"] = "listening"
+                        continue
 
                     state["phase"] = "transcribing"
                     try:
@@ -1380,6 +1768,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     text_in = (res.text or "").strip()
                     state["phase"] = "thinking"
                     if not text_in:
+                        if wake_mode == "timeout" and float(state.get("wake_open_until", 0.0) or 0.0) < time.time():
+                            state["phase"] = "wake_listening"
                         continue
 
                     try:
@@ -1391,13 +1781,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                                 reset=False,
                                 input_meta={"stt_used": True, "stt_edited": False},
                             )
-                        state["phase"] = "listening"
+                        if wake_mode == "always":
+                            state["wake_open_once"] = False
+                            state["phase"] = "wake_listening"
+                        elif wake_mode == "timeout":
+                            state["wake_open_until"] = time.time() + float(wake_timeout_s)
+                            state["phase"] = "listening"
+                        else:
+                            state["phase"] = "listening"
+                        state["last_error"] = None
                     except Exception as exc:
                         state["last_error"] = str(exc)
                         state["phase"] = "idle"
                         continue
             finally:
                 state["running"] = False
+                state["wake_open_once"] = False
+                state["wake_open_until"] = 0.0
+                state["last_wake_text"] = ""
                 state["phase"] = "idle"
 
         t = threading.Thread(target=_worker, daemon=True)
@@ -1413,13 +1814,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if stop_event is not None:
             stop_event.set()
         state["running"] = False
+        state["wake_open_once"] = False
+        state["wake_open_until"] = 0.0
+        state["last_wake_text"] = ""
         return jsonify({"ok": True, "running": False})
 
     @app.get("/api/continuous_state")
     def api_continuous_state():
         sid = _get_sid()
         state = _get_continuous_state(sid)
-        return jsonify({"ok": True, "running": bool(state.get("running")), "error": state.get("last_error"), "phase": state.get("phase")})
+        return jsonify(
+            {
+                "ok": True,
+                "running": bool(state.get("running")),
+                "error": state.get("last_error"),
+                "phase": state.get("phase"),
+                "last_wake_text": state.get("last_wake_text", ""),
+            }
+        )
 
     @app.post("/api/confirm")
     def api_confirm():

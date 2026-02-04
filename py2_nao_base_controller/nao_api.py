@@ -16,10 +16,11 @@ unicode_type = unicode
 
 # Simple replace mapper for pronunciation tweaks.
 # Add items like (u"AI", u"A Ie") to improve NAO TTS.
-TTS_REPLACE_MAP = [
+DEFAULT_TTS_REPLACE_MAP = [
     (u"AI", u"A Ie"),
     (u"bias", u"beias"),
 ]
+TTS_REPLACE_MAP = list(DEFAULT_TTS_REPLACE_MAP)
 
 def _setup_naoqi_paths():
     # Als PyInstaller draait: _MEIPASS, anders gewone dir
@@ -65,6 +66,7 @@ def load_config():
         "NAO_IP":   DEFAULT_NAO_IP,
         "NAO_PORT": DEFAULT_NAO_PORT,
         "AUTO_REST_AFTER_S": 0,
+        "TTS_REPLACE_MAP_FILE": None,
     }
 
     if os.path.exists(ini_path):
@@ -84,6 +86,8 @@ def load_config():
                 cfg["WEB_PORT"] = parser.getint("py2_server", "WEB_PORT")
             if parser.has_option("py2_server", "AUTO_REST_AFTER_S"):
                 cfg["AUTO_REST_AFTER_S"] = parser.getint("py2_server", "AUTO_REST_AFTER_S")
+            if parser.has_option("py2_server", "TTS_REPLACE_MAP_FILE"):
+                cfg["TTS_REPLACE_MAP_FILE"] = parser.get("py2_server", "TTS_REPLACE_MAP_FILE")
 
     env_auto_rest = os.environ.get("NAO_AUTO_REST_AFTER_S")
     if env_auto_rest:
@@ -93,6 +97,51 @@ def load_config():
             pass
 
     return cfg
+
+
+def _to_unicode(value):
+    if isinstance(value, unicode_type):
+        return value
+    try:
+        return value.decode("utf-8")
+    except Exception:
+        try:
+            return unicode_type(value)
+        except Exception:
+            return u""
+
+
+def load_tts_replace_map(path):
+    if not path:
+        return list(DEFAULT_TTS_REPLACE_MAP)
+    if not os.path.exists(path):
+        sys.stdout.write("[TTS] word map not found: %s\n" % path)
+        return list(DEFAULT_TTS_REPLACE_MAP)
+    try:
+        with open(path, "rb") as f:
+            data = json.load(f)
+    except Exception as e:
+        sys.stdout.write("[TTS] word map load failed (%s): %s\n" % (path, repr(e)))
+        return list(DEFAULT_TTS_REPLACE_MAP)
+
+    mappings = []
+    if isinstance(data, dict):
+        # Dict order is not guaranteed in Py2; prefer list in JSON.
+        items = data.items()
+        for src, dst in items:
+            mappings.append((_to_unicode(src), _to_unicode(dst)))
+    elif isinstance(data, list):
+        for entry in data:
+            if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                mappings.append((_to_unicode(entry[0]), _to_unicode(entry[1])))
+            elif isinstance(entry, dict):
+                if "src" in entry and "dst" in entry:
+                    mappings.append((_to_unicode(entry["src"]), _to_unicode(entry["dst"])))
+                elif "from" in entry and "to" in entry:
+                    mappings.append((_to_unicode(entry["from"]), _to_unicode(entry["to"])))
+    if not mappings:
+        return list(DEFAULT_TTS_REPLACE_MAP)
+    return mappings
 
 
 # ====== Flask app ======
@@ -727,6 +776,18 @@ if __name__ == "__main__":
     app.config["NAO_SSH_PORT"] = args.nao_ssh_port
     app.config["NAO_REMOTE_AUDIO_DIR"] = args.nao_remote_audio_dir
     app.config["AUTO_REST_AFTER_S"] = ini_cfg.get("AUTO_REST_AFTER_S", 0)
+
+    map_path = ini_cfg.get("TTS_REPLACE_MAP_FILE") or os.environ.get("TTS_REPLACE_MAP_FILE")
+    if not map_path:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(base_dir)
+        map_path = os.path.join(root_dir, "tts_word_map.json")
+    try:
+        global TTS_REPLACE_MAP
+        TTS_REPLACE_MAP = load_tts_replace_map(map_path)
+    except Exception as e:
+        sys.stdout.write("[TTS] word map init failed: %s\n" % repr(e))
+        TTS_REPLACE_MAP = list(DEFAULT_TTS_REPLACE_MAP)
 
     local_ip = _get_local_ip()
     sys.stdout.write("Flask app beschikbaar op: http://%s:%s\n" % (local_ip, args.port))

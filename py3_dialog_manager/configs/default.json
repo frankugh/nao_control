@@ -51,6 +51,9 @@
       "confirm_before_record": true,
       "confirm_before_send": true,
       "start_timeout_s": null,
+      "wake_mode": "never",
+      "wake_timeout_s": 20,
+      "wake_words": ["NAO", "Alex"],
       "print_input": true,
       "status_to_console": true
     }

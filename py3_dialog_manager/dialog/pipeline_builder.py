@@ -226,12 +226,11 @@ def _extract_cmdrec_config(cfg: JsonLike) -> JsonLike:
     run_cfg = cfg.get("run", {}) or {}
     web_ui_enabled = run_cfg.get("web_ui_enabled", None)
     if confirm_method == "popup":
-        if web_ui_enabled is False:
+        if web_ui_enabled is not True:
             raise ValueError(
                 "confirm_method 'popup' vereist web UI; zet run.web_ui_enabled=true "
                 "of kies een andere confirm_method."
             )
-        # TODO: koppel popup-confirm aan web UI en check de daadwerkelijke enablement.
 
     return {
         "cmdrec": cmdrec,
@@ -292,7 +291,17 @@ def _extract_nao_connection(cfg: JsonLike) -> Optional[JsonLike]:
 
 def _make_mic(mic_cfg: JsonLike):
     t = _req(mic_cfg, "type").lower()
-    p = mic_cfg.get("params", {}) or {}
+    base = mic_cfg.get("params", {}) or {}
+    ptt = mic_cfg.get("params_ptt")
+    cont = mic_cfg.get("params_continuous")
+    if isinstance(ptt, dict):
+        p = dict(base)
+        p.update(ptt)
+    elif isinstance(cont, dict):
+        p = dict(base)
+        p.update(cont)
+    else:
+        p = base
     if t == "laptop":
         return LaptopMic(**p)
     if t == "nao_ssh":
@@ -340,7 +349,12 @@ def _make_input(cfg: JsonLike):
     if t == "audio":
         mic = _make_mic(_req(input_cfg, "mic"))
         stt = _make_stt(_req(input_cfg, "stt"))
-        return AudioInputBackend(mic=mic, stt=stt, **p)
+        # Wake-word settings are runtime/web-only; AudioInputBackend does not consume them.
+        p_audio = dict(p)
+        p_audio.pop("wake_mode", None)
+        p_audio.pop("wake_timeout_s", None)
+        p_audio.pop("wake_words", None)
+        return AudioInputBackend(mic=mic, stt=stt, **p_audio)
 
     raise ValueError(f"Onbekende input.type: {t!r}")
 

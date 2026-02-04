@@ -126,3 +126,59 @@ class RmsVadUtteranceCapturer:
             raise TimeoutError("Geen bruikbare audio gecaptured.")
 
         return np.concatenate(captured).astype(np.int16)
+
+    def capture_from_buffer(self, audio_int16: np.ndarray) -> np.ndarray:
+        """
+        Pas dezelfde VAD-logica toe op een bestaand audio-buffer.
+        """
+        if audio_int16.ndim != 1:
+            audio_int16 = audio_int16.reshape(-1)
+        if audio_int16.dtype != np.int16:
+            audio_int16 = audio_int16.astype(np.int16)
+
+        started = False
+        silence_run = 0
+        pre_roll = np.zeros((0,), dtype=np.int16)
+        captured: list[np.ndarray] = []
+
+        total_len = audio_int16.size
+        idx = 0
+        while idx < total_len:
+            block = audio_int16[idx : idx + self._block_n]
+            idx += self._block_n
+            if block.size == 0:
+                continue
+
+            rms = self._rms(block)
+
+            if not started:
+                if self._pre_roll_n > 0:
+                    pre_roll = np.concatenate([pre_roll, block])
+                    if pre_roll.size > self._pre_roll_n:
+                        pre_roll = pre_roll[-self._pre_roll_n :]
+
+                if rms >= self.cfg.start_threshold_rms:
+                    started = True
+                    if pre_roll.size:
+                        captured.append(pre_roll.copy())
+                    captured.append(block)
+                    silence_run = 0
+                continue
+
+            captured.append(block)
+
+            if rms < self.cfg.start_threshold_rms:
+                silence_run += block.size
+            else:
+                silence_run = 0
+
+            total_n = sum(x.size for x in captured)
+            if silence_run >= self._stop_sil_n:
+                break
+            if total_n >= self._max_n:
+                break
+
+        if not captured:
+            raise TimeoutError("Geen spraak gedetecteerd in buffer.")
+
+        return np.concatenate(captured).astype(np.int16)

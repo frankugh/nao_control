@@ -129,3 +129,76 @@ class NaoSshMic(MicBackend):
             channels=1,
             sample_width=2,
         )
+
+    def record_until(self, stop_event, *, max_duration_s: Optional[float] = None) -> UtteranceAudio:
+        """
+        Neem raw audio op tot stop_event gezet wordt (zonder VAD).
+        """
+        block_n = int(self.cfg.sample_rate * (self.cfg.block_ms / 1000.0))
+        block_bytes = block_n * 2  # int16
+        max_samples = None if max_duration_s is None else int(self.cfg.sample_rate * float(max_duration_s))
+
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            self.host,
+            username=self.username,
+            password=self.password,
+            timeout=5,
+        )
+
+        stdout = None
+        channel = None
+        buf = bytearray()
+        chunks: list[np.ndarray] = []
+        total = 0
+
+        try:
+            stdin, stdout, stderr = client.exec_command(self.arecord_cmd)
+            channel = stdout.channel
+            channel.settimeout(0.5)
+
+            while not stop_event.is_set():
+                try:
+                    chunk = channel.recv(block_bytes)
+                except socket.timeout:
+                    continue
+                if not chunk:
+                    continue
+                buf.extend(chunk)
+                if len(buf) < block_bytes:
+                    continue
+                out = bytes(buf[:block_bytes])
+                del buf[:block_bytes]
+                if len(out) % 2 == 1:
+                    out = out[:-1]
+                    if not out:
+                        continue
+                block = np.frombuffer(out, dtype=np.int16)
+                chunks.append(block)
+                total += block.size
+                if max_samples is not None and total >= max_samples:
+                    break
+        finally:
+            try:
+                if channel is not None:
+                    channel.close()
+            except Exception:
+                pass
+            try:
+                client.close()
+            except Exception:
+                pass
+
+        if chunks:
+            audio_int16 = np.concatenate(chunks).astype(np.int16)
+        else:
+            audio_int16 = np.zeros((0,), dtype=np.int16)
+
+        wav_bytes = int16_to_wav_bytes(audio_int16, self.cfg.sample_rate)
+        return UtteranceAudio(
+            pcm=wav_bytes,
+            sample_rate=self.cfg.sample_rate,
+            channels=1,
+            sample_width=2,
+        )

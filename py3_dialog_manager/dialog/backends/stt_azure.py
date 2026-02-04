@@ -50,6 +50,8 @@ class AzureSTTBackend(STTBackend):
         output_format: str = "detailed",
         profanity: Optional[str] = None,
         endpoint_id: Optional[str] = None,
+        initial_silence_ms: Optional[int] = None,
+        end_silence_ms: Optional[int] = None,
     ) -> None:
         self.subscription_key = subscription_key or os.environ.get("AZURE_SPEECH_KEY")
         self.region = region or os.environ.get("AZURE_SPEECH_REGION")
@@ -57,6 +59,8 @@ class AzureSTTBackend(STTBackend):
         self.output_format = (output_format or "simple").lower()
         self.profanity = profanity
         self.endpoint_id = endpoint_id
+        self.initial_silence_ms = None if initial_silence_ms is None else int(initial_silence_ms)
+        self.end_silence_ms = None if end_silence_ms is None else int(end_silence_ms)
 
         if not self.subscription_key or not self.region:
             raise RuntimeError("Azure STT mist AZURE_SPEECH_KEY of AZURE_SPEECH_REGION.")
@@ -79,6 +83,24 @@ class AzureSTTBackend(STTBackend):
         if self.profanity:
             try:
                 speech_config.set_profanity(speechsdk.ProfanityOption[self.profanity.upper()])
+            except Exception:
+                pass
+
+        if self.initial_silence_ms is not None:
+            try:
+                speech_config.set_property(
+                    speechsdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs,
+                    str(self.initial_silence_ms),
+                )
+            except Exception:
+                pass
+
+        if self.end_silence_ms is not None:
+            try:
+                speech_config.set_property(
+                    speechsdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs,
+                    str(self.end_silence_ms),
+                )
             except Exception:
                 pass
 

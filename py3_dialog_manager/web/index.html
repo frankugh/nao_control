@@ -30,7 +30,8 @@
       .msg.user { justify-content: flex-end; }
       .bubble { max-width: 75%; padding: 8px 10px; border-radius: 12px; border: 1px solid #e6e6e6; background: white; white-space: pre-wrap; }
       .user .bubble { background: #f1f7ff; border-color: #d8e8ff; }
-      .role { font-size: 12px; color: #666; margin-bottom: 3px; }
+      .role { font-size: 12px; color: #666; margin-bottom: 3px; display: flex; justify-content: space-between; gap: 8px; }
+      .timestamp { font-size: 11px; color: #888; white-space: nowrap; }
       .bubblewrap { display: flex; flex-direction: column; }
       .debug { margin-top: 6px; font-size: 12px; color: #333; background: #f4f4f4; border: 1px dashed #cfcfcf; padding: 6px 8px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       .confirm-card { margin: 8px 0; padding: 10px; border: 1px solid #d8d8d8; border-radius: 10px; background: #fffaf0; }
@@ -44,7 +45,13 @@
       .tab { border: 1px solid #ddd; border-radius: 999px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
       .tab.active { background: #111; color: #fff; border-color: #111; }
       .tabpane.hidden { display: none; }
+      .subtabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .subtab { border: 1px solid #ddd; border-radius: 8px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
+      .subtab.active { background: #111; color: #fff; border-color: #111; }
+      .subtabpane.hidden { display: none; }
       .formgrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+      .collapsible summary { cursor: pointer; font-size: 12px; color: #555; }
+      .collapsible summary::marker { color: #888; }
       .formgrid label { font-size: 12px; color: #555; }
       .formgrid input, .formgrid select { width: 100%; padding: 8px; font-size: 14px; }
       .health { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -88,7 +95,7 @@
         <div class="composer">
           <textarea id="txt" placeholder="Transcript komt hier... (je kunt het editen)"></textarea>
           <div class="row" style="margin-top:10px">
-            <div id="listenMode" class="segmented">
+          <div id="listenMode" class="segmented">
               <button type="button" data-mode="ptt" class="active">Push-to-talk</button>
               <button type="button" data-mode="continuous">Continuous</button>
             </div>
@@ -154,20 +161,26 @@
             </div>
           </div>
         </div>
-        <div id="tab-runtime" class="tabpane hidden">
-          <div class="formgrid">
-            <div>
-              <label>NAO IP</label>
-              <div class="field-row">
-                <input id="cfgNaoIp" type="text" placeholder="192.168.0.101" />
-                <button id="btnApplyNaoIp" type="button" style="display:none">↻</button>
+                <div id="tab-runtime" class="tabpane hidden">
+          <div class="row subtabbar" style="margin-bottom:8px">
+            <button id="cfgTabNao" class="subtab active" type="button">NAO config</button>
+            <button id="cfgTabAudio" class="subtab" type="button">Audio (mic / STT)</button>
+            <button id="cfgTabReasoning" class="subtab" type="button">Reasoning</button>
+          </div>
+          <div id="cfgTabNaoPane" class="subtabpane">
+            <div class="formgrid">
+              <div>
+                <label>NAO IP</label>
+                <div class="field-row">
+                  <input id="cfgNaoIp" type="text" placeholder="192.168.0.101" />
+                  <button id="btnApplyNaoIp" type="button" style="display:none">↻</button>
+                </div>
+                <div id="cfgNaoIpDirty" class="dirty-note" style="display:none">gewijzigd</div>
+                <label class="enable-row"><span>enable:</span><input id="cfgNaoIpEnabled" type="checkbox" /></label>
+                <div class="health">
+                  <span id="healthNao" class="pill">nao: onbekend</span>
+                </div>
               </div>
-              <div id="cfgNaoIpDirty" class="dirty-note" style="display:none">gewijzigd</div>
-              <label class="enable-row"><span>enable:</span><input id="cfgNaoIpEnabled" type="checkbox" /></label>
-              <div class="health">
-                <span id="healthNao" class="pill">nao: onbekend</span>
-              </div>
-            </div>
               <div>
                 <label>NAO base connector (ip:port)</label>
                 <div class="field-row">
@@ -182,10 +195,10 @@
                 </div>
                 <div class="row">
                   <button id="btnStartBase" type="button">Start</button>
-                <button id="btnStopBase" type="button">Stop</button>
-                <span id="procBase" class="pill">process: onbekend</span>
+                  <button id="btnStopBase" type="button">Stop</button>
+                  <span id="procBase" class="pill">process: onbekend</span>
+                </div>
               </div>
-            </div>
               <div>
                 <label>Behavior manager (ip:port)</label>
                 <div class="field-row">
@@ -227,57 +240,116 @@
                 <div id="cfgNaoAutoRestNote" class="small" style="margin-top:6px"></div>
                 <div id="cfgNaoAudioNote" class="small" style="margin-top:6px"></div>
               </div>
-              <div>
+            </div>
+          </div>
+          <div id="cfgTabAudioPane" class="subtabpane hidden">
+            <div class="formgrid">
+              <div id="audioInputSection">
                 <label>Audio input device</label>
                 <div class="row">
                   <select id="cfgInputDevice"></select>
                 </div>
                 <div id="cfgInputDeviceName" class="device-name"></div>
               </div>
-            <div>
-              <label>STT</label>
-              <select id="cfgStt">
-                <option value="vosk">vosk</option>
-                <option value="whisper">whisper</option>
-                <option value="azure">azure</option>
-              </select>
-            </div>
-            <div>
-              <label>Command model</label>
-              <select id="cfgCmdrec"></select>
-            </div>
-            <div>
-              <label>Confirm policy</label>
-              <select id="cfgConfirmPolicy">
-                <option value="when_guarded">when_guarded</option>
-                <option value="always">always</option>
-              </select>
-            </div>
-            <div>
-              <label>Dialog (LLM)</label>
-              <div class="row">
-                <select id="cfgLlmType">
-                  <option value="echo">echo</option>
-                  <option value="ollama_local">ollama_local</option>
-                  <option value="ollama_cloud">ollama_cloud</option>
+              <div id="pttVadSection">
+                <label class="enable-row"><span>PTT gebruikt VAD (server mic)</span><input id="cfgPttUseVad" type="checkbox" /></label>
+              </div>
+              <div id="wakeSection">
+                <label>Continuous wake mode</label>
+                <div class="row">
+                  <select id="cfgWakeMode">
+                    <option value="never">Nooit (altijd luisteren)</option>
+                    <option value="always">Altijd wake-word nodig</option>
+                    <option value="timeout">Wake + actief voor X sec</option>
+                  </select>
+                  <input id="cfgWakeTimeout" type="number" min="1" step="1" placeholder="timeout_s" />
+                </div>
+                <div class="small">Timeout reset bij elke command/dialog act.</div>
+                <label>Wake words (1 per regel)</label>
+                <textarea id="cfgWakeWords" rows="3" placeholder="NAO&#10;Alex"></textarea>
+              </div>
+              <details id="vadSection" class="collapsible">
+                <summary>Mic VAD instellingen</summary>
+                <div class="small" style="margin-top:6px">
+                  Geldig voor continuous (server mic) en optioneel voor PTT.
+                </div>
+                <div style="margin-top:8px">
+                  <label>Amplitude drempel (RMS)
+                    <input id="cfgVadStartRms" type="number" placeholder="start_threshold_rms" title="Amplitude drempel om spraak te detecteren; bepaalt wanneer opname start en kan bij te hoge waarde ook eerder stoppen/afkappen. Richtwaarde 400-800; hoger bij rumoer." />
+                  </label>
+                  <label>Stop‑stilte (ms)
+                    <input id="cfgVadStopSilence" type="number" placeholder="stop_silence_ms" title="Stilte in ms om opname te stoppen. Richtwaarde 700–1500; hoger in drukke ruimte." />
+                  </label>
+                </div>
+                <div class="row" style="margin-top:6px">
+                  <label>Pre‑roll (ms)
+                    <input id="cfgVadPreRoll" type="number" placeholder="pre_roll_ms" title="Extra audio vóór start (ms). Richtwaarde 200–800." />
+                  </label>
+                  <label>Max utterance (s)
+                    <input id="cfgVadMaxUtter" type="number" step="0.1" placeholder="max_utterance_s" title="Maximale lengte per utterance (s). Richtwaarde 6–15." />
+                  </label>
+                </div>
+              </details>
+              <div>
+                <label>STT</label>
+                <select id="cfgStt">
+                  <option value="vosk">vosk</option>
+                  <option value="whisper">whisper</option>
+                  <option value="azure">azure (cloud)</option>
                 </select>
-                <input id="cfgLlmModel" type="text" placeholder="model name" list="ollamaModels" />
-                <datalist id="ollamaModels"></datalist>
+              </div>
+              <div id="cfgAzureSection">
+                <label>Azure STT timeouts (ms)</label>
+                <div class="small" title="Initial silence: als er te lang geen spraak is aan het begin, geeft Azure vaak 'no match'/lege tekst (fragment genegeerd). End silence: extra afkapmoment naast VAD/PTT; te laag = eerder afgesneden. Richtwaarden: initial_silence_ms ~ 3000–8000 (langzame start = hoger), end_silence_ms ~ 800–2000 (meer pauzes = hoger).">
+                  Azure bepaalt zelf waar spraak start/stop in het audiobestand.
+                </div>
+                <div class="row">
+                  <input id="cfgAzureInitialSilence" type="number" placeholder="initial_silence_ms" title="Initial silence: als er te lang geen spraak is aan het begin, geeft Azure vaak 'no match'/lege tekst. Richtwaarde 3000–8000 ms; hoger bij trage start." />
+                  <input id="cfgAzureEndSilence" type="number" placeholder="end_silence_ms" title="End silence: extra afkapmoment naast VAD/PTT; te laag = eerder afgesneden. Richtwaarde 800–2000 ms; hoger bij lange pauzes." />
+                </div>
+                <div id="cfgAzureNote" class="small" style="margin-top:6px"></div>
               </div>
             </div>
-            <div>
-              <label>Master prompt</label>
-              <select id="cfgMasterPrompt"></select>
+          </div>
+          <div id="cfgTabReasoningPane" class="subtabpane hidden">
+            <div class="formgrid">
+              <div>
+                <label>Command model</label>
+                <select id="cfgCmdrec"></select>
+              </div>
+              <div>
+                <label>Confirm policy</label>
+                <select id="cfgConfirmPolicy">
+                  <option value="when_guarded">when_guarded</option>
+                  <option value="always">always</option>
+                </select>
+              </div>
+              <div>
+                <label>Dialog (LLM)</label>
+                <div class="row">
+                  <select id="cfgLlmType">
+                    <option value="echo">echo</option>
+                    <option value="ollama_local">ollama_local</option>
+                    <option value="ollama_cloud">ollama_cloud</option>
+                  </select>
+                  <input id="cfgLlmModel" type="text" placeholder="model name" list="ollamaModels" />
+                  <datalist id="ollamaModels"></datalist>
+                </div>
+              </div>
+              <div>
+                <label>Master prompt</label>
+                <select id="cfgMasterPrompt"></select>
+              </div>
             </div>
+          </div>
+          <div style="margin-top:10px">
             <div class="row">
               <button id="btnResetCfg" type="button">Reset</button>
               <button id="btnRefreshCfg" type="button">Refresh</button>
               <span id="cfgStatus" class="small"></span>
             </div>
-            <div class="small">Runtime = jouw overrides. Effective = basisconfig + overrides.</div>
-            <pre id="cfgDump" class="debug" style="white-space: pre-wrap;"></pre>
           </div>
-        </div>
+        </div></div>
       </div>
     </div>
 
@@ -292,6 +364,8 @@
       const recState = document.getElementById('recState');
       const listenModeEl = document.getElementById('listenMode');
       const listenModeNote = document.getElementById('listenModeNote');
+      const cfgPttUseVad = document.getElementById('cfgPttUseVad');
+      const vadSection = document.getElementById('vadSection');
       const tabPrompt = document.getElementById('tabPrompt');
       const tabRuntime = document.getElementById('tabRuntime');
       const tabCommands = document.getElementById('tabCommands');
@@ -300,6 +374,12 @@
       const tabRuntimePane = document.getElementById('tab-runtime');
       const tabCommandsPane = document.getElementById('tab-commands');
       const tabLogsPane = document.getElementById('tab-logs');
+      const cfgTabNao = document.getElementById('cfgTabNao');
+      const cfgTabAudio = document.getElementById('cfgTabAudio');
+      const cfgTabReasoning = document.getElementById('cfgTabReasoning');
+      const cfgTabNaoPane = document.getElementById('cfgTabNaoPane');
+      const cfgTabAudioPane = document.getElementById('cfgTabAudioPane');
+      const cfgTabReasoningPane = document.getElementById('cfgTabReasoningPane');
         const cfgNaoBase = document.getElementById('cfgNaoBase');
         const cfgBehavior = document.getElementById('cfgBehavior');
         const cfgBaseEnabled = document.getElementById('cfgBaseEnabled');
@@ -314,16 +394,19 @@
       const btnApplyBehavior = document.getElementById('btnApplyBehavior');
         const cfgBaseDirty = document.getElementById('cfgBaseDirty');
         const cfgBehaviorDirty = document.getElementById('cfgBehaviorDirty');
-        const cfgNaoVol = document.getElementById('cfgNaoVol');
-        const cfgNaoSpeed = document.getElementById('cfgNaoSpeed');
+      const cfgNaoVol = document.getElementById('cfgNaoVol');
+      const cfgNaoSpeed = document.getElementById('cfgNaoSpeed');
         const btnVolDown = document.getElementById('btnVolDown');
         const btnVolUp = document.getElementById('btnVolUp');
         const btnSpeedDown = document.getElementById('btnSpeedDown');
         const btnSpeedUp = document.getElementById('btnSpeedUp');
         const cfgNaoAudioNote = document.getElementById('cfgNaoAudioNote');
         const cfgNaoLifeEnabled = document.getElementById('cfgNaoLifeEnabled');
-        const cfgNaoLifeState = document.getElementById('cfgNaoLifeState');
-        const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
+      const cfgNaoLifeState = document.getElementById('cfgNaoLifeState');
+      const audioInputSection = document.getElementById('audioInputSection');
+      const pttVadSection = document.getElementById('pttVadSection');
+      const wakeSection = document.getElementById('wakeSection');
+      const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
         const cfgNaoAutoRestSeconds = document.getElementById('cfgNaoAutoRestSeconds');
         const cfgNaoAutoRestNote = document.getElementById('cfgNaoAutoRestNote');
         const btnStartBase = document.getElementById('btnStartBase');
@@ -337,7 +420,18 @@
         const btnClearLogs = document.getElementById('btnClearLogs');
       const procLogs = document.getElementById('procLogs');
       const cfgInputDevice = document.getElementById('cfgInputDevice');
+      const cfgVadStartRms = document.getElementById('cfgVadStartRms');
+      const cfgVadStopSilence = document.getElementById('cfgVadStopSilence');
+      const cfgVadPreRoll = document.getElementById('cfgVadPreRoll');
+      const cfgVadMaxUtter = document.getElementById('cfgVadMaxUtter');
+      const cfgWakeMode = document.getElementById('cfgWakeMode');
+      const cfgWakeTimeout = document.getElementById('cfgWakeTimeout');
+      const cfgWakeWords = document.getElementById('cfgWakeWords');
       const cfgStt = document.getElementById('cfgStt');
+      const cfgAzureSection = document.getElementById('cfgAzureSection');
+      const cfgAzureInitialSilence = document.getElementById('cfgAzureInitialSilence');
+      const cfgAzureEndSilence = document.getElementById('cfgAzureEndSilence');
+      const cfgAzureNote = document.getElementById('cfgAzureNote');
       const cfgCmdrec = document.getElementById('cfgCmdrec');
       const cfgConfirmPolicy = document.getElementById('cfgConfirmPolicy');
       const cfgLlmType = document.getElementById('cfgLlmType');
@@ -347,7 +441,6 @@
       const btnResetCfg = document.getElementById('btnResetCfg');
       const btnRefreshCfg = document.getElementById('btnRefreshCfg');
       const cfgStatus = document.getElementById('cfgStatus');
-      const cfgDump = document.getElementById('cfgDump');
       const cfgInputDeviceName = document.getElementById('cfgInputDeviceName');
       const cmdList = document.getElementById('cmdList');
       const danceList = document.getElementById('danceList');
@@ -378,6 +471,8 @@
       let selectedBehavior = '';
       let pcmChunks = [];
       let listenMode = 'ptt';
+      let serverPttActive = false;
+      let uiMode = 'client';
       let continuousActive = false;
       let continuousPoll = null;
       let phaseStickyUntil = 0;
@@ -444,6 +539,51 @@
         updateRecButton();
       }
 
+      function getCookie(name) {
+        const value = `; ${document.cookie || ''}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return '';
+      }
+
+      function resolveUiMode() {
+        const qs = new URLSearchParams(window.location.search);
+        const qp = (qs.get('mode') || '').toLowerCase();
+        if (qp === 'server' || qp === 'client') {
+          return qp;
+        }
+        const cookieMode = (getCookie('ui_mode') || '').toLowerCase();
+        if (cookieMode === 'server' || cookieMode === 'client') {
+          return cookieMode;
+        }
+        const host = (window.location.hostname || '').toLowerCase();
+        if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+          return 'server';
+        }
+        return 'client';
+      }
+
+      function isServerUi() {
+        return uiMode === 'server';
+      }
+
+      function applyUiMode() {
+        uiMode = resolveUiMode();
+        const btn = listenModeEl ? listenModeEl.querySelector('button[data-mode="continuous"]') : null;
+        const client = !isServerUi();
+        if (btn) {
+          btn.disabled = client;
+          btn.style.display = client ? 'none' : '';
+        }
+        if (audioInputSection) audioInputSection.style.display = client ? 'none' : '';
+        if (pttVadSection) pttVadSection.style.display = client ? 'none' : '';
+        if (wakeSection) wakeSection.style.display = client ? 'none' : '';
+        if (vadSection) vadSection.style.display = client ? 'none' : '';
+        if (client && listenMode === 'continuous') {
+          setListenMode('ptt');
+        }
+      }
+
       if (listenModeEl) {
         listenModeEl.addEventListener('click', (e) => {
           const btn = e.target;
@@ -451,11 +591,13 @@
           setListenMode(btn.dataset.mode || 'ptt');
         });
       }
+      function useNaoMic() { return cfgInputDevice.value === 'nao_ssh'; }
+      applyUiMode();
+      updateWakeFields();
       setListenMode('ptt');
       updateContinuousAvailability();
       updateRecButton();
-      function useNaoMic() { return cfgInputDevice.value === 'nao_ssh'; }
-      function canContinuous() { return true; }
+      function canContinuous() { return isServerUi(); }
 
       function updateContinuousAvailability() {
         if (!listenModeEl) return;
@@ -480,13 +622,17 @@
         }
       }
 
-        function updateRecButton() {
-          if (listenMode === 'continuous') {
-            btnRec.textContent = continuousActive ? 'Stop' : 'Start luisteren';
-            return;
-          }
-          btnRec.textContent = recording ? 'Stop' : 'Opnemen';
+      function updateRecButton() {
+        if (listenMode === 'continuous') {
+          btnRec.textContent = continuousActive ? 'Stop' : 'Start luisteren';
+          return;
         }
+        if (isServerUi()) {
+          btnRec.textContent = serverPttActive ? 'Stop' : 'Opnemen';
+          return;
+        }
+        btnRec.textContent = recording ? 'Stop' : 'Opnemen';
+      }
 
         function triggerHealthSoon(delayMs = 800) {
           if (healthTimer) clearTimeout(healthTimer);
@@ -850,6 +996,7 @@
           const r = await fetch('/api/continuous_state');
           const j = await r.json();
           if (!j.ok) return;
+          const err = (j.error || '').trim();
           const phase = (j.phase || '').toLowerCase();
           const now = Date.now();
           if (phase === 'transcribing' || phase === 'thinking') {
@@ -862,7 +1009,17 @@
           }
           if (showPhase === 'listening') {
             setRecState('luisteren', 'listening');
-            setStatus('Luisteren...');
+            setStatus(err ? `Luisteren... (fout: ${err})` : 'Luisteren...');
+          } else if (showPhase === 'wake_listening') {
+            setRecState('wachten op wake-word', 'listening');
+            const heard = (j.last_wake_text || '').trim();
+            if (err) {
+              setStatus(`Wachten op wake-word... (fout: ${err})`);
+            } else if (heard) {
+              setStatus(`Wachten op wake-word... (laatst gehoord: "${heard}")`);
+            } else {
+              setStatus('Wachten op wake-word...');
+            }
           } else if (showPhase === 'transcribing') {
             setRecState('transcriberen', 'transcribing');
             setStatus('Transcriberen...');
@@ -885,7 +1042,15 @@
       function renderHistory(history, debug) {
         chatEl.innerHTML = '';
         let lastAssistantWrap = null;
+        const formatTs = (value) => {
+          if (!value) return '';
+          const tsMs = value > 1e12 ? value : value * 1000;
+          const d = new Date(tsMs);
+          if (isNaN(d.getTime())) return '';
+          return d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+        };
         (history || []).forEach(m => {
+          const tsLabel = formatTs(m.ts || m.created_at || 0);
           if (m.type === 'confirm_required') {
             const msg = document.createElement('div');
             msg.className = 'msg assistant';
@@ -896,6 +1061,12 @@
             const roleEl = document.createElement('div');
             roleEl.className = 'role';
             roleEl.textContent = 'Bot';
+            if (tsLabel) {
+              const ts = document.createElement('span');
+              ts.className = 'timestamp';
+              ts.textContent = tsLabel;
+              roleEl.appendChild(ts);
+            }
 
             const card = document.createElement('div');
             card.className = 'confirm-card';
@@ -969,6 +1140,12 @@
           const roleEl = document.createElement('div');
           roleEl.className = 'role';
           roleEl.textContent = (role === 'user') ? 'You' : 'Bot';
+          if (tsLabel) {
+            const ts = document.createElement('span');
+            ts.className = 'timestamp';
+            ts.textContent = tsLabel;
+            roleEl.appendChild(ts);
+          }
 
           const bubble = document.createElement('div');
           bubble.className = 'bubble';
@@ -1024,6 +1201,22 @@
         }
       }
 
+      const CFG_SUBTAB_KEY = 'cfg_subtab';
+      function setConfigTab(which) {
+        const isNao = which === 'nao';
+        const isAudio = which === 'audio';
+        const isReasoning = which === 'reasoning';
+        if (cfgTabNao) cfgTabNao.classList.toggle('active', isNao);
+        if (cfgTabAudio) cfgTabAudio.classList.toggle('active', isAudio);
+        if (cfgTabReasoning) cfgTabReasoning.classList.toggle('active', isReasoning);
+        if (cfgTabNaoPane) cfgTabNaoPane.classList.toggle('hidden', !isNao);
+        if (cfgTabAudioPane) cfgTabAudioPane.classList.toggle('hidden', !isAudio);
+        if (cfgTabReasoningPane) cfgTabReasoningPane.classList.toggle('hidden', !isReasoning);
+        try {
+          localStorage.setItem(CFG_SUBTAB_KEY, which);
+        } catch (_) {}
+      }
+
       function loadLocalConfig() {
         try {
           const raw = localStorage.getItem(LOCAL_CFG_KEY);
@@ -1038,6 +1231,40 @@
           localStorage.setItem(LOCAL_CFG_KEY, JSON.stringify(cfg));
         } catch (_) {}
       }
+
+        function readIntOrNull(value) {
+          const v = parseInt(String(value || '').trim(), 10);
+          return Number.isNaN(v) ? null : v;
+        }
+
+        function readFloatOrNull(value) {
+          const v = parseFloat(String(value || '').trim());
+          return Number.isNaN(v) ? null : v;
+        }
+
+        function parseWakeWords(value) {
+          const lines = String(value || '')
+            .split(/\r?\n|,|;/g)
+            .map(s => s.trim())
+            .filter(Boolean);
+          const out = [];
+          const seen = new Set();
+          lines.forEach((w) => {
+            const key = w.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(w);
+          });
+          return out;
+        }
+
+        function updateWakeFields() {
+          if (!cfgWakeMode || !cfgWakeTimeout) return;
+          const mode = (cfgWakeMode.value || 'never').toLowerCase();
+          const showTimeout = mode === 'timeout';
+          cfgWakeTimeout.style.display = showTimeout ? '' : 'none';
+          cfgWakeTimeout.disabled = !showTimeout;
+        }
 
         function getConfigFromForm() {
           const inputDeviceValue = cfgInputDevice.value;
@@ -1056,6 +1283,12 @@
         const autoRestEnabled = !!cfgNaoAutoRestEnabled.checked;
         let autoRestSeconds = parseInt(cfgNaoAutoRestSeconds.value || '0', 10);
         if (isNaN(autoRestSeconds) || autoRestSeconds < 0) autoRestSeconds = 0;
+          const micParams = {
+            start_threshold_rms: readIntOrNull(cfgVadStartRms.value),
+            stop_silence_ms: readIntOrNull(cfgVadStopSilence.value),
+            pre_roll_ms: readIntOrNull(cfgVadPreRoll.value),
+            max_utterance_s: readFloatOrNull(cfgVadMaxUtter.value),
+          };
           return {
             nao_ip: naoIpValue,
             nao_ip_enabled: !!cfgNaoIpEnabled.checked,
@@ -1067,6 +1300,14 @@
             behavior_autostart: !!cfgBehaviorAutostart.checked,
             input_device: inputDevice,
             stt_type: cfgStt.value,
+            mic_params_ptt: micParams,
+            mic_params_continuous: micParams,
+            ptt_use_vad: !!(cfgPttUseVad && cfgPttUseVad.checked),
+            wake_mode: (cfgWakeMode && cfgWakeMode.value) || 'never',
+            wake_timeout_s: readIntOrNull(cfgWakeTimeout ? cfgWakeTimeout.value : ''),
+            wake_words: parseWakeWords(cfgWakeWords ? cfgWakeWords.value : ''),
+            azure_initial_silence_ms: readIntOrNull(cfgAzureInitialSilence.value),
+            azure_end_silence_ms: readIntOrNull(cfgAzureEndSilence.value),
             cmdrec: cfgCmdrec.value,
             confirm_policy: cfgConfirmPolicy.value,
           llm_type: cfgLlmType.value,
@@ -1076,7 +1317,10 @@
         };
       }
 
-        function applyConfigToForm(cfg) {
+        function applyConfigToForm(cfg, effectiveCfg) {
+          const effectiveStt = ((effectiveCfg || {}).input || {}).stt || {};
+          const effectiveSttParams = effectiveStt.params || {};
+          const effectiveSttType = (effectiveStt.type || '').toLowerCase();
           cfgNaoIp.value = cfg.nao_ip || '';
           cfgNaoIpEnabled.checked = !!cfg.nao_ip_enabled;
           cfgNaoBase.value = cfg.nao_base_url || '';
@@ -1091,7 +1335,28 @@
         setUrlDirty('nao', false);
         setUrlDirty('base', false);
         setUrlDirty('behavior', false);
-        cfgStt.value = cfg.stt_type || 'vosk';
+        const vad = cfg.mic_params_continuous || cfg.mic_params_ptt || {};
+        cfgVadStartRms.value = vad.start_threshold_rms ?? '';
+        cfgVadStopSilence.value = vad.stop_silence_ms ?? '';
+        cfgVadPreRoll.value = vad.pre_roll_ms ?? '';
+        cfgVadMaxUtter.value = vad.max_utterance_s ?? '';
+        if (cfgPttUseVad) {
+          cfgPttUseVad.checked = !!cfg.ptt_use_vad;
+        }
+        if (cfgWakeMode) cfgWakeMode.value = (cfg.wake_mode || 'never');
+        if (cfgWakeTimeout) cfgWakeTimeout.value = String(cfg.wake_timeout_s ?? 20);
+        if (cfgWakeWords) {
+          const words = Array.isArray(cfg.wake_words) ? cfg.wake_words : [];
+          cfgWakeWords.value = words.length ? words.join('\n') : 'NAO\nAlex';
+        }
+        updateWakeFields();
+        const sttType = (cfg.stt_type || effectiveSttType || 'vosk');
+        cfgStt.value = sttType;
+        const azureInitial = cfg.azure_initial_silence_ms ?? (sttType === 'azure' ? effectiveSttParams.initial_silence_ms : null);
+        const azureEnd = cfg.azure_end_silence_ms ?? (sttType === 'azure' ? effectiveSttParams.end_silence_ms : null);
+        cfgAzureInitialSilence.value = azureInitial ?? '';
+        cfgAzureEndSilence.value = azureEnd ?? '';
+        updateAzureFields();
         const cmdrecValue = cfg.cmdrec || 'latest';
         runtimeCmdrecValue = cmdrecValue;
         if (![...cfgCmdrec.options].some(o => o.value === cmdrecValue)) {
@@ -1172,6 +1437,26 @@
           cfgInputDeviceName.textContent = 'NAO mic (SSH)';
         } else {
           cfgInputDeviceName.textContent = selected.textContent;
+        }
+      }
+
+      function updateAzureFields() {
+        const isAzure = (cfgStt.value || '').toLowerCase() === 'azure';
+        if (cfgAzureSection) cfgAzureSection.style.display = isAzure ? '' : 'none';
+        cfgAzureInitialSilence.disabled = !isAzure;
+        cfgAzureEndSilence.disabled = !isAzure;
+        if (cfgAzureNote) {
+          if (!isAzure) {
+            cfgAzureNote.textContent = '';
+            return;
+          }
+          const initialEmpty = !String(cfgAzureInitialSilence.value || '').trim();
+          const endEmpty = !String(cfgAzureEndSilence.value || '').trim();
+          if (initialEmpty && endEmpty) {
+            cfgAzureNote.textContent = 'Azure defaults (not set). Laat leeg = Azure bepaalt zelf.';
+          } else {
+            cfgAzureNote.textContent = '';
+          }
         }
       }
 
@@ -1455,7 +1740,7 @@
         lastAppliedBehaviorUrl = configToSend.behavior_manager_url || '';
         cfgStatus.textContent = silent ? '' : 'Applied';
         renderPrompt(j.system_prompt || '');
-        renderConfigDump(j.runtime_config || j.config || cfg, j.effective_config || null, j.output_enabled);
+        applyConfigToForm(j.runtime_config || j.config || cfg, j.effective_config || null);
         refreshProcessStatus();
         refreshProcessLogs();
       }
@@ -1469,8 +1754,7 @@
         });
         const j = await r.json();
         if (!j.ok) return;
-        applyConfigToForm(j.config || {});
-        renderConfigDump(j.config || {}, null, null);
+        applyConfigToForm(j.config || {}, j.effective_config || null);
         cfgStatus.textContent = 'Reset';
       }
 
@@ -1479,24 +1763,12 @@
           const r = await fetch('/api/runtime_effective');
           const j = await r.json();
           if (!j.ok) return;
-          renderConfigDump(j.runtime_config || {}, j.effective_config || null, j.output_enabled);
+          applyConfigToForm(j.runtime_config || {}, j.effective_config || null);
           refreshProcessStatus();
           refreshProcessLogs();
         } catch (_) {}
       }
 
-      function renderConfigDump(runtimeCfg, effectiveCfg, outputEnabled) {
-        const lines = [];
-        lines.push('runtime_config:');
-        lines.push(JSON.stringify(runtimeCfg || {}, null, 2));
-        if (effectiveCfg) {
-          lines.push('effective_config:');
-          lines.push(JSON.stringify(effectiveCfg || {}, null, 2));
-        }
-        cfgDump.textContent = lines.join('\n');
-      }
-
-      
       async function refreshProcessStatus() {
         try {
           const r = await fetch('/api/process_status');
@@ -1535,23 +1807,29 @@
         } catch (_) {}
       }
 
-        async function startProcess(name) {
-          try {
-            const r = await fetch('/api/process_start', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name })
-            });
-            const j = await r.json();
-            if (!j.ok) throw new Error(j.error || 'start failed');
-            healthBoostUntil = Date.now() + 5000;
-            await refreshProcessStatus();
-            await refreshProcessLogs();
-            triggerHealthSoon(800);
-          } catch (e) {
-            setStatus('Process start failed: ' + (e?.message || e));
+      async function startProcess(name) {
+        try {
+          const cfg = getConfigFromForm();
+          if ((name === 'base' || name === 'behavior') && cfg.nao_ip_enabled && lastNaoOk === false) {
+            setStatus('NAO is down; proces niet gestart.');
+            return;
           }
+          const r = await fetch('/api/process_start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'start failed');
+          setStatus(`${name} start aangevraagd.`);
+          healthBoostUntil = Date.now() + 10000;
+          await refreshProcessStatus();
+          await refreshProcessLogs();
+          triggerHealthSoon(800);
+        } catch (e) {
+          setStatus('Process start failed: ' + (e?.message || e));
         }
+      }
 
         async function stopProcess(name) {
           try {
@@ -1710,7 +1988,7 @@
       async function transcribeViaConfiguredMic() {
         btnRec.disabled = true;
         btnSend.disabled = true;
-        setStatus('Luisteren via NAO mic...');
+        setStatus(useNaoMic() ? 'Luisteren via NAO mic...' : 'Luisteren via server mic...');
         setRecState('luisteren');
         try {
           const r = await fetch('/api/transcribe_mic', { method: 'POST' });
@@ -1728,12 +2006,50 @@
         }
       }
 
+      async function startServerPtt() {
+        btnRec.disabled = true;
+        setStatus(useNaoMic() ? 'Luisteren via NAO mic...' : 'Luisteren via server mic...');
+        setRecState('luisteren');
+        try {
+          const r = await fetch('/api/ptt_start', { method: 'POST' });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'ptt start failed');
+          serverPttActive = true;
+          updateRecButton();
+        } catch (e) {
+          setStatus('Fout: ' + (e?.message || e));
+          setRecState('idle');
+        } finally {
+          btnRec.disabled = false;
+        }
+      }
+
+      async function stopServerPtt() {
+        btnRec.disabled = true;
+        btnSend.disabled = true;
+        setStatus('Transcriberen...');
+        setRecState('transcriberen');
+        try {
+          const r = await fetch('/api/ptt_stop', { method: 'POST' });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'ptt stop failed');
+          txt.value = (j.transcript || '').trim();
+          lastTranscript = txt.value ? txt.value : null;
+          btnSend.disabled = !txt.value.trim();
+          const confLabel = formatConfidence(j.confidence);
+          setStatus(confLabel ? `Transcript klaar (${confLabel}). Edit en druk op Send.` : 'Transcript klaar. Edit en druk op Send.');
+        } catch (e) {
+          setStatus('Fout: ' + (e?.message || e));
+        } finally {
+          serverPttActive = false;
+          setRecState('idle');
+          updateRecButton();
+          btnRec.disabled = false;
+        }
+      }
+
       btnRec.addEventListener('click', async () => {
         try {
-          if (useNaoMic() && lastNaoOk === false) {
-            setStatus('NAO mic is down; cannot record.');
-            return;
-          }
           if (listenMode === 'continuous') {
             if (continuousActive) {
               await fetch('/api/continuous_stop', { method: 'POST' });
@@ -1756,8 +2072,16 @@
             return;
           }
 
-          if (useNaoMic()) {
-            await transcribeViaConfiguredMic();
+          if (isServerUi()) {
+            if (useNaoMic() && lastNaoOk === false) {
+              setStatus('NAO mic is down; cannot record.');
+              return;
+            }
+            if (serverPttActive) {
+              await stopServerPtt();
+            } else {
+              await startServerPtt();
+            }
           } else if (!recording) {
             await startRecording();
           } else {
@@ -1900,6 +2224,9 @@
       tabRuntime.addEventListener('click', () => setTab('runtime'));
       tabCommands.addEventListener('click', () => setTab('commands'));
       tabLogs.addEventListener('click', () => setTab('logs'));
+      if (cfgTabNao) cfgTabNao.addEventListener('click', () => setConfigTab('nao'));
+      if (cfgTabAudio) cfgTabAudio.addEventListener('click', () => setConfigTab('audio'));
+      if (cfgTabReasoning) cfgTabReasoning.addEventListener('click', () => setConfigTab('reasoning'));
 
       btnResetCfg.addEventListener('click', async () => {
         await resetRuntimeConfig();
@@ -1960,6 +2287,11 @@
       });
 
       cfgInputDevice.addEventListener('change', () => { updateDeviceName(); updateContinuousAvailability(); updateRecButton(); });
+      [cfgVadStartRms, cfgVadStopSilence, cfgVadPreRoll, cfgVadMaxUtter].forEach((el) => {
+        if (el) {
+          el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+        }
+      });
 
       cfgMasterPrompt.addEventListener('change', async () => {
         await applyRuntimeConfig(getConfigFromForm(), false, false);
@@ -1989,8 +2321,29 @@
       });
 
       cfgCmdrec.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
-      cfgStt.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      cfgStt.addEventListener('change', () => { updateAzureFields(); applyRuntimeConfig(getConfigFromForm(), false, false); });
+      if (cfgAzureInitialSilence) {
+        cfgAzureInitialSilence.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
+      if (cfgAzureEndSilence) {
+        cfgAzureEndSilence.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
       cfgConfirmPolicy.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      if (cfgPttUseVad) {
+        cfgPttUseVad.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
+      if (cfgWakeMode) {
+        cfgWakeMode.addEventListener('change', () => {
+          updateWakeFields();
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgWakeTimeout) {
+        cfgWakeTimeout.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
+      if (cfgWakeWords) {
+        cfgWakeWords.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
       cfgBaseAutostart.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgBehaviorAutostart.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       if (cfgNaoAutoRestEnabled) {
@@ -2070,6 +2423,19 @@
         scheduleHealth(cfg, ok);
       });
 
+      const savedCfgTab = (() => {
+        try {
+          return localStorage.getItem(CFG_SUBTAB_KEY);
+        } catch (_) {
+          return null;
+        }
+      })();
+      if (savedCfgTab === 'nao' || savedCfgTab === 'audio' || savedCfgTab === 'reasoning') {
+        setConfigTab(savedCfgTab);
+      } else {
+        setConfigTab('nao');
+      }
+
       // init
       refreshState().catch(() => setStatus('Kan server niet bereiken.'));
       loadDevices().catch(() => {});
@@ -2092,7 +2458,7 @@
             cfg = merged;
             await applyRuntimeConfig(cfg, true);
           }
-          applyConfigToForm(cfg);
+        applyConfigToForm(cfg, j.effective_config || null);
           loadDevices().catch(() => {});
           cfgLlmModel.disabled = cfgLlmType.value === 'echo';
           if (cfgLlmType.value === 'ollama_local') {
@@ -2109,3 +2475,6 @@
     </script>
   </body>
 </html>
+
+
+
