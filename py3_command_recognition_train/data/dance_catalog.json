@@ -85,7 +85,7 @@
     },
     {
       "key": "stoomboot",
-      "behavior": "sint_stoomboot",
+      "behavior": "sint_stoomboot-ec2ca3",
       "aliases": [
         "stoomboot",
         "sinterklaas"

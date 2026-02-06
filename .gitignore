@@ -50,3 +50,9 @@ example_audio/*.wav
 # === Large local models ===
 models/vosk-model*/
 models/*.zip
+
+# === Active learning runtime state ===
+py3_command_recognition_train/data/al/review_queue.jsonl
+py3_command_recognition_train/data/al/auto_train_queue.jsonl
+py3_command_recognition_train/data/al/review_log.jsonl
+py3_command_recognition_train/data/al/retrain_state.json

@@ -9,6 +9,7 @@ import random
 import shutil
 import re
 import time
+import math
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -91,6 +92,8 @@ def select_auto_train_entries(
     conf_min: float | None,
     conf_max: float | None,
 ) -> list[dict[str, Any]]:
+    if sample_size <= 0:
+        return []
     filtered: list[dict[str, Any]] = []
     for entry in entries:
         conf = entry.get("confidence")
@@ -194,6 +197,9 @@ def main() -> None:
     parser.add_argument("--gold", type=Path, default=Path("data/gold_v1.jsonl"))
     parser.add_argument("--none-external", type=Path, default=Path("data/none_external.jsonl"))
     parser.add_argument("--auto-train", type=Path, default=Path("data/al/auto_train.jsonl"))
+    parser.add_argument(
+        "--auto-train-queue", type=Path, default=Path("data/al/auto_train_queue.jsonl")
+    )
     parser.add_argument("--reviewed", type=Path, default=Path("data/al/reviewed.jsonl"))
     parser.add_argument("--auto-train-sample", type=int, default=0)
     parser.add_argument("--auto-train-conf-min", type=float, default=None)
@@ -228,16 +234,46 @@ def main() -> None:
     gold_keys = {normalize_key(entry["text"]) for entry in gold_entries}
 
     base_entries = load_jsonl(args.train_base)
-    auto_train_entries = normalize_al_entries(load_jsonl_raw(args.auto_train))
-    if args.auto_train_sample or args.auto_train_conf_min is not None or args.auto_train_conf_max is not None:
-        auto_train_entries = select_auto_train_entries(
-            auto_train_entries,
-            args.auto_train_sample,
+    reviewed_entries = merge_optional(args.reviewed)
+    reviewed_count = len(reviewed_entries)
+
+    auto_train_raw = load_jsonl_raw(args.auto_train)
+    auto_train_raw = dedupe_entries(auto_train_raw)
+    auto_queue_raw = load_jsonl_raw(args.auto_train_queue)
+    auto_queue_raw = dedupe_entries(auto_queue_raw)
+
+    existing_keys = {normalize_key(entry.get("text", "")) for entry in auto_train_raw}
+    queue_candidates = [
+        entry
+        for entry in auto_queue_raw
+        if normalize_key(entry.get("text", "")) not in existing_keys
+    ]
+
+    max_auto = int(math.floor(0.5 * reviewed_count))
+    if args.auto_train_sample and args.auto_train_sample > 0:
+        max_auto = min(max_auto, args.auto_train_sample)
+    needed = max(0, max_auto - len(auto_train_raw))
+    if needed > 0:
+        selected = select_auto_train_entries(
+            queue_candidates,
+            needed,
             args.auto_train_conf_min,
             args.auto_train_conf_max,
         )
+        if selected:
+            selected_keys = {normalize_key(entry.get("text", "")) for entry in selected}
+            auto_train_raw.extend(selected)
+            auto_queue_raw = [
+                entry
+                for entry in auto_queue_raw
+                if normalize_key(entry.get("text", "")) not in selected_keys
+            ]
+            write_jsonl(auto_train_raw, args.auto_train)
+            write_jsonl(auto_queue_raw, args.auto_train_queue)
+
+    auto_train_entries = normalize_al_entries(auto_train_raw)
     base_entries += auto_train_entries
-    base_entries += merge_optional(args.reviewed)
+    base_entries += reviewed_entries
     base_entries = dedupe_entries(base_entries)
     base_entries = [entry for entry in base_entries if normalize_key(entry["text"]) not in gold_keys]
 
@@ -301,7 +337,7 @@ def main() -> None:
                     )
                     system_metrics = train_mod.compute_system_metrics(y_val, ml_preds, system_preds)
                     system_metrics.update(train_mod.compute_none_fp_rates(y_val, system_preds, val_sources))
-                    constraints_ok = (
+                    constraints_ok_flag = (
                         system_metrics["system_stop_recall"] >= constraints["system_stop_recall"]
                         and system_metrics["fp_none_rate"] <= constraints["fp_none_rate"]
                     )
@@ -323,9 +359,19 @@ def main() -> None:
                             ml_report=ml_report,
                             ml_confusion=ml_confusion,
                             system_metrics=system_metrics,
-                            constraints_ok=constraints_ok,
+                            constraints_ok=constraints_ok_flag,
                         )
                     )
+
+    vectorizer_names = sorted({result.name.split("|ratio=")[0] for result in results})
+    LOGGER.info(
+        "Search space: vectorizers=%s ratios=%s thresholds=%s margins=%s candidates=%s",
+        vectorizer_names,
+        ratios,
+        [float(v) for v in thresholds],
+        [float(v) for v in margins],
+        len(results),
+    )
 
     constrained = [result for result in results if result.constraints_ok]
     best_pool = constrained or results
@@ -440,6 +486,9 @@ def main() -> None:
         json.dumps(decision_policy, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
+    score_formula = (
+        "0.70*macro_f1_others + 0.15*recall_box + 0.15*recall_dance - 1.0*fp_none_rate"
+    )
     train_report = {
         "best": {
             "vectorizer": best.name,
@@ -464,7 +513,17 @@ def main() -> None:
             "none_ratio": best_ratio,
             "train_label_counts": best_data_counts,
         },
+        "gold_label_counts": count_labels(gold_entries),
         "constraints": constraints,
+        "search_space": {
+            "ratios": ratios,
+            "thresholds": [float(v) for v in thresholds],
+            "margins": [float(v) for v in margins],
+            "vectorizers": vectorizer_names,
+            "candidates": len(results),
+        },
+        "validation": {"gold_path": str(args.gold), "gold_count": len(gold_entries)},
+        "score_formula": score_formula,
         **error_export,
     }
     (args.out / "train_report.json").write_text(

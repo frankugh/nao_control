@@ -58,8 +58,8 @@ All model comparisons (e.g., v15 vs new model) are done on the same fixed Gold s
 - Reviewed items move to **reviewed** bucket and can be included in training.
 
 ## Training Inputs
-- **Train set**: Gold v1 + auto-train + reviewed.
-- **Validation set**: Gold v1 (always).
+- **Train set**: `train_base.jsonl` + auto-train + reviewed.
+- **Validation set**: Gold v1 (always, fixed).
 - **Optional**: supplemental NONE data to reach target ratio (NONE = 7x command).
   - `none_seed.txt` is always fully included.
   - Online/extra NONE data is only used to reach the target ratio.
@@ -69,6 +69,12 @@ All model comparisons (e.g., v15 vs new model) are done on the same fixed Gold s
 - Baseline model: **v15**.
 - New models: `v15_al_YYYYMMDD` (or similar).
 - Promote only if metrics on Gold v1 improve or stay stable.
+
+## Gold v2 (future)
+- Gold v2 will replace Gold v1 **only** once we have enough high-quality reviewed data
+  with a better NONE distribution.
+- Candidate entries can be tracked via a `gold_candidate` flag on reviewed items,
+  then promoted into a future `data/gold_v2.jsonl` when ready.
 
 ## Open Items (to implement)
 - Storage format (likely JSONL) and folder layout.

@@ -28,6 +28,8 @@ import shutil
 import wave
 import subprocess
 import socket
+import sys
+import math
 from pathlib import Path
 import signal
 from typing import Any, Dict, List, Optional, Tuple
@@ -468,7 +470,17 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     pipeline_lock = threading.Lock()
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     al_dir = os.path.join(repo_root, "py3_command_recognition_train", "data", "al")
-    al_lock = threading.Lock()
+    al_lock = threading.RLock()
+    retrain_lock = threading.Lock()
+    retrain_state: Dict[str, Any] = {
+        "running": False,
+        "started_at": None,
+        "finished_at": None,
+        "exit_code": None,
+        "last_error": None,
+        "summary": None,
+        "log": [],
+    }
     proc_lock = threading.Lock()
     proc_logs: Dict[str, List[str]] = {"base": [], "behavior": []}
     proc_state: Dict[str, Dict[str, Any]] = {
@@ -525,6 +537,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 "wake_stt": None,
                 "wake_stt_key": None,
                 "last_wake_text": "",
+                "eye_phase": None,
+                "eye_last_try": 0.0,
             },
         )
 
@@ -1086,13 +1100,305 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         cmd = [python_path, script_path]
         return cmd, base_dir, None
 
+    _al_key_cache: Dict[str, Dict[str, Any]] = {}
+
+    def _al_keyset(path: str) -> set[str]:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return set()
+        cached = _al_key_cache.get(path)
+        if cached and cached.get("mtime") == stat.st_mtime and cached.get("size") == stat.st_size:
+            return cached.get("keys", set())
+        entries = _load_jsonl(path)
+        keys = {
+            _normalize_key(entry.get("text", ""))
+            for entry in entries
+            if _normalize_key(entry.get("text", ""))
+        }
+        _al_key_cache[path] = {"mtime": stat.st_mtime, "size": stat.st_size, "keys": keys}
+        return keys
+
+    def _al_should_skip(filename: str, payload: Dict[str, Any]) -> bool:
+        if filename not in ("review_queue.jsonl", "auto_train.jsonl"):
+            return False
+        key = _normalize_key(payload.get("text", ""))
+        if not key:
+            return True
+        train_base_path = os.path.join(
+            repo_root, "py3_command_recognition_train", "data", "train_base.jsonl"
+        )
+        reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
+        auto_train_path = os.path.join(al_dir, "auto_train.jsonl")
+        auto_train_queue_path = os.path.join(al_dir, "auto_train_queue.jsonl")
+        review_queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        paths: List[str] = [train_base_path, reviewed_path, auto_train_path]
+        if filename == "review_queue.jsonl":
+            paths = [review_queue_path] + paths
+        elif filename == "auto_train_queue.jsonl":
+            paths = [auto_train_queue_path] + paths
+        for path in paths:
+            if key in _al_keyset(path):
+                return True
+        return False
+
     def _al_append(filename: str, payload: Dict[str, Any]) -> None:
         os.makedirs(al_dir, exist_ok=True)
         path = os.path.join(al_dir, filename)
         line = json.dumps(payload, ensure_ascii=False)
         with al_lock:
+            if _al_should_skip(filename, payload):
+                return
             with open(path, "a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
+
+    def _load_jsonl(path: str) -> List[Dict[str, Any]]:
+        if not os.path.exists(path):
+            return []
+        entries: List[Dict[str, Any]] = []
+        try:
+            for line in open(path, "r", encoding="utf-8").read().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        except OSError:
+            return []
+        return entries
+
+    def _write_jsonl(entries: List[Dict[str, Any]], path: str) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            for entry in entries:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def _normalize_key(text: str) -> str:
+        return " ".join((text or "").split()).strip().casefold()
+
+    def _al_state_path() -> str:
+        return os.path.join(al_dir, "retrain_state.json")
+
+    def _load_retrain_state() -> Dict[str, Any]:
+        path = _al_state_path()
+        if not os.path.exists(path):
+            return {"since_last_retrain": 0, "last_retrain_bundle": None, "last_retrain_at": None}
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {"since_last_retrain": 0, "last_retrain_bundle": None, "last_retrain_at": None}
+            data.setdefault("since_last_retrain", 0)
+            data.setdefault("last_retrain_bundle", None)
+            data.setdefault("last_retrain_at", None)
+            return data
+        except Exception:
+            return {"since_last_retrain": 0, "last_retrain_bundle": None, "last_retrain_at": None}
+
+    def _save_retrain_state(state: Dict[str, Any]) -> None:
+        path = _al_state_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Path(path).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _latest_bundle_name() -> Optional[str]:
+        bundles_dir = os.path.join(repo_root, "py3_command_recognition_train", "dist")
+        if not os.path.isdir(bundles_dir):
+            return None
+        pattern = re.compile(r"^bundle_v(\d+)(?:_(\d{8}))?$")
+        bundles: List[Tuple[int, int, str]] = []
+        for name in os.listdir(bundles_dir):
+            path = os.path.join(bundles_dir, name)
+            if not os.path.isdir(path):
+                continue
+            match = pattern.match(name)
+            if not match:
+                continue
+            version = int(match.group(1))
+            date_part = int(match.group(2)) if match.group(2) else 0
+            bundles.append((version, date_part, name))
+        if not bundles:
+            return None
+        bundles.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return bundles[0][2]
+
+    def _latest_bundle_path() -> Optional[str]:
+        bundles_dir = os.path.join(repo_root, "py3_command_recognition_train", "dist")
+        name = _latest_bundle_name()
+        if not name:
+            return None
+        return os.path.join(bundles_dir, name)
+
+    def _bundle_name_from_path(value: Any) -> str:
+        if not value:
+            return ""
+        raw = str(value)
+        if not raw:
+            return ""
+        return os.path.basename(raw.replace("\\", "/"))
+
+    def _resolve_train_path(path_str: Optional[str]) -> Optional[Path]:
+        if not path_str:
+            return None
+        candidate = Path(path_str)
+        if not candidate.is_absolute():
+            candidate = Path(repo_root) / "py3_command_recognition_train" / candidate
+        return candidate
+
+    def _load_train_report(path_str: Optional[str]) -> Optional[Dict[str, Any]]:
+        report_dir = _resolve_train_path(path_str)
+        if not report_dir:
+            return None
+        report_path = report_dir / "train_report.json"
+        if not report_path.exists():
+            return None
+        try:
+            return json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _constraints_ok(report: Dict[str, Any]) -> bool:
+        constraints = report.get("constraints", {}) if isinstance(report, dict) else {}
+        metrics = report.get("system_metrics", {}) if isinstance(report, dict) else {}
+        stop_req = float(constraints.get("system_stop_recall", 0.0))
+        none_req = float(constraints.get("fp_none_rate", 1.0))
+        return (
+            float(metrics.get("system_stop_recall", 0.0)) >= stop_req
+            and float(metrics.get("fp_none_rate", 1.0)) <= none_req
+        )
+
+    def _constraints_reason(report: Dict[str, Any]) -> str:
+        constraints = report.get("constraints", {}) if isinstance(report, dict) else {}
+        metrics = report.get("system_metrics", {}) if isinstance(report, dict) else {}
+        stop_req = float(constraints.get("system_stop_recall", 0.0))
+        none_req = float(constraints.get("fp_none_rate", 1.0))
+        stop_val = float(metrics.get("system_stop_recall", 0.0))
+        none_val = float(metrics.get("fp_none_rate", 1.0))
+        parts: List[str] = []
+        if stop_val < stop_req:
+            parts.append(f"system_stop_recall {stop_val:.3f} < {stop_req:.3f}")
+        if none_val > none_req:
+            parts.append(f"fp_none_rate {none_val:.3f} > {none_req:.3f}")
+        return "; ".join(parts)
+
+    def _append_retrain_log(line: str) -> None:
+        with retrain_lock:
+            log = retrain_state.get("log") or []
+            log.append(line)
+            if len(log) > 400:
+                log = log[-400:]
+            retrain_state["log"] = log
+
+    def _summarize_retrain(
+        *,
+        out_path: Optional[str],
+        promoted_to: Optional[str],
+        baseline_path: Optional[str],
+        log_reason: Optional[str],
+    ) -> Dict[str, Any]:
+        summary: Dict[str, Any] = {
+            "promoted": bool(promoted_to),
+            "promoted_to": promoted_to,
+            "bundle_written": out_path,
+            "baseline_bundle": _bundle_name_from_path(baseline_path),
+        }
+        new_report = _load_train_report(promoted_to or out_path)
+        old_report = _load_train_report(baseline_path)
+        if new_report:
+            summary["new_score"] = float(new_report.get("best", {}).get("score", 0.0))
+            summary["constraints_ok"] = _constraints_ok(new_report)
+            summary["new_vectorizer"] = new_report.get("best", {}).get("vectorizer")
+            summary["new_threshold"] = new_report.get("best", {}).get("threshold")
+            summary["new_margin"] = new_report.get("best", {}).get("margin")
+            summary["score_formula"] = new_report.get("score_formula")
+            summary["score_components"] = {
+                "macro_f1_others": new_report.get("system_metrics", {}).get("macro_f1_others"),
+                "recall_box": new_report.get("system_metrics", {}).get("recall_box"),
+                "recall_dance": new_report.get("system_metrics", {}).get("recall_dance"),
+                "fp_none_rate": new_report.get("system_metrics", {}).get("fp_none_rate"),
+                "system_stop_recall": new_report.get("system_metrics", {}).get("system_stop_recall"),
+            }
+            summary["constraints"] = {
+                "system_stop_recall": new_report.get("constraints", {}).get("system_stop_recall"),
+                "fp_none_rate": new_report.get("constraints", {}).get("fp_none_rate"),
+            }
+            summary["search_space"] = new_report.get("search_space", {})
+            data_info = new_report.get("data", {})
+            summary["train_total"] = data_info.get("total")
+            summary["none_ratio"] = data_info.get("none_ratio")
+            summary["train_label_counts"] = data_info.get("train_label_counts")
+            summary["gold_label_counts"] = new_report.get("gold_label_counts")
+            validation_info = new_report.get("validation", {})
+            summary["gold_count"] = validation_info.get("gold_count", data_info.get("gold"))
+            summary["gold_path"] = validation_info.get("gold_path")
+        if old_report:
+            summary["old_score"] = float(old_report.get("best", {}).get("score", 0.0))
+            summary["old_vectorizer"] = old_report.get("best", {}).get("vectorizer")
+            summary["old_threshold"] = old_report.get("best", {}).get("threshold")
+            summary["old_margin"] = old_report.get("best", {}).get("margin")
+        if summary["promoted"]:
+            summary["reason"] = "score >= baseline en constraints OK"
+            return summary
+        reasons: List[str] = []
+        if not new_report:
+            reasons.append("train_report ontbreekt")
+        if not old_report:
+            reasons.append("baseline report ontbreekt")
+        if new_report and old_report:
+            new_score = float(new_report.get("best", {}).get("score", 0.0))
+            old_score = float(old_report.get("best", {}).get("score", 0.0))
+            if new_score < old_score:
+                reasons.append(f"score lager ({new_score:.3f} < {old_score:.3f})")
+            if not _constraints_ok(new_report):
+                details = _constraints_reason(new_report)
+                reasons.append(details or "constraints niet gehaald")
+        if not reasons and log_reason:
+            reasons.append(log_reason)
+        summary["reason"] = "; ".join(reasons) if reasons else "onbekend"
+        return summary
+
+    def _cmdrec_train_python() -> str:
+        candidate = os.path.join(
+            repo_root, "py3_command_recognition_train", "venv", "Scripts", "python.exe"
+        )
+        if os.path.exists(candidate):
+            return candidate
+        return sys.executable
+
+    def _reviewed_count() -> int:
+        reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
+        with al_lock:
+            entries = _load_jsonl(reviewed_path)
+        return len(entries)
+
+    def _review_queue_stale(latest: Optional[str]) -> Tuple[bool, int, int]:
+        queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        entries = _load_jsonl(queue_path)
+        total = len(entries)
+        if not latest or not entries:
+            return False, total, 0
+        stale = 0
+        for entry in entries:
+            bundle = _bundle_name_from_path(entry.get("cmdrec_bundle"))
+            if not bundle or bundle != latest:
+                stale += 1
+        return stale > 0, total, stale
+
+    def _sync_retrain_state(state: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+        latest = _latest_bundle_name()
+        if latest and latest != state.get("last_retrain_bundle"):
+            state["last_retrain_bundle"] = latest
+            state["since_last_retrain"] = 0
+            state["last_retrain_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            _save_retrain_state(state)
+        return state, latest
+
+    def _paginate(entries: List[Dict[str, Any]], offset: int, limit: int) -> Tuple[List[Dict[str, Any]], int]:
+        total = len(entries)
+        if offset < 0:
+            offset = 0
+        if limit <= 0:
+            limit = 20
+        return entries[offset : offset + limit], total
 
     def _al_event(
         sid: str,
@@ -1179,6 +1485,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         resp = send_from_directory("web", "index.html")
         resp.set_cookie("ui_mode", "client", max_age=60 * 60 * 24 * 30, samesite="Lax")
         return resp
+
+    @app.get("/active_learning")
+    def active_learning_ui():
+        return send_from_directory("web", "index.html")
 
     @app.get("/health")
     def health():
@@ -1661,6 +1971,50 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
+    def _continuous_eye_color_for_phase(phase: str) -> str:
+        phase_norm = (phase or "").strip().lower()
+        if phase_norm in ("wake_listening", "idle"):
+            return "#1E4DFF"  # idle/waiting for wake word
+        if phase_norm == "listening":
+            return "#00C853"  # actively listening
+        if phase_norm in ("thinking", "transcribing"):
+            return "#FFA000"  # processing / not listening
+        return "#1E4DFF"
+
+    def _set_continuous_eye_phase(runtime_cfg: JsonLike, state: Dict[str, Any], phase: str) -> None:
+        # Avoid spamming NAO with repeated color updates for the same phase.
+        if state.get("eye_phase") == phase:
+            return
+        now = time.time()
+        last_try = float(state.get("eye_last_try") or 0.0)
+        if (now - last_try) < 0.15:
+            return
+        state["eye_last_try"] = now
+
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return
+
+        color = _continuous_eye_color_for_phase(phase)
+        url = base_url + "/nao/set_eye_color" if mode == "behavior" else base_url + "/set_eye_color"
+        try:
+            requests.post(url, json={"color": color, "duration": 0.2}, timeout=1.2)
+            state["eye_phase"] = phase
+        except Exception:
+            pass
+
+    def _set_continuous_eye_color(runtime_cfg: JsonLike, state: Dict[str, Any], color: str, *, duration: float = 0.2) -> None:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return
+        url = base_url + "/nao/set_eye_color" if mode == "behavior" else base_url + "/set_eye_color"
+        try:
+            requests.post(url, json={"color": color, "duration": float(duration)}, timeout=1.2)
+            state["eye_phase"] = "custom"
+            state["eye_last_try"] = time.time()
+        except Exception:
+            pass
+
     @app.post("/api/continuous_start")
     def api_continuous_start():
         sid = _get_sid()
@@ -1672,7 +2026,15 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         state["stop"] = stop_event
         state["running"] = True
         state["last_error"] = None
-        state["phase"] = "listening"
+        state["eye_phase"] = None
+        state["eye_last_try"] = 0.0
+
+        def _set_phase(phase: str, runtime_cfg_local: Optional[JsonLike] = None) -> None:
+            state["phase"] = phase
+            cfg_local = runtime_cfg_local if runtime_cfg_local is not None else _get_runtime_cfg(sid)
+            _set_continuous_eye_phase(cfg_local, state, phase)
+
+        _set_phase("listening")
 
         def _worker():
             try:
@@ -1683,18 +2045,21 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     wake_timeout_s = _wake_timeout_s(runtime_cfg)
                     wake_words = _wake_words(runtime_cfg)
                     if wake_mode == "always":
-                        state["phase"] = "listening" if state.get("wake_open_once") else "wake_listening"
+                        _set_phase("listening" if state.get("wake_open_once") else "wake_listening", runtime_cfg)
                     elif wake_mode == "timeout":
-                        state["phase"] = "listening" if (time.time() <= float(state.get("wake_open_until", 0.0) or 0.0)) else "wake_listening"
+                        _set_phase(
+                            "listening" if (time.time() <= float(state.get("wake_open_until", 0.0) or 0.0)) else "wake_listening",
+                            runtime_cfg,
+                        )
                     else:
-                        state["phase"] = "listening"
+                        _set_phase("listening", runtime_cfg)
                         state["wake_open_once"] = False
                         state["wake_open_until"] = 0.0
                     try:
                         mic = _make_mic_from_config(merged, mode="continuous")
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        state["phase"] = "idle"
+                        _set_phase("idle", runtime_cfg)
                         time.sleep(1.0)
                         continue
 
@@ -1705,11 +2070,11 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     try:
                         audio = mic.capture_utterance(timeout_s=timeout_s)
                     except TimeoutError:
-                        state["phase"] = "listening"
+                        _set_phase("listening", runtime_cfg)
                         continue
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        state["phase"] = "idle"
+                        _set_phase("idle", runtime_cfg)
                         time.sleep(0.5)
                         continue
 
@@ -1727,7 +2092,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         gate_open = True
 
                     if not gate_open:
-                        state["phase"] = "wake_listening"
+                        _set_phase("wake_listening", runtime_cfg)
                         wake_key = (tuple([_normalize_text(w) for w in wake_words]),)
                         if state.get("wake_stt_key") != wake_key or state.get("wake_stt") is None:
                             try:
@@ -1735,7 +2100,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                                 state["wake_stt_key"] = wake_key
                             except Exception as exc:
                                 state["last_error"] = "wake-stt: " + str(exc)
-                                state["phase"] = "idle"
+                                _set_phase("idle", runtime_cfg)
                                 time.sleep(0.5)
                                 continue
                         try:
@@ -1744,32 +2109,32 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                             state["last_wake_text"] = wake_text
                         except Exception as exc:
                             state["last_error"] = "wake-stt: " + str(exc)
-                            state["phase"] = "idle"
+                            _set_phase("idle", runtime_cfg)
                             continue
                         if not _text_has_wake_word(wake_text, wake_words):
-                            state["phase"] = "wake_listening"
+                            _set_phase("wake_listening", runtime_cfg)
                             continue
                         state["last_error"] = None
                         if wake_mode == "always":
                             state["wake_open_once"] = True
                         else:
                             state["wake_open_until"] = time.time() + float(wake_timeout_s)
-                        state["phase"] = "listening"
+                        _set_phase("listening", runtime_cfg)
                         continue
 
-                    state["phase"] = "transcribing"
+                    _set_phase("transcribing", runtime_cfg)
                     try:
                         res = _get_stt(sid).transcribe(audio)
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        state["phase"] = "idle"
+                        _set_phase("idle", runtime_cfg)
                         continue
 
                     text_in = (res.text or "").strip()
-                    state["phase"] = "thinking"
+                    _set_phase("thinking", runtime_cfg)
                     if not text_in:
                         if wake_mode == "timeout" and float(state.get("wake_open_until", 0.0) or 0.0) < time.time():
-                            state["phase"] = "wake_listening"
+                            _set_phase("wake_listening", runtime_cfg)
                         continue
 
                     try:
@@ -1783,23 +2148,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                             )
                         if wake_mode == "always":
                             state["wake_open_once"] = False
-                            state["phase"] = "wake_listening"
+                            _set_phase("wake_listening", runtime_cfg)
                         elif wake_mode == "timeout":
                             state["wake_open_until"] = time.time() + float(wake_timeout_s)
-                            state["phase"] = "listening"
+                            _set_phase("listening", runtime_cfg)
                         else:
-                            state["phase"] = "listening"
+                            _set_phase("listening", runtime_cfg)
                         state["last_error"] = None
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        state["phase"] = "idle"
+                        _set_phase("idle", runtime_cfg)
                         continue
             finally:
                 state["running"] = False
                 state["wake_open_once"] = False
                 state["wake_open_until"] = 0.0
                 state["last_wake_text"] = ""
-                state["phase"] = "idle"
+                if state.get("phase") != "stopped":
+                    _set_phase("idle")
 
         t = threading.Thread(target=_worker, daemon=True)
         state["thread"] = t
@@ -1810,6 +2176,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def api_continuous_stop():
         sid = _get_sid()
         state = _get_continuous_state(sid)
+        runtime_cfg = _get_runtime_cfg(sid)
         stop_event = state.get("stop")
         if stop_event is not None:
             stop_event.set()
@@ -1817,6 +2184,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         state["wake_open_once"] = False
         state["wake_open_until"] = 0.0
         state["last_wake_text"] = ""
+        state["phase"] = "stopped"
+        _set_continuous_eye_color(runtime_cfg, state, "#D50000", duration=0.25)
         return jsonify({"ok": True, "running": False})
 
     @app.get("/api/continuous_state")
@@ -1830,6 +2199,625 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 "error": state.get("last_error"),
                 "phase": state.get("phase"),
                 "last_wake_text": state.get("last_wake_text", ""),
+            }
+        )
+
+    @app.get("/api/al_retrain_state")
+    def api_al_retrain_state():
+        state = _load_retrain_state()
+        state, latest = _sync_retrain_state(state)
+        stale, total, stale_count = _review_queue_stale(latest)
+        return jsonify(
+            {
+                "ok": True,
+                "state": state,
+                "latest_bundle": latest,
+                "review_queue_stale": stale,
+                "review_queue_count": total,
+                "review_queue_stale_count": stale_count,
+            }
+        )
+
+    def _retrain_status_snapshot() -> Dict[str, Any]:
+        with retrain_lock:
+            return {
+                "running": bool(retrain_state.get("running")),
+                "started_at": retrain_state.get("started_at"),
+                "finished_at": retrain_state.get("finished_at"),
+                "exit_code": retrain_state.get("exit_code"),
+                "last_error": retrain_state.get("last_error"),
+                "summary": retrain_state.get("summary"),
+                "log": list(retrain_state.get("log") or []),
+            }
+
+    def _run_retrain_job() -> None:
+        reviewed_count = _reviewed_count()
+        auto_sample = int(math.floor(0.5 * reviewed_count))
+        cmd = [
+            _cmdrec_train_python(),
+            "tools/retrain_cmdrec.py",
+            "--out",
+            "auto",
+            "--promote-if-better",
+            "--auto-train-sample",
+            str(auto_sample),
+            "--auto-train-queue",
+            "data/al/auto_train_queue.jsonl",
+            "--auto-train-conf-max",
+            "0.75",
+        ]
+        workdir = os.path.join(repo_root, "py3_command_recognition_train")
+        env = os.environ.copy()
+        src_path = os.path.join(repo_root, "py3_command_recognition_train", "src")
+        env["PYTHONPATH"] = src_path + os.pathsep + env.get("PYTHONPATH", "")
+        baseline_path = _latest_bundle_path()
+        promoted_to = None
+        bundle_written = None
+        log_reason = None
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=workdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env,
+            )
+            assert proc.stdout is not None
+            for raw_line in proc.stdout:
+                line = raw_line.rstrip()
+                _append_retrain_log(line)
+                if "Promoted bundle to " in line:
+                    promoted_to = line.split("Promoted bundle to ", 1)[1].strip()
+                elif "Not promoted" in line:
+                    log_reason = line.strip()
+                elif "Bundle written to " in line:
+                    bundle_written = line.split("Bundle written to ", 1)[1].strip()
+            exit_code = proc.wait()
+            summary = _summarize_retrain(
+                out_path=bundle_written,
+                promoted_to=promoted_to,
+                baseline_path=baseline_path,
+                log_reason=log_reason,
+            )
+            with retrain_lock:
+                retrain_state["running"] = False
+                retrain_state["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                retrain_state["exit_code"] = exit_code
+                retrain_state["last_error"] = None if exit_code == 0 else "retrain failed"
+                retrain_state["summary"] = summary
+        except Exception as exc:
+            with retrain_lock:
+                retrain_state["running"] = False
+                retrain_state["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                retrain_state["exit_code"] = -1
+                retrain_state["last_error"] = str(exc)
+                retrain_state["summary"] = None
+
+    @app.get("/api/retrain_status")
+    def api_retrain_status():
+        return jsonify({"ok": True, **_retrain_status_snapshot()})
+
+    @app.post("/api/retrain_start")
+    def api_retrain_start():
+        with retrain_lock:
+            if retrain_state.get("running"):
+                return jsonify({"ok": False, "error": "Retrain loopt al."}), 409
+            retrain_state["running"] = True
+            retrain_state["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            retrain_state["finished_at"] = None
+            retrain_state["exit_code"] = None
+            retrain_state["last_error"] = None
+            retrain_state["summary"] = None
+            retrain_state["log"] = []
+        thread = threading.Thread(target=_run_retrain_job, daemon=True)
+        thread.start()
+        return jsonify({"ok": True})
+
+    @app.get("/api/review_queue")
+    def api_review_queue():
+        try:
+            offset = int(request.args.get("offset", 0))
+            limit = int(request.args.get("limit", 20))
+        except Exception:
+            offset, limit = 0, 20
+        sort_mode = (request.args.get("sort") or "").strip().lower()
+        queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        entries = _load_jsonl(queue_path)
+        if sort_mode in ("confidence", "confidence_asc", "conf"):
+            def _conf_value(entry: Dict[str, Any]) -> Optional[float]:
+                conf = entry.get("confidence")
+                if conf is not None:
+                    try:
+                        return float(conf)
+                    except Exception:
+                        return None
+                top3 = entry.get("top3")
+                if isinstance(top3, list) and top3:
+                    try:
+                        return float(top3[0][1])
+                    except Exception:
+                        return None
+                return None
+
+            def _conf_key(entry: Dict[str, Any]) -> Tuple[int, float]:
+                conf_val = _conf_value(entry)
+                if conf_val is None:
+                    return (1, 0.0)
+                return (0, conf_val)
+            entries = sorted(entries, key=_conf_key)
+        elif sort_mode in ("oldest", "asc"):
+            pass
+        else:
+            entries = list(reversed(entries))
+        page, total = _paginate(entries, offset, limit)
+        return jsonify({"ok": True, "items": page, "total": total, "offset": offset, "limit": limit})
+
+    @app.get("/api/reviewed")
+    def api_reviewed():
+        try:
+            offset = int(request.args.get("offset", 0))
+            limit = int(request.args.get("limit", 20))
+        except Exception:
+            offset, limit = 0, 20
+        reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
+        entries = _load_jsonl(reviewed_path)
+        entries = list(reversed(entries))
+        page, total = _paginate(entries, offset, limit)
+        return jsonify({"ok": True, "items": page, "total": total, "offset": offset, "limit": limit})
+
+    def _sort_al_entries(entries: List[Dict[str, Any]], sort_mode: str) -> List[Dict[str, Any]]:
+        if sort_mode in ("confidence", "confidence_asc", "conf"):
+            def _conf_value(entry: Dict[str, Any]) -> Optional[float]:
+                conf = entry.get("confidence")
+                if conf is not None:
+                    try:
+                        return float(conf)
+                    except Exception:
+                        return None
+                top3 = entry.get("top3")
+                if isinstance(top3, list) and top3:
+                    try:
+                        return float(top3[0][1])
+                    except Exception:
+                        return None
+                return None
+
+            def _conf_key(entry: Dict[str, Any]) -> Tuple[int, float]:
+                conf_val = _conf_value(entry)
+                if conf_val is None:
+                    return (1, 0.0)
+                return (0, conf_val)
+
+            return sorted(entries, key=_conf_key)
+        if sort_mode in ("oldest", "asc"):
+            return entries
+        return list(reversed(entries))
+
+    @app.get("/api/auto_train")
+    def api_auto_train():
+        try:
+            offset = int(request.args.get("offset", 0))
+            limit = int(request.args.get("limit", 20))
+        except Exception:
+            offset, limit = 0, 20
+        sort_mode = (request.args.get("sort") or "").strip().lower()
+        auto_path = os.path.join(al_dir, "auto_train.jsonl")
+        entries = _load_jsonl(auto_path)
+        entries = _sort_al_entries(entries, sort_mode)
+        page, total = _paginate(entries, offset, limit)
+        return jsonify({"ok": True, "items": page, "total": total, "offset": offset, "limit": limit})
+
+    @app.get("/api/auto_train_queue")
+    def api_auto_train_queue():
+        try:
+            offset = int(request.args.get("offset", 0))
+            limit = int(request.args.get("limit", 20))
+        except Exception:
+            offset, limit = 0, 20
+        sort_mode = (request.args.get("sort") or "").strip().lower()
+        auto_path = os.path.join(al_dir, "auto_train_queue.jsonl")
+        entries = _load_jsonl(auto_path)
+        entries = _sort_al_entries(entries, sort_mode)
+        page, total = _paginate(entries, offset, limit)
+        return jsonify({"ok": True, "items": page, "total": total, "offset": offset, "limit": limit})
+
+    @app.post("/api/review_requeue")
+    def api_review_requeue():
+        payload = request.get_json(force=True, silent=True) or {}
+        source = (payload.get("source") or "").strip().lower()
+        entry_id = str(payload.get("id") or "").strip()
+        text = (payload.get("text") or "").strip()
+        label = (payload.get("label") or "").strip().upper()
+        if source not in {"reviewed", "auto_train", "auto_train_queue"}:
+            return jsonify({"ok": False, "error": "Invalid source."}), 400
+        if not entry_id and not text:
+            return jsonify({"ok": False, "error": "id/text ontbreekt."}), 400
+        source_path = os.path.join(al_dir, f"{source}.jsonl")
+        queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        sid = _get_sid()
+        pipeline = _get_pipeline(sid)
+        _, cmdrec, _ = _pipeline_props(pipeline)
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with al_lock:
+            source_entries = _load_jsonl(source_path)
+            base_entry = None
+            if entry_id:
+                for entry in source_entries:
+                    if str(entry.get("id") or "") == entry_id:
+                        base_entry = entry
+                        break
+            if base_entry is None and text:
+                key = _normalize_key(text)
+                for entry in source_entries:
+                    if _normalize_key(entry.get("text", "")) == key:
+                        base_entry = entry
+                        break
+            if base_entry is None:
+                return jsonify({"ok": False, "error": "Item niet gevonden."}), 404
+
+            text = (text or base_entry.get("text") or "").strip()
+            if not text:
+                return jsonify({"ok": False, "error": "Text ontbreekt."}), 400
+
+            suggested = (
+                label
+                or base_entry.get("label")
+                or base_entry.get("suggested_label")
+                or base_entry.get("predicted_label")
+                or "NONE"
+            )
+            suggested = str(suggested).strip().upper() or "NONE"
+
+            queue_entries = _load_jsonl(queue_path)
+            queue_keys = {_normalize_key(entry.get("text", "")) for entry in queue_entries}
+            key = _normalize_key(text)
+
+            # Remove from source
+            pruned = [
+                entry
+                for entry in source_entries
+                if _normalize_key(entry.get("text", "")) != key
+            ]
+            _write_jsonl(pruned, source_path)
+
+            if key in queue_keys:
+                return jsonify({"ok": True, "added": False, "note": "bestond al in review_queue"})
+
+            predicted_label = base_entry.get("predicted_label") or suggested
+            confidence = base_entry.get("confidence")
+            top3 = base_entry.get("top3")
+            cmdrec_bundle = base_entry.get("cmdrec_bundle")
+            if cmdrec is not None:
+                decision = cmdrec.route(text, "DIALOG", None)
+                if decision.is_command and decision.command:
+                    predicted_label = decision.command.label
+                    confidence = decision.command.confidence
+                else:
+                    if decision.top3:
+                        try:
+                            confidence = float(decision.top3[0][1])
+                        except Exception:
+                            confidence = None
+                top3 = decision.top3
+                if getattr(cmdrec, "bundle_path", None):
+                    cmdrec_bundle = str(cmdrec.bundle_path)
+
+            review_entry = _al_event(
+                sid,
+                text,
+                suggested_label=suggested,
+                predicted_label=predicted_label,
+                confidence=confidence,
+                reason="manual_requeue",
+                top3=top3,
+                cmdrec_bundle=cmdrec_bundle,
+                stt_used=base_entry.get("stt_used"),
+                stt_edited=base_entry.get("stt_edited"),
+            )
+            review_entry["requeued_from"] = source
+            review_entry["requeued_at"] = now
+            queue_entries.append(review_entry)
+            _write_jsonl(queue_entries, queue_path)
+        return jsonify({"ok": True, "added": True})
+
+    @app.post("/api/al_review")
+    def api_al_review():
+        payload = request.get_json(force=True, silent=True) or {}
+        text = (payload.get("text") or "").strip()
+        label = (payload.get("label") or "").strip().upper()
+        if not text or not label:
+            return jsonify({"ok": False, "error": "text/label ontbreekt."}), 400
+
+        gold_candidate = bool(payload.get("gold_candidate", False))
+        notes = (payload.get("notes") or "").strip()
+        suggested = (payload.get("suggested_label") or label or "NONE").strip().upper()
+        stt_used = payload.get("stt_used")
+        stt_edited = payload.get("stt_edited")
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        entry_id = uuid.uuid4().hex
+        record = {
+            "id": entry_id,
+            "text": text,
+            "suggested_label": suggested,
+            "confidence": payload.get("confidence"),
+            "reason": payload.get("reason") or "ui_review",
+            "stt_used": stt_used,
+            "stt_edited": stt_edited,
+            "reviewed_label": label,
+            "keep": 1,
+            "gold_candidate": 1 if gold_candidate else 0,
+            "notes": notes,
+            "timestamp": now,
+            "reviewed_at": now,
+        }
+
+        reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
+        review_log_path = os.path.join(al_dir, "review_log.jsonl")
+        gold_candidates_path = os.path.join(al_dir, "gold_candidates.jsonl")
+        queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        auto_train_path = os.path.join(al_dir, "auto_train.jsonl")
+
+        with al_lock:
+            reviewed_entries = _load_jsonl(reviewed_path)
+            reviewed_keys = {_normalize_key(entry.get("text", "")) for entry in reviewed_entries}
+            key = _normalize_key(text)
+            added_reviewed = False
+            if key and key not in reviewed_keys:
+                reviewed_entries.append({"text": text, "label": label, "source": "ui_review"})
+                _write_jsonl(reviewed_entries, reviewed_path)
+                added_reviewed = True
+
+            _al_append("review_log.jsonl", record)
+
+            if os.path.exists(auto_train_path):
+                auto_entries = _load_jsonl(auto_train_path)
+                auto_entries = [entry for entry in auto_entries if _normalize_key(entry.get("text", "")) != key]
+                _write_jsonl(auto_entries, auto_train_path)
+
+            if gold_candidate:
+                gold_entries = _load_jsonl(gold_candidates_path)
+                gold_keys = {_normalize_key(entry.get("text", "")) for entry in gold_entries}
+                if key and key not in gold_keys:
+                    gold_entries.append({"text": text, "label": label, "source": "al_gold_candidate"})
+                    _write_jsonl(gold_entries, gold_candidates_path)
+
+            if os.path.exists(queue_path):
+                queue_entries = _load_jsonl(queue_path)
+                pruned = [entry for entry in queue_entries if _normalize_key(entry.get("text", "")) != key]
+                _write_jsonl(pruned, queue_path)
+
+        state = _load_retrain_state()
+        state, latest = _sync_retrain_state(state)
+        if added_reviewed:
+            state["since_last_retrain"] = int(state.get("since_last_retrain", 0)) + 1
+            _save_retrain_state(state)
+
+        return jsonify({"ok": True, "added": added_reviewed, "state": state, "latest_bundle": latest})
+
+    @app.post("/api/review_apply")
+    def api_review_apply():
+        payload = request.get_json(force=True, silent=True) or {}
+        rid = str(payload.get("id") or "").strip()
+        text = (payload.get("text") or "").strip()
+        keep = bool(payload.get("keep", True))
+        reviewed_label = (payload.get("reviewed_label") or "").strip().upper()
+        gold_candidate = bool(payload.get("gold_candidate", False))
+        notes = (payload.get("notes") or "").strip()
+
+        if keep and not reviewed_label:
+            return jsonify({"ok": False, "error": "reviewed_label ontbreekt."}), 400
+
+        queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        review_log_path = os.path.join(al_dir, "review_log.jsonl")
+        reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
+        gold_candidates_path = os.path.join(al_dir, "gold_candidates.jsonl")
+        auto_train_path = os.path.join(al_dir, "auto_train.jsonl")
+
+        with al_lock:
+            queue_entries = _load_jsonl(queue_path)
+            base_entry = None
+            if rid:
+                for entry in queue_entries:
+                    if str(entry.get("id") or "") == rid:
+                        base_entry = entry
+                        break
+            if base_entry is None and text:
+                key = _normalize_key(text)
+                for entry in queue_entries:
+                    if _normalize_key(entry.get("text", "")) == key:
+                        base_entry = entry
+                        break
+            if base_entry is None:
+                return jsonify({"ok": False, "error": "Item niet gevonden in queue."}), 404
+
+            text = (text or base_entry.get("text") or "").strip()
+            suggested = (base_entry.get("suggested_label") or base_entry.get("predicted_label") or "NONE").strip().upper()
+            record = {
+                "id": base_entry.get("id") or uuid.uuid4().hex,
+                "text": text,
+                "suggested_label": suggested,
+                "confidence": base_entry.get("confidence"),
+                "reason": base_entry.get("reason") or "ui_review",
+                "stt_used": base_entry.get("stt_used"),
+                "stt_edited": base_entry.get("stt_edited"),
+                "reviewed_label": reviewed_label or suggested,
+                "keep": 1 if keep else 0,
+                "gold_candidate": 1 if gold_candidate else 0,
+                "notes": notes,
+                "timestamp": base_entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "reviewed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            _al_append("review_log.jsonl", record)
+
+            added_reviewed = False
+            if keep:
+                reviewed_entries = _load_jsonl(reviewed_path)
+                reviewed_keys = {_normalize_key(entry.get("text", "")) for entry in reviewed_entries}
+                key = _normalize_key(text)
+                if key and key not in reviewed_keys:
+                    reviewed_entries.append({"text": text, "label": reviewed_label, "source": "al_reviewed"})
+                    _write_jsonl(reviewed_entries, reviewed_path)
+                    added_reviewed = True
+
+                if os.path.exists(auto_train_path):
+                    auto_entries = _load_jsonl(auto_train_path)
+                    auto_entries = [entry for entry in auto_entries if _normalize_key(entry.get("text", "")) != key]
+                    _write_jsonl(auto_entries, auto_train_path)
+
+                if gold_candidate:
+                    gold_entries = _load_jsonl(gold_candidates_path)
+                    gold_keys = {_normalize_key(entry.get("text", "")) for entry in gold_entries}
+                    if key and key not in gold_keys:
+                        gold_entries.append({"text": text, "label": reviewed_label, "source": "al_gold_candidate"})
+                        _write_jsonl(gold_entries, gold_candidates_path)
+
+            # Remove from queue (prefer id match, fallback to normalized text)
+            base_id = str(base_entry.get("id") or "")
+            base_key = _normalize_key(base_entry.get("text", ""))
+            if base_id:
+                pruned = [entry for entry in queue_entries if str(entry.get("id") or "") != base_id]
+            else:
+                pruned = [entry for entry in queue_entries if _normalize_key(entry.get("text", "")) != base_key]
+            _write_jsonl(pruned, queue_path)
+
+        state = _load_retrain_state()
+        state, latest = _sync_retrain_state(state)
+        if added_reviewed:
+            state["since_last_retrain"] = int(state.get("since_last_retrain", 0)) + 1
+            _save_retrain_state(state)
+
+        return jsonify({"ok": True, "added": added_reviewed, "state": state, "latest_bundle": latest})
+
+    @app.post("/api/review_queue_rescore")
+    def api_review_queue_rescore():
+        sid = _get_sid()
+        pipeline = _get_pipeline(sid)
+        _, cmdrec, _ = _pipeline_props(pipeline)
+        if cmdrec is None:
+            return jsonify({"ok": False, "error": "CmdRec niet beschikbaar."}), 400
+        queue_path = os.path.join(al_dir, "review_queue.jsonl")
+        auto_path = os.path.join(al_dir, "auto_train.jsonl")
+        auto_queue_path = os.path.join(al_dir, "auto_train_queue.jsonl")
+        latest = _latest_bundle_name()
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        updated = 0
+        auto_updated = 0
+        auto_queue_updated = 0
+        with al_lock:
+            entries = _load_jsonl(queue_path)
+            for entry in entries:
+                text = (entry.get("text") or "").strip()
+                if not text:
+                    continue
+                decision = cmdrec.route(text, "DIALOG", None)
+                predicted_label = "NONE"
+                confidence = None
+                if decision.is_command and decision.command:
+                    predicted_label = decision.command.label
+                    confidence = decision.command.confidence
+                else:
+                    if decision.top3:
+                        try:
+                            confidence = float(decision.top3[0][1])
+                        except Exception:
+                            confidence = None
+                entry["predicted_label"] = predicted_label
+                entry["confidence"] = confidence
+                entry["top3"] = decision.top3
+                if getattr(cmdrec, "bundle_path", None):
+                    entry["cmdrec_bundle"] = str(cmdrec.bundle_path)
+                if latest:
+                    entry["rescored_bundle"] = latest
+                entry["rescored_at"] = now
+                updated += 1
+            auto_entries = _load_jsonl(auto_path)
+            for entry in auto_entries:
+                text = (entry.get("text") or "").strip()
+                if not text:
+                    continue
+                decision = cmdrec.route(text, "DIALOG", None)
+                predicted_label = "NONE"
+                confidence = None
+                if decision.is_command and decision.command:
+                    predicted_label = decision.command.label
+                    confidence = decision.command.confidence
+                else:
+                    if decision.top3:
+                        try:
+                            confidence = float(decision.top3[0][1])
+                        except Exception:
+                            confidence = None
+                entry["predicted_label"] = predicted_label
+                entry["confidence"] = confidence
+                entry["top3"] = decision.top3
+                if getattr(cmdrec, "bundle_path", None):
+                    entry["cmdrec_bundle"] = str(cmdrec.bundle_path)
+                if latest:
+                    entry["rescored_bundle"] = latest
+                entry["rescored_at"] = now
+                auto_updated += 1
+            if auto_entries:
+                _write_jsonl(auto_entries, auto_path)
+            auto_queue_entries = _load_jsonl(auto_queue_path)
+            for entry in auto_queue_entries:
+                text = (entry.get("text") or "").strip()
+                if not text:
+                    continue
+                decision = cmdrec.route(text, "DIALOG", None)
+                predicted_label = "NONE"
+                confidence = None
+                if decision.is_command and decision.command:
+                    predicted_label = decision.command.label
+                    confidence = decision.command.confidence
+                else:
+                    if decision.top3:
+                        try:
+                            confidence = float(decision.top3[0][1])
+                        except Exception:
+                            confidence = None
+                entry["predicted_label"] = predicted_label
+                entry["confidence"] = confidence
+                entry["top3"] = decision.top3
+                if getattr(cmdrec, "bundle_path", None):
+                    entry["cmdrec_bundle"] = str(cmdrec.bundle_path)
+                if latest:
+                    entry["rescored_bundle"] = latest
+                entry["rescored_at"] = now
+                auto_queue_updated += 1
+            if auto_queue_entries:
+                _write_jsonl(auto_queue_entries, auto_queue_path)
+            # Deduplicate by text (keep lowest confidence; tie => newest timestamp)
+            best: Dict[str, Tuple[float, str, int, Dict[str, Any]]] = {}
+            for idx, entry in enumerate(entries):
+                key = _normalize_key(entry.get("text", ""))
+                if not key:
+                    continue
+                conf_raw = entry.get("confidence")
+                try:
+                    conf_val = float(conf_raw) if conf_raw is not None else 1e9
+                except Exception:
+                    conf_val = 1e9
+                ts = str(entry.get("timestamp") or "")
+                if key not in best:
+                    best[key] = (conf_val, ts, idx, entry)
+                    continue
+                prev_conf, prev_ts, prev_idx, _ = best[key]
+                if conf_val < prev_conf or (conf_val == prev_conf and ts > prev_ts):
+                    best[key] = (conf_val, ts, idx, entry)
+            deduped = [item[3] for item in sorted(best.values(), key=lambda item: item[2])]
+            _write_jsonl(deduped, queue_path)
+        return jsonify(
+            {
+                "ok": True,
+                "updated": updated,
+                "auto_updated": auto_updated,
+                "auto_queue_updated": auto_queue_updated,
+                "total": len(entries),
+                "deduped": len(deduped),
+                "latest_bundle": latest,
             }
         )
 
@@ -1865,7 +2853,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 summary += " (geen behavior uitgevoerd)"
             _append_assistant(history, summary)
             _al_append(
-                "auto_train.jsonl",
+                "auto_train_queue.jsonl",
                 _al_event(
                     sid,
                     str(pending.get("input_text") or cmd.raw_text or ""),
@@ -2283,6 +3271,34 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         return jsonify({"ok": True, "speed": (data.get("data") or {}).get("speed", speed)})
 
+    @app.post("/api/nao_set_eye_color")
+    def api_nao_set_eye_color():
+        payload = request.get_json(force=True, silent=True) or {}
+        color = (payload.get("color") or "").strip()
+        duration = payload.get("duration", None)
+        if not color:
+            return jsonify({"ok": False, "error": "Missing 'color'."}), 400
+        try:
+            duration_f = float(duration) if duration is not None else 0.5
+        except Exception:
+            duration_f = 0.5
+
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO audio endpoint ontbreekt."}), 400
+
+        try:
+            url = base_url + "/nao/set_eye_color" if mode == "behavior" else base_url + "/set_eye_color"
+            resp = requests.post(url, json={"color": color, "duration": duration_f}, timeout=3.0)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+            return jsonify({"ok": False, "error": data.get("error") or "set_eye_color failed"}), 400
+        return jsonify({"ok": True})
+
     @app.get("/api/nao_autonomous_life_state")
     def api_nao_autonomous_life_state():
         runtime_cfg = _get_runtime_cfg(_get_sid())
@@ -2328,6 +3344,22 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 behavior = _command_behavior_preview(label, cmdrec, behavior_executor)
                 commands.append({"label": label, "behavior": behavior})
             return jsonify({"ok": True, "commands": commands})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+    @app.get("/api/cmdrec_labels")
+    def api_cmdrec_labels():
+        sid = _get_sid()
+        pipeline = _get_pipeline(sid)
+        _, cmdrec, _ = _pipeline_props(pipeline)
+        if cmdrec is None:
+            return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
+        try:
+            labels = cmdrec.get_labels() or []
+            labels = sorted({str(label).strip().upper() for label in labels if label})
+            if "NONE" not in labels:
+                labels.insert(0, "NONE")
+            return jsonify({"ok": True, "labels": labels})
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 500
 

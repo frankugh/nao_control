@@ -73,6 +73,7 @@ def main() -> None:
     parser.add_argument("--auto-train-conf-min", type=float, default=None)
     parser.add_argument("--auto-train-conf-max", type=float, default=0.75)
     parser.add_argument("--auto-retrain-state", type=Path, default=Path("data/al/retrain_state.json"))
+    parser.add_argument("--keep-review-file", action="store_true", default=False)
     args = parser.parse_args()
 
     queue_entries = {entry_id(item): item for item in load_jsonl(args.queue)}
@@ -171,30 +172,35 @@ def main() -> None:
     print(f"Added {len(new_reviewed)} to {args.reviewed_out}")
     print(f"Added {len(new_gold)} to {args.gold_candidates}")
 
-    if args.auto_retrain:
-        state = load_state(args.auto_retrain_state)
-        since_last = int(state.get("since_last_retrain", 0))
-        since_last += len(new_log)
-        state["since_last_retrain"] = since_last
-        save_state(args.auto_retrain_state, state)
+    if not args.keep_review_file and args.review.exists():
+        try:
+            args.review.unlink()
+        except OSError:
+            pass
 
-        if since_last >= args.auto_retrain_threshold:
-            cmd = [
-                sys.executable,
-                "tools/retrain_cmdrec.py",
-                "--out",
-                "auto",
-                "--promote-if-better",
-                "--auto-train-sample",
-                str(args.auto_train_sample),
-            ]
-            if args.auto_train_conf_min is not None:
-                cmd.extend(["--auto-train-conf-min", str(args.auto_train_conf_min)])
-            if args.auto_train_conf_max is not None:
-                cmd.extend(["--auto-train-conf-max", str(args.auto_train_conf_max)])
-            subprocess.run(cmd, check=True)
-            state["since_last_retrain"] = 0
-            save_state(args.auto_retrain_state, state)
+    state = load_state(args.auto_retrain_state)
+    since_last = int(state.get("since_last_retrain", 0))
+    since_last += len(new_log)
+    state["since_last_retrain"] = since_last
+    save_state(args.auto_retrain_state, state)
+
+    if args.auto_retrain and since_last >= args.auto_retrain_threshold:
+        cmd = [
+            sys.executable,
+            "tools/retrain_cmdrec.py",
+            "--out",
+            "auto",
+            "--promote-if-better",
+            "--auto-train-sample",
+            str(args.auto_train_sample),
+        ]
+        if args.auto_train_conf_min is not None:
+            cmd.extend(["--auto-train-conf-min", str(args.auto_train_conf_min)])
+        if args.auto_train_conf_max is not None:
+            cmd.extend(["--auto-train-conf-max", str(args.auto_train_conf_max)])
+        subprocess.run(cmd, check=True)
+        state["since_last_retrain"] = 0
+        save_state(args.auto_retrain_state, state)
 
 
 if __name__ == "__main__":

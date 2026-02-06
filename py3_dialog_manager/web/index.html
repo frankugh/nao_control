@@ -12,6 +12,21 @@
       .layout { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 14px; min-height: calc(100vh - 90px); }
       @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
       @media (max-width: 900px) { .chatcard { height: calc(100vh - 140px); } }
+      body.al-only .layout { grid-template-columns: 1fr; }
+      body.al-only .chatcard { display: none; }
+      body.al-only #flowHint { display: none; }
+      body.al-only #tabPrompt,
+      body.al-only #tabRuntime,
+      body.al-only #tabCommands,
+      body.al-only #tabLogs { display: none; }
+      body:not(.al-mode) #tabReview,
+      body:not(.al-mode) #tabRetrain,
+      body:not(.al-mode) #tab-review,
+      body:not(.al-mode) #tab-retrain { display: none; }
+      body.al-mode #navToActiveLearning { display: none; }
+      body:not(.al-mode) #navToMain { display: none; }
+      .app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .app-header h2 { margin: 0; }
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       button { padding: 10px 14px; font-size: 16px; }
@@ -79,11 +94,26 @@
       .behavior-item.selected { background: #111; color: #fff; }
       .behavior-folder { margin: 6px 0; }
       .behavior-folder > summary { cursor: pointer; }
+      .review-menu { position: fixed; z-index: 9999; background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); width: 220px; }
+      .review-menu.hidden { display: none; }
+      .review-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+      .review-list { display: flex; flex-direction: column; gap: 8px; }
+      .review-item { border: 1px solid #e6e6e6; border-radius: 10px; padding: 10px; background: #fff; }
+      .review-text { white-space: pre-wrap; margin-bottom: 6px; }
+      .review-meta { font-size: 12px; color: #666; margin-bottom: 6px; }
+      .review-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .review-actions select, .review-actions input[type="text"] { padding: 6px; font-size: 14px; }
+      .review-actions button { padding: 6px 10px; font-size: 13px; }
+      .review-empty { font-size: 12px; color: #666; padding: 6px 0; }
     </style>
   </head>
   <body>
-    <h2>NAO Studio</h2>
-    <div class="small">
+    <div class="app-header">
+      <h2 id="appTitle">NAO Studio</h2>
+      <a id="navToActiveLearning" class="small" href="/active_learning">Active learning</a>
+      <a id="navToMain" class="small" href="/">Terug naar NAO Studio</a>
+    </div>
+    <div class="small" id="flowHint">
       Flow: <span class="pill">record</span> → <span class="pill">stop</span> (STT) → <span class="pill">edit</span> → <span class="pill">send</span> (LLM+output)
     </div>
 
@@ -117,6 +147,8 @@
           <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
           <button id="tabRuntime" class="tab" type="button">Runtime config</button>
           <button id="tabCommands" class="tab" type="button">Commands</button>
+          <button id="tabReview" class="tab" type="button">Data review</button>
+          <button id="tabRetrain" class="tab" type="button">Model trainen</button>
           <button id="tabLogs" class="tab" type="button">Logs</button>
         </div>
         <div id="tab-prompt" class="tabpane">
@@ -140,6 +172,7 @@
         <div id="tab-commands" class="tabpane hidden">
           <div>
             <label>Commands (zonder locomotion)</label>
+            <div id="reviewCounter" class="small" style="margin-bottom:6px"></div>
             <select id="cmdList" size="10" style="width:100%"></select>
             <div class="row" style="margin-top:8px">
               <label style="margin:0">Dance</label>
@@ -160,6 +193,89 @@
               <span id="behaviorStatus" class="small"></span>
             </div>
           </div>
+          <div style="margin-top:12px">
+            <label>NAO ogen</label>
+            <div class="row" style="margin-top:6px">
+              <input id="eyeColor" type="color" value="#1E4DFF" />
+              <input id="eyeColorDuration" type="number" step="0.1" min="0" placeholder="fade (s)" style="max-width:120px" />
+              <button id="btnSetEyeColor" type="button">Set</button>
+              <span id="eyeColorStatus" class="small"></span>
+            </div>
+          </div>
+        </div>
+        <div id="tab-review" class="tabpane hidden">
+          <div class="small" style="margin-bottom:6px">Controleer STT→command voorbeelden. Sla op als correct, label opnieuw of verwijder.</div>
+          <div class="row subtabbar" style="margin-bottom:8px">
+            <button id="reviewTabQueue" class="subtab active" type="button">Review queue</button>
+            <button id="reviewTabReviewed" class="subtab" type="button">Reviewed</button>
+            <button id="reviewTabAutoQueue" class="subtab" type="button">Auto-train queue</button>
+            <button id="reviewTabAuto" class="subtab" type="button">Auto-train (committed)</button>
+          </div>
+          <div id="reviewCounterReview" class="small" style="margin-bottom:8px"></div>
+          <div id="reviewQueuePane" class="subtabpane">
+            <div class="review-toolbar">
+              <button id="btnReviewQueueRefresh" type="button">Verversen</button>
+              <button id="btnReviewQueuePrev" type="button">Vorige</button>
+              <button id="btnReviewQueueNext" type="button">Volgende</button>
+              <label class="small" style="margin-left:auto">Sortering</label>
+              <select id="reviewQueueSort">
+                <option value="confidence">Confidence (laag eerst)</option>
+                <option value="newest">Nieuwst eerst</option>
+                <option value="oldest">Oudst eerst</option>
+              </select>
+              <span id="reviewQueueStatus" class="small"></span>
+            </div>
+            <div id="reviewQueueList" class="review-list"></div>
+          </div>
+          <div id="reviewReviewedPane" class="subtabpane hidden">
+            <div class="review-toolbar">
+              <button id="btnReviewReviewedRefresh" type="button">Verversen</button>
+              <button id="btnReviewReviewedPrev" type="button">Vorige</button>
+              <button id="btnReviewReviewedNext" type="button">Volgende</button>
+              <span id="reviewReviewedStatus" class="small"></span>
+            </div>
+            <div id="reviewReviewedList" class="review-list"></div>
+          </div>
+          <div id="reviewAutoQueuePane" class="subtabpane hidden">
+            <div class="review-toolbar">
+              <button id="btnReviewAutoQueueRefresh" type="button">Verversen</button>
+              <button id="btnReviewAutoQueuePrev" type="button">Vorige</button>
+              <button id="btnReviewAutoQueueNext" type="button">Volgende</button>
+              <label class="small" style="margin-left:auto">Sortering</label>
+              <select id="reviewAutoQueueSort">
+                <option value="confidence">Confidence (laag eerst)</option>
+                <option value="newest">Nieuwst eerst</option>
+                <option value="oldest">Oudst eerst</option>
+              </select>
+              <span id="reviewAutoQueueStatus" class="small"></span>
+            </div>
+            <div id="reviewAutoQueueList" class="review-list"></div>
+          </div>
+          <div id="reviewAutoPane" class="subtabpane hidden">
+            <div class="review-toolbar">
+              <button id="btnReviewAutoRefresh" type="button">Verversen</button>
+              <button id="btnReviewAutoPrev" type="button">Vorige</button>
+              <button id="btnReviewAutoNext" type="button">Volgende</button>
+              <label class="small" style="margin-left:auto">Sortering</label>
+              <select id="reviewAutoSort">
+                <option value="confidence">Confidence (laag eerst)</option>
+                <option value="newest">Nieuwst eerst</option>
+                <option value="oldest">Oudst eerst</option>
+              </select>
+              <span id="reviewAutoStatus" class="small"></span>
+            </div>
+            <div id="reviewAutoList" class="review-list"></div>
+          </div>
+        </div>
+        <div id="tab-retrain" class="tabpane hidden">
+          <div class="small" style="margin-bottom:6px">Train een nieuw command-model op basis van reviewed + auto-train data.</div>
+          <div class="small" id="retrainSummary" style="margin-bottom:8px; white-space: pre-wrap;"></div>
+          <div class="row" style="margin-bottom:8px">
+            <button id="btnRetrainStart" type="button">Train nieuw model</button>
+            <span id="retrainStatus" class="small"></span>
+          </div>
+          <div class="small" style="margin-bottom:6px">Output (laatste run)</div>
+          <pre id="retrainLog" class="debug" style="height:320px; overflow:auto;"></pre>
         </div>
                 <div id="tab-runtime" class="tabpane hidden">
           <div class="row subtabbar" style="margin-bottom:8px">
@@ -179,6 +295,9 @@
                 <label class="enable-row"><span>enable:</span><input id="cfgNaoIpEnabled" type="checkbox" /></label>
                 <div class="health">
                   <span id="healthNao" class="pill">nao: onbekend</span>
+                </div>
+                <div class="row" style="margin-top:8px">
+                  <button id="btnRefreshAll" type="button">Verversen & autostart</button>
                 </div>
               </div>
               <div>
@@ -353,6 +472,17 @@
       </div>
     </div>
 
+    <div id="reviewMenu" class="review-menu hidden">
+      <div class="small">Label tekst als:</div>
+      <select id="reviewLabel"></select>
+      <label class="enable-row" style="margin-top:6px"><span>Gold-kandidaat</span><input id="reviewGoldCandidate" type="checkbox" /></label>
+      <div class="row" style="margin-top:8px">
+        <button id="reviewSave" type="button">Opslaan</button>
+        <button id="reviewCancel" type="button">Annuleer</button>
+      </div>
+      <div id="reviewStatus" class="small" style="margin-top:6px"></div>
+    </div>
+
     <script>
       const btnRec = document.getElementById('btnRec');
       const btnSend = document.getElementById('btnSend');
@@ -366,13 +496,20 @@
       const listenModeNote = document.getElementById('listenModeNote');
       const cfgPttUseVad = document.getElementById('cfgPttUseVad');
       const vadSection = document.getElementById('vadSection');
+      const appTitle = document.getElementById('appTitle');
+      const navToActiveLearning = document.getElementById('navToActiveLearning');
+      const navToMain = document.getElementById('navToMain');
       const tabPrompt = document.getElementById('tabPrompt');
       const tabRuntime = document.getElementById('tabRuntime');
       const tabCommands = document.getElementById('tabCommands');
+      const tabReview = document.getElementById('tabReview');
+      const tabRetrain = document.getElementById('tabRetrain');
       const tabLogs = document.getElementById('tabLogs');
       const tabPromptPane = document.getElementById('tab-prompt');
       const tabRuntimePane = document.getElementById('tab-runtime');
       const tabCommandsPane = document.getElementById('tab-commands');
+      const tabReviewPane = document.getElementById('tab-review');
+      const tabRetrainPane = document.getElementById('tab-retrain');
       const tabLogsPane = document.getElementById('tab-logs');
       const cfgTabNao = document.getElementById('cfgTabNao');
       const cfgTabAudio = document.getElementById('cfgTabAudio');
@@ -380,6 +517,42 @@
       const cfgTabNaoPane = document.getElementById('cfgTabNaoPane');
       const cfgTabAudioPane = document.getElementById('cfgTabAudioPane');
       const cfgTabReasoningPane = document.getElementById('cfgTabReasoningPane');
+      const reviewTabQueue = document.getElementById('reviewTabQueue');
+      const reviewTabReviewed = document.getElementById('reviewTabReviewed');
+      const reviewTabAutoQueue = document.getElementById('reviewTabAutoQueue');
+      const reviewTabAuto = document.getElementById('reviewTabAuto');
+      const reviewQueuePane = document.getElementById('reviewQueuePane');
+      const reviewReviewedPane = document.getElementById('reviewReviewedPane');
+      const reviewAutoQueuePane = document.getElementById('reviewAutoQueuePane');
+      const reviewAutoPane = document.getElementById('reviewAutoPane');
+      const reviewQueueList = document.getElementById('reviewQueueList');
+      const reviewReviewedList = document.getElementById('reviewReviewedList');
+      const reviewAutoQueueList = document.getElementById('reviewAutoQueueList');
+      const reviewAutoList = document.getElementById('reviewAutoList');
+      const reviewQueueStatus = document.getElementById('reviewQueueStatus');
+      const reviewReviewedStatus = document.getElementById('reviewReviewedStatus');
+      const reviewAutoQueueStatus = document.getElementById('reviewAutoQueueStatus');
+      const reviewAutoStatus = document.getElementById('reviewAutoStatus');
+      const reviewQueueSort = document.getElementById('reviewQueueSort');
+      const reviewAutoQueueSort = document.getElementById('reviewAutoQueueSort');
+      const reviewAutoSort = document.getElementById('reviewAutoSort');
+      const btnReviewQueueRefresh = document.getElementById('btnReviewQueueRefresh');
+      const btnReviewQueuePrev = document.getElementById('btnReviewQueuePrev');
+      const btnReviewQueueNext = document.getElementById('btnReviewQueueNext');
+      const btnReviewReviewedRefresh = document.getElementById('btnReviewReviewedRefresh');
+      const btnReviewReviewedPrev = document.getElementById('btnReviewReviewedPrev');
+      const btnReviewReviewedNext = document.getElementById('btnReviewReviewedNext');
+      const btnReviewAutoQueueRefresh = document.getElementById('btnReviewAutoQueueRefresh');
+      const btnReviewAutoQueuePrev = document.getElementById('btnReviewAutoQueuePrev');
+      const btnReviewAutoQueueNext = document.getElementById('btnReviewAutoQueueNext');
+      const btnReviewAutoRefresh = document.getElementById('btnReviewAutoRefresh');
+      const btnReviewAutoPrev = document.getElementById('btnReviewAutoPrev');
+      const btnReviewAutoNext = document.getElementById('btnReviewAutoNext');
+      const reviewCounterReview = document.getElementById('reviewCounterReview');
+      const btnRetrainStart = document.getElementById('btnRetrainStart');
+      const retrainStatus = document.getElementById('retrainStatus');
+      const retrainSummary = document.getElementById('retrainSummary');
+      const retrainLog = document.getElementById('retrainLog');
         const cfgNaoBase = document.getElementById('cfgNaoBase');
         const cfgBehavior = document.getElementById('cfgBehavior');
         const cfgBaseEnabled = document.getElementById('cfgBaseEnabled');
@@ -409,10 +582,11 @@
       const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
         const cfgNaoAutoRestSeconds = document.getElementById('cfgNaoAutoRestSeconds');
         const cfgNaoAutoRestNote = document.getElementById('cfgNaoAutoRestNote');
-        const btnStartBase = document.getElementById('btnStartBase');
+      const btnStartBase = document.getElementById('btnStartBase');
       const btnStopBase = document.getElementById('btnStopBase');
       const btnStartBehavior = document.getElementById('btnStartBehavior');
       const btnStopBehavior = document.getElementById('btnStopBehavior');
+      const btnRefreshAll = document.getElementById('btnRefreshAll');
       const procBase = document.getElementById('procBase');
       const procBehavior = document.getElementById('procBehavior');
       const logProcess = document.getElementById('logProcess');
@@ -446,11 +620,22 @@
       const danceList = document.getElementById('danceList');
       const btnCmdRun = document.getElementById('btnCmdRun');
       const cmdStatus = document.getElementById('cmdStatus');
+      const reviewCounter = document.getElementById('reviewCounter');
       const behaviorTree = document.getElementById('behaviorTree');
       const behaviorSelected = document.getElementById('behaviorSelected');
       const btnBehaviorStart = document.getElementById('btnBehaviorStart');
       const btnBehaviorStop = document.getElementById('btnBehaviorStop');
       const behaviorStatus = document.getElementById('behaviorStatus');
+      const eyeColor = document.getElementById('eyeColor');
+      const eyeColorDuration = document.getElementById('eyeColorDuration');
+      const btnSetEyeColor = document.getElementById('btnSetEyeColor');
+      const eyeColorStatus = document.getElementById('eyeColorStatus');
+      const reviewMenu = document.getElementById('reviewMenu');
+      const reviewLabel = document.getElementById('reviewLabel');
+      const reviewGoldCandidate = document.getElementById('reviewGoldCandidate');
+      const reviewSave = document.getElementById('reviewSave');
+      const reviewCancel = document.getElementById('reviewCancel');
+      const reviewStatus = document.getElementById('reviewStatus');
       const healthBase = document.getElementById('healthBase');
       const healthBehavior = document.getElementById('healthBehavior');
       const healthNao = document.getElementById('healthNao');
@@ -484,6 +669,22 @@
         const autoStartPauseUntil = { base: 0, behavior: 0 };
         let healthBoostUntil = 0;
         const resolvedConfirms = new Set();
+        let reviewTargetText = '';
+        let reviewLabels = [];
+        const REVIEW_PAGE_SIZE = 20;
+        let reviewQueueOffset = 0;
+        let reviewQueueTotal = 0;
+        let reviewReviewedOffset = 0;
+        let reviewReviewedTotal = 0;
+        let reviewAutoQueueOffset = 0;
+        let reviewAutoQueueTotal = 0;
+        let reviewAutoOffset = 0;
+        let reviewAutoTotal = 0;
+        let reviewTab = 'queue';
+        let reviewQueueSortMode = 'confidence';
+        let reviewAutoQueueSortMode = 'confidence';
+        let reviewAutoSortMode = 'confidence';
+        let retrainPoll = null;
 
       function disableConfirmCard(card, label) {
         const buttons = card.querySelectorAll('button');
@@ -565,6 +766,13 @@
 
       function isServerUi() {
         return uiMode === 'server';
+      }
+
+      function isActiveLearningMode() {
+        const path = (window.location.pathname || '').toLowerCase();
+        const qs = new URLSearchParams(window.location.search || '');
+        const mode = (qs.get('app') || qs.get('mode') || '').toLowerCase();
+        return path.includes('/active_learning') || mode === 'al' || mode === 'active_learning';
       }
 
       function applyUiMode() {
@@ -1026,6 +1234,9 @@
           } else if (showPhase === 'thinking') {
             setRecState('denken', 'thinking');
             setStatus('Denken...');
+          } else if (showPhase === 'stopped') {
+            setRecState('idle');
+            setStatus('Continuous luisteren gestopt.');
           } else if (continuousActive) {
             setRecState('idle');
           }
@@ -1036,6 +1247,27 @@
         if (!continuousPoll) return;
         clearInterval(continuousPoll);
         continuousPoll = null;
+      }
+
+      async function setNaoEyeColor() {
+        if (!eyeColor || !btnSetEyeColor) return;
+        try {
+          eyeColorStatus.textContent = 'instellen...';
+          const color = (eyeColor.value || '').trim();
+          const duration = parseFloat(eyeColorDuration?.value || '');
+          const payload = { color };
+          if (!Number.isNaN(duration)) payload.duration = duration;
+          const r = await fetch('/api/nao_set_eye_color', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'set eye color failed');
+          eyeColorStatus.textContent = 'ok';
+        } catch (e) {
+          eyeColorStatus.textContent = e?.message || 'mislukt';
+        }
       }
 
 
@@ -1133,6 +1365,9 @@
 
           const msg = document.createElement('div');
           msg.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
+          if (role === 'user') {
+            msg.dataset.text = content;
+          }
 
           const wrap = document.createElement('div');
           wrap.className = 'bubblewrap';
@@ -1177,6 +1412,694 @@
         chatEl.scrollTop = chatEl.scrollHeight;
       }
 
+      async function loadReviewLabels() {
+        try {
+          const r = await fetch('/api/cmdrec_labels');
+          const j = await r.json();
+          if (!j.ok) return;
+          reviewLabels = j.labels || [];
+          if (reviewLabel) {
+            reviewLabel.innerHTML = '';
+            reviewLabels.forEach((label) => {
+              const opt = document.createElement('option');
+              opt.value = label;
+              opt.textContent = label;
+              reviewLabel.appendChild(opt);
+            });
+          }
+        } catch (_) {}
+      }
+
+      async function refreshRetrainState() {
+        if (!reviewCounter && !reviewCounterReview) return;
+        try {
+          const r = await fetch('/api/al_retrain_state');
+          const j = await r.json();
+          if (!j.ok) return;
+          const state = j.state || {};
+          const count = Number(state.since_last_retrain || 0);
+          const bundle = state.last_retrain_bundle || j.latest_bundle || '';
+          const msg = bundle
+            ? `Nieuwe reviewed sinds laatste retrain: ${count} (laatste bundle: ${bundle})`
+            : `Nieuwe reviewed sinds laatste retrain: ${count}`;
+          if (reviewCounter) reviewCounter.textContent = msg;
+          if (reviewCounterReview) reviewCounterReview.textContent = msg;
+        } catch (_) {}
+      }
+
+      function formatRetrainSummary(summary) {
+        if (!summary) return 'Geen retrain uitgevoerd.';
+        const fmt = (value, digits = 3) => {
+          if (value === null || value === undefined || value === '') return '-';
+          const num = Number(value);
+          return Number.isFinite(num) ? num.toFixed(digits) : String(value);
+        };
+        const lines = [];
+        const promotedLabel = summary.promoted ? 'ja' : 'nee';
+        const promotedTo = summary.promoted_to ? ` -> ${shortenBundle(summary.promoted_to)}` : '';
+        lines.push(`Promoted: ${promotedLabel}${promotedTo}`);
+        if (summary.reason) lines.push(`Waarom: ${summary.reason}`);
+        if (summary.baseline_bundle) lines.push(`Baseline bundle: ${summary.baseline_bundle}`);
+        if (summary.bundle_written) lines.push(`Output bundle: ${shortenBundle(summary.bundle_written)}`);
+        if (summary.new_score != null && summary.old_score != null) {
+          lines.push(`Score: ${fmt(summary.new_score)} (baseline ${fmt(summary.old_score)})`);
+        } else if (summary.new_score != null) {
+          lines.push(`Score: ${fmt(summary.new_score)}`);
+        }
+        if (summary.new_vectorizer) {
+          const parts = [`Best: ${summary.new_vectorizer}`];
+          if (summary.new_threshold != null) parts.push(`threshold ${fmt(summary.new_threshold, 2)}`);
+          if (summary.new_margin != null) parts.push(`margin ${fmt(summary.new_margin, 2)}`);
+          lines.push(parts.join(', '));
+        }
+        if (summary.old_vectorizer) {
+          const parts = [`Baseline: ${summary.old_vectorizer}`];
+          if (summary.old_threshold != null) parts.push(`threshold ${fmt(summary.old_threshold, 2)}`);
+          if (summary.old_margin != null) parts.push(`margin ${fmt(summary.old_margin, 2)}`);
+          lines.push(parts.join(', '));
+        }
+        if (summary.score_formula) lines.push(`Score formule: ${summary.score_formula}`);
+        if (summary.score_components) {
+          const c = summary.score_components;
+          lines.push(
+            `Score componenten: macro_f1_others=${fmt(c.macro_f1_others)} recall_box=${fmt(c.recall_box)} recall_dance=${fmt(c.recall_dance)} fp_none_rate=${fmt(c.fp_none_rate)}`
+          );
+        }
+        if (summary.constraints) {
+          lines.push(
+            `Constraints: system_stop_recall >= ${fmt(summary.constraints.system_stop_recall)}; fp_none_rate <= ${fmt(summary.constraints.fp_none_rate)}`
+          );
+        }
+        if (summary.search_space) {
+          const s = summary.search_space;
+          const bits = [];
+          if (Array.isArray(s.vectorizers) && s.vectorizers.length) {
+            bits.push(`vectorizers: ${s.vectorizers.join(', ')}`);
+          }
+          if (Array.isArray(s.ratios) && s.ratios.length) bits.push(`ratios: ${s.ratios.join(', ')}`);
+          if (Array.isArray(s.thresholds) && s.thresholds.length) {
+            bits.push(`thresholds: ${s.thresholds.map((v) => fmt(v, 2)).join(', ')}`);
+          }
+          if (Array.isArray(s.margins) && s.margins.length) {
+            bits.push(`margins: ${s.margins.map((v) => fmt(v, 2)).join(', ')}`);
+          }
+          if (s.candidates != null) bits.push(`candidates: ${s.candidates}`);
+          if (bits.length) lines.push(`Search space: ${bits.join(' | ')}`);
+        }
+        if (summary.gold_count != null) {
+          const goldPath = summary.gold_path ? ` (${shortenBundle(summary.gold_path)})` : '';
+          lines.push(`Validatie gold: ${summary.gold_count}${goldPath}`);
+        }
+        if (summary.train_total != null || summary.none_ratio != null) {
+          const total = summary.train_total != null ? summary.train_total : '?';
+          lines.push(`Train data: total ${total}, none_ratio ${fmt(summary.none_ratio, 0)}`);
+        }
+        return lines.join('\n');
+      }
+
+      function renderRetrainStatus(payload) {
+        if (!payload) return;
+        if (retrainSummary) {
+          retrainSummary.textContent = formatRetrainSummary(payload.summary);
+        }
+        if (retrainStatus) {
+          if (payload.running) {
+            retrainStatus.textContent = 'retrain draait...';
+          } else if (payload.exit_code != null) {
+            retrainStatus.textContent = payload.exit_code === 0 ? 'laatste run: klaar' : 'laatste run: fout';
+          } else {
+            retrainStatus.textContent = '';
+          }
+        }
+        if (retrainLog) {
+          retrainLog.textContent = (payload.log || []).join('\n');
+        }
+        if (btnRetrainStart) {
+          btnRetrainStart.disabled = !!payload.running;
+        }
+      }
+
+      async function refreshRetrainStatus() {
+        if (!retrainSummary && !retrainLog) return;
+        try {
+          const j = await fetchJsonWithTimeout('/api/retrain_status', {}, 12000);
+          if (!j.ok) throw new Error(j.error || 'mislukt');
+          renderRetrainStatus(j);
+          if (j.running) {
+            if (!retrainPoll) {
+              retrainPoll = setInterval(() => refreshRetrainStatus().catch(() => {}), 2000);
+            }
+          } else if (retrainPoll) {
+            clearInterval(retrainPoll);
+            retrainPoll = null;
+          }
+        } catch (e) {
+          if (retrainStatus) retrainStatus.textContent = e?.message || 'mislukt';
+        }
+      }
+
+      async function startRetrain() {
+        if (btnRetrainStart) btnRetrainStart.disabled = true;
+        if (retrainStatus) retrainStatus.textContent = 'starten...';
+        try {
+          const j = await fetchJsonWithTimeout('/api/retrain_start', { method: 'POST' }, 12000);
+          if (!j.ok) throw new Error(j.error || 'mislukt');
+          await refreshRetrainStatus();
+        } catch (e) {
+          if (retrainStatus) retrainStatus.textContent = e?.message || 'mislukt';
+        }
+      }
+
+      function formatReviewPage(offset, count, total) {
+        if (!total) return '0 / 0';
+        if (!count) return `0 / ${total}`;
+        const start = offset + 1;
+        const end = Math.min(offset + count, total);
+        return `${start}-${end} van ${total}`;
+      }
+
+      function buildLabelSelect(selected) {
+        const select = document.createElement('select');
+        const labels = Array.isArray(reviewLabels) ? reviewLabels.slice() : [];
+        if (!labels.includes('NONE')) labels.unshift('NONE');
+        const normalized = (selected || '').toString().toUpperCase();
+        if (normalized && !labels.includes(normalized)) labels.push(normalized);
+        labels.forEach(label => {
+          const opt = document.createElement('option');
+          opt.value = label;
+          opt.textContent = label;
+          select.appendChild(opt);
+        });
+        select.value = normalized || 'NONE';
+        return select;
+      }
+
+      function formatReviewMeta(entry) {
+        const parts = [];
+        const suggested = (entry.suggested_label || '').toString().trim();
+        const predicted = (entry.predicted_label || '').toString().trim();
+        if (suggested) parts.push(`suggested: ${suggested}`);
+        if (predicted && predicted !== suggested) parts.push(`predicted: ${predicted}`);
+        const conf = formatConfidence(entry.confidence);
+        if (conf) parts.push(conf);
+        if (entry.stt_used !== undefined) {
+          parts.push(entry.stt_used ? 'stt: on' : 'stt: off');
+        }
+        if (entry.stt_edited !== undefined) {
+          parts.push(entry.stt_edited ? 'stt_edited: yes' : 'stt_edited: no');
+        }
+        const bundle = shortenBundle(entry.cmdrec_bundle);
+        if (bundle) parts.push(`bundle: ${bundle}`);
+        if (entry.reason) parts.push(`reason: ${entry.reason}`);
+        if (entry.timestamp) parts.push(entry.timestamp);
+        return parts.join(' | ');
+      }
+
+      function shortenBundle(value) {
+        if (!value) return '';
+        const raw = value.toString();
+        if (!raw) return '';
+        const normalized = raw.replace(/\\/g, '/');
+        const parts = normalized.split('/').filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : raw;
+      }
+
+      async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 10000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch(url, { ...options, signal: controller.signal });
+          return await response.json();
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      function formatTop3(top3) {
+        if (!Array.isArray(top3) || !top3.length) return '';
+        return 'top3: ' + top3.map(item => {
+          if (!Array.isArray(item)) return '';
+          const label = item[0];
+          const conf = Number(item[1]);
+          if (!label || Number.isNaN(conf)) return '';
+          return `${label}:${conf.toFixed(2)}`;
+        }).filter(Boolean).join(', ');
+      }
+
+      async function applyReviewItem(entry, keep, label, gold, statusEl) {
+        if (statusEl) statusEl.textContent = keep ? 'opslaan...' : 'verwijderen...';
+        const payload = {
+          id: entry.id,
+          text: entry.text,
+          keep: !!keep,
+          gold_candidate: !!gold,
+        };
+        if (keep) {
+          payload.reviewed_label = (label || '').toString();
+        }
+        const j = await fetchJsonWithTimeout(
+          '/api/review_apply',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          15000
+        );
+        if (!j.ok) throw new Error(j.error || 'mislukt');
+        if (statusEl) {
+          if (keep) {
+            statusEl.textContent = j.added ? 'opgeslagen' : 'bestond al';
+          } else {
+            statusEl.textContent = 'verwijderd';
+          }
+        }
+        await refreshRetrainState();
+        await loadReviewQueue(false);
+        if (keep) {
+          await loadReviewed(false);
+        }
+      }
+
+      async function requeueEntry(source, entry) {
+        const payload = {
+          source,
+          id: entry.id,
+          text: entry.text,
+          label: entry.label || entry.suggested_label || entry.predicted_label,
+        };
+        const j = await fetchJsonWithTimeout(
+          '/api/review_requeue',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          15000
+        );
+        if (!j.ok) throw new Error(j.error || 'mislukt');
+        await loadReviewQueue(false);
+      }
+
+      function renderReviewQueue(items) {
+        if (!reviewQueueList) return;
+        reviewQueueList.innerHTML = '';
+        if (!items || !items.length) {
+          const empty = document.createElement('div');
+          empty.className = 'review-empty';
+          empty.textContent = 'Geen items in de review queue.';
+          reviewQueueList.appendChild(empty);
+          return;
+        }
+        items.forEach(entry => {
+          const item = document.createElement('div');
+          item.className = 'review-item';
+
+          const textEl = document.createElement('div');
+          textEl.className = 'review-text';
+          textEl.textContent = (entry.text || '').toString();
+          item.appendChild(textEl);
+
+          const metaEl = document.createElement('div');
+          metaEl.className = 'review-meta';
+          metaEl.textContent = formatReviewMeta(entry);
+          item.appendChild(metaEl);
+
+          const top3Text = formatTop3(entry.top3);
+          if (top3Text) {
+            const top3El = document.createElement('div');
+            top3El.className = 'review-meta';
+            top3El.textContent = top3Text;
+            item.appendChild(top3El);
+          }
+
+          const actions = document.createElement('div');
+          actions.className = 'review-actions';
+          const labelSelect = buildLabelSelect(entry.suggested_label || entry.predicted_label || 'NONE');
+          actions.appendChild(labelSelect);
+
+          const goldWrap = document.createElement('label');
+          goldWrap.className = 'enable-row';
+          const goldText = document.createElement('span');
+          goldText.textContent = 'Gold-kandidaat';
+          const goldBox = document.createElement('input');
+          goldBox.type = 'checkbox';
+          goldWrap.appendChild(goldText);
+          goldWrap.appendChild(goldBox);
+          actions.appendChild(goldWrap);
+
+          const btnSave = document.createElement('button');
+          btnSave.type = 'button';
+          btnSave.textContent = 'Opslaan';
+          actions.appendChild(btnSave);
+
+          const btnDelete = document.createElement('button');
+          btnDelete.type = 'button';
+          btnDelete.textContent = 'Verwijder';
+          actions.appendChild(btnDelete);
+
+          const status = document.createElement('span');
+          status.className = 'small';
+          actions.appendChild(status);
+
+          btnSave.addEventListener('click', async () => {
+            try {
+              btnSave.disabled = true;
+              btnDelete.disabled = true;
+              labelSelect.disabled = true;
+              goldBox.disabled = true;
+              await applyReviewItem(entry, true, labelSelect.value, goldBox.checked, status);
+            } catch (e) {
+              status.textContent = e?.message || 'mislukt';
+              btnSave.disabled = false;
+              btnDelete.disabled = false;
+              labelSelect.disabled = false;
+              goldBox.disabled = false;
+            }
+          });
+
+          btnDelete.addEventListener('click', async () => {
+            try {
+              btnSave.disabled = true;
+              btnDelete.disabled = true;
+              labelSelect.disabled = true;
+              goldBox.disabled = true;
+              await applyReviewItem(entry, false, '', false, status);
+            } catch (e) {
+              status.textContent = e?.message || 'mislukt';
+              btnSave.disabled = false;
+              btnDelete.disabled = false;
+              labelSelect.disabled = false;
+              goldBox.disabled = false;
+            }
+          });
+
+          item.appendChild(actions);
+          reviewQueueList.appendChild(item);
+        });
+      }
+
+      function renderReviewed(items) {
+        if (!reviewReviewedList) return;
+        reviewReviewedList.innerHTML = '';
+        if (!items || !items.length) {
+          const empty = document.createElement('div');
+          empty.className = 'review-empty';
+          empty.textContent = 'Geen reviewed items.';
+          reviewReviewedList.appendChild(empty);
+          return;
+        }
+        items.forEach(entry => {
+          const item = document.createElement('div');
+          item.className = 'review-item';
+          const textEl = document.createElement('div');
+          textEl.className = 'review-text';
+          textEl.textContent = (entry.text || '').toString();
+          item.appendChild(textEl);
+
+          const metaEl = document.createElement('div');
+          metaEl.className = 'review-meta';
+          const parts = [];
+          if (entry.label) parts.push(`label: ${entry.label}`);
+          if (entry.source) parts.push(`source: ${entry.source}`);
+          if (entry.timestamp) parts.push(entry.timestamp);
+          metaEl.textContent = parts.join(' | ');
+          item.appendChild(metaEl);
+          const actions = document.createElement('div');
+          actions.className = 'review-actions';
+          const btnRequeue = document.createElement('button');
+          btnRequeue.type = 'button';
+          btnRequeue.textContent = 'Terug naar review';
+          const status = document.createElement('span');
+          status.className = 'small';
+          actions.appendChild(btnRequeue);
+          actions.appendChild(status);
+          btnRequeue.addEventListener('click', async () => {
+            try {
+              btnRequeue.disabled = true;
+              status.textContent = 'verplaatsen...';
+              await requeueEntry('reviewed', entry);
+              status.textContent = 'verplaatst';
+              await loadReviewed(false);
+            } catch (e) {
+              status.textContent = e?.message || 'mislukt';
+            } finally {
+              btnRequeue.disabled = false;
+            }
+          });
+          item.appendChild(actions);
+          reviewReviewedList.appendChild(item);
+        });
+      }
+
+      function renderAutoTrain(items, listEl, sourceName) {
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        if (!items || !items.length) {
+          const empty = document.createElement('div');
+          empty.className = 'review-empty';
+          empty.textContent = 'Geen auto-train items.';
+          listEl.appendChild(empty);
+          return;
+        }
+        items.forEach(entry => {
+          const item = document.createElement('div');
+          item.className = 'review-item';
+          const textEl = document.createElement('div');
+          textEl.className = 'review-text';
+          textEl.textContent = (entry.text || '').toString();
+          item.appendChild(textEl);
+
+          const metaEl = document.createElement('div');
+          metaEl.className = 'review-meta';
+          const parts = [];
+          const label = entry.predicted_label || entry.suggested_label;
+          if (label) parts.push(`label: ${label}`);
+          const conf = formatConfidence(entry.confidence);
+          if (conf) parts.push(conf);
+          if (entry.reason) parts.push(`reason: ${entry.reason}`);
+          if (entry.timestamp) parts.push(entry.timestamp);
+          metaEl.textContent = parts.join(' | ');
+          item.appendChild(metaEl);
+          const actions = document.createElement('div');
+          actions.className = 'review-actions';
+          const btnRequeue = document.createElement('button');
+          btnRequeue.type = 'button';
+          btnRequeue.textContent = 'Terug naar review';
+          const status = document.createElement('span');
+          status.className = 'small';
+          actions.appendChild(btnRequeue);
+          actions.appendChild(status);
+          btnRequeue.addEventListener('click', async () => {
+            try {
+              btnRequeue.disabled = true;
+              status.textContent = 'verplaatsen...';
+              await requeueEntry(sourceName, entry);
+              status.textContent = 'verplaatst';
+              if (sourceName === 'auto_train_queue') {
+                await loadAutoTrainQueue(false);
+              } else {
+                await loadAutoTrain(false);
+              }
+            } catch (e) {
+              status.textContent = e?.message || 'mislukt';
+            } finally {
+              btnRequeue.disabled = false;
+            }
+          });
+          item.appendChild(actions);
+          listEl.appendChild(item);
+        });
+      }
+
+      async function loadReviewQueue(reset = false) {
+        if (!reviewQueueList) return;
+        try {
+          if (reset) reviewQueueOffset = 0;
+          if (reviewQueueStatus) reviewQueueStatus.textContent = 'laden...';
+          const sortMode = reviewQueueSortMode || 'confidence';
+          const j = await fetchJsonWithTimeout(
+            `/api/review_queue?offset=${reviewQueueOffset}&limit=${REVIEW_PAGE_SIZE}&sort=${encodeURIComponent(sortMode)}`,
+            {},
+            12000
+          );
+          if (!j.ok) throw new Error(j.error || 'laden mislukt');
+          const items = j.items || [];
+          reviewQueueTotal = Number(j.total || 0);
+          reviewQueueOffset = Number(j.offset || 0);
+          if (reviewQueueTotal > 0 && !items.length && reviewQueueOffset > 0) {
+            reviewQueueOffset = Math.max(0, reviewQueueOffset - REVIEW_PAGE_SIZE);
+            return loadReviewQueue(false);
+          }
+          renderReviewQueue(items);
+          const label = formatReviewPage(reviewQueueOffset, items.length, reviewQueueTotal);
+          if (reviewQueueStatus) reviewQueueStatus.textContent = label;
+          if (btnReviewQueuePrev) btnReviewQueuePrev.disabled = reviewQueueOffset <= 0;
+          if (btnReviewQueueNext) btnReviewQueueNext.disabled = reviewQueueOffset + items.length >= reviewQueueTotal;
+        } catch (e) {
+          if (reviewQueueStatus) reviewQueueStatus.textContent = e?.name === 'AbortError' ? 'timeout' : (e?.message || 'mislukt');
+          renderReviewQueue([]);
+        }
+      }
+
+      async function loadReviewed(reset = false) {
+        if (!reviewReviewedList) return;
+        try {
+          if (reset) reviewReviewedOffset = 0;
+          if (reviewReviewedStatus) reviewReviewedStatus.textContent = 'laden...';
+          const j = await fetchJsonWithTimeout(
+            `/api/reviewed?offset=${reviewReviewedOffset}&limit=${REVIEW_PAGE_SIZE}`,
+            {},
+            12000
+          );
+          if (!j.ok) throw new Error(j.error || 'laden mislukt');
+          const items = j.items || [];
+          reviewReviewedTotal = Number(j.total || 0);
+          reviewReviewedOffset = Number(j.offset || 0);
+          if (reviewReviewedTotal > 0 && !items.length && reviewReviewedOffset > 0) {
+            reviewReviewedOffset = Math.max(0, reviewReviewedOffset - REVIEW_PAGE_SIZE);
+            return loadReviewed(false);
+          }
+          renderReviewed(items);
+          const label = formatReviewPage(reviewReviewedOffset, items.length, reviewReviewedTotal);
+          if (reviewReviewedStatus) reviewReviewedStatus.textContent = label;
+          if (btnReviewReviewedPrev) btnReviewReviewedPrev.disabled = reviewReviewedOffset <= 0;
+          if (btnReviewReviewedNext) btnReviewReviewedNext.disabled = reviewReviewedOffset + items.length >= reviewReviewedTotal;
+        } catch (e) {
+          if (reviewReviewedStatus) reviewReviewedStatus.textContent = e?.name === 'AbortError' ? 'timeout' : (e?.message || 'mislukt');
+          renderReviewed([]);
+        }
+      }
+
+      async function loadAutoTrainQueue(reset = false) {
+        if (!reviewAutoQueueList) return;
+        try {
+          if (reset) reviewAutoQueueOffset = 0;
+          if (reviewAutoQueueStatus) reviewAutoQueueStatus.textContent = 'laden...';
+          const sortMode = reviewAutoQueueSortMode || 'confidence';
+          const j = await fetchJsonWithTimeout(
+            `/api/auto_train_queue?offset=${reviewAutoQueueOffset}&limit=${REVIEW_PAGE_SIZE}&sort=${encodeURIComponent(sortMode)}`,
+            {},
+            12000
+          );
+          if (!j.ok) throw new Error(j.error || 'laden mislukt');
+          const items = j.items || [];
+          reviewAutoQueueTotal = Number(j.total || 0);
+          reviewAutoQueueOffset = Number(j.offset || 0);
+          if (reviewAutoQueueTotal > 0 && !items.length && reviewAutoQueueOffset > 0) {
+            reviewAutoQueueOffset = Math.max(0, reviewAutoQueueOffset - REVIEW_PAGE_SIZE);
+            return loadAutoTrainQueue(false);
+          }
+          renderAutoTrain(items, reviewAutoQueueList, 'auto_train_queue');
+          const label = formatReviewPage(reviewAutoQueueOffset, items.length, reviewAutoQueueTotal);
+          if (reviewAutoQueueStatus) reviewAutoQueueStatus.textContent = label;
+          if (btnReviewAutoQueuePrev) btnReviewAutoQueuePrev.disabled = reviewAutoQueueOffset <= 0;
+          if (btnReviewAutoQueueNext) btnReviewAutoQueueNext.disabled = reviewAutoQueueOffset + items.length >= reviewAutoQueueTotal;
+        } catch (e) {
+          if (reviewAutoQueueStatus) reviewAutoQueueStatus.textContent = e?.name === 'AbortError' ? 'timeout' : (e?.message || 'mislukt');
+          renderAutoTrain([], reviewAutoQueueList, 'auto_train_queue');
+        }
+      }
+
+      async function loadAutoTrain(reset = false) {
+        if (!reviewAutoList) return;
+        try {
+          if (reset) reviewAutoOffset = 0;
+          if (reviewAutoStatus) reviewAutoStatus.textContent = 'laden...';
+          const sortMode = reviewAutoSortMode || 'confidence';
+          const j = await fetchJsonWithTimeout(
+            `/api/auto_train?offset=${reviewAutoOffset}&limit=${REVIEW_PAGE_SIZE}&sort=${encodeURIComponent(sortMode)}`,
+            {},
+            12000
+          );
+          if (!j.ok) throw new Error(j.error || 'laden mislukt');
+          const items = j.items || [];
+          reviewAutoTotal = Number(j.total || 0);
+          reviewAutoOffset = Number(j.offset || 0);
+          if (reviewAutoTotal > 0 && !items.length && reviewAutoOffset > 0) {
+            reviewAutoOffset = Math.max(0, reviewAutoOffset - REVIEW_PAGE_SIZE);
+            return loadAutoTrain(false);
+          }
+          renderAutoTrain(items, reviewAutoList, 'auto_train');
+          const label = formatReviewPage(reviewAutoOffset, items.length, reviewAutoTotal);
+          if (reviewAutoStatus) reviewAutoStatus.textContent = label;
+          if (btnReviewAutoPrev) btnReviewAutoPrev.disabled = reviewAutoOffset <= 0;
+          if (btnReviewAutoNext) btnReviewAutoNext.disabled = reviewAutoOffset + items.length >= reviewAutoTotal;
+        } catch (e) {
+          if (reviewAutoStatus) reviewAutoStatus.textContent = e?.name === 'AbortError' ? 'timeout' : (e?.message || 'mislukt');
+          renderAutoTrain([], reviewAutoList, 'auto_train');
+        }
+      }
+
+      const REVIEW_SUBTAB_KEY = 'review_subtab';
+      const REVIEW_QUEUE_SORT_KEY = 'review_queue_sort';
+      const REVIEW_AUTO_QUEUE_SORT_KEY = 'review_auto_queue_sort';
+      const REVIEW_AUTO_SORT_KEY = 'review_auto_sort';
+      function setReviewTab(which) {
+        reviewTab = which || 'queue';
+        const isQueue = reviewTab === 'queue';
+        const isReviewed = reviewTab === 'reviewed';
+        const isAutoQueue = reviewTab === 'auto_queue';
+        const isAuto = reviewTab === 'auto';
+        if (reviewTabQueue) reviewTabQueue.classList.toggle('active', isQueue);
+        if (reviewTabReviewed) reviewTabReviewed.classList.toggle('active', isReviewed);
+        if (reviewTabAutoQueue) reviewTabAutoQueue.classList.toggle('active', isAutoQueue);
+        if (reviewTabAuto) reviewTabAuto.classList.toggle('active', isAuto);
+        if (reviewQueuePane) reviewQueuePane.classList.toggle('hidden', !isQueue);
+        if (reviewReviewedPane) reviewReviewedPane.classList.toggle('hidden', !isReviewed);
+        if (reviewAutoQueuePane) reviewAutoQueuePane.classList.toggle('hidden', !isAutoQueue);
+        if (reviewAutoPane) reviewAutoPane.classList.toggle('hidden', !isAuto);
+        try {
+          localStorage.setItem(REVIEW_SUBTAB_KEY, reviewTab);
+        } catch (_) {}
+        if (isQueue) loadReviewQueue(false).catch(() => {});
+        if (isReviewed) loadReviewed(false).catch(() => {});
+        if (isAutoQueue) loadAutoTrainQueue(false).catch(() => {});
+        if (isAuto) loadAutoTrain(false).catch(() => {});
+      }
+
+      function openReviewMenu(text, x, y) {
+        if (!reviewMenu) return;
+        reviewTargetText = text || '';
+        reviewStatus.textContent = '';
+        if (reviewGoldCandidate) reviewGoldCandidate.checked = false;
+        if (reviewLabel && reviewLabel.options.length) {
+          reviewLabel.value = 'NONE';
+        }
+        reviewMenu.style.left = `${x}px`;
+        reviewMenu.style.top = `${y}px`;
+        reviewMenu.classList.remove('hidden');
+      }
+
+      function closeReviewMenu() {
+        if (!reviewMenu) return;
+        reviewMenu.classList.add('hidden');
+      }
+
+      async function submitReviewLabel() {
+        if (!reviewTargetText || !reviewLabel) return;
+        try {
+          reviewStatus.textContent = 'opslaan...';
+          const payload = {
+            text: reviewTargetText,
+            label: reviewLabel.value || 'NONE',
+            gold_candidate: !!(reviewGoldCandidate && reviewGoldCandidate.checked),
+          };
+          const r = await fetch('/api/al_review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'review failed');
+          reviewStatus.textContent = j.added ? 'opgeslagen' : 'bestond al';
+          await refreshRetrainState();
+          setTimeout(() => closeReviewMenu(), 300);
+        } catch (e) {
+          reviewStatus.textContent = e?.message || 'mislukt';
+        }
+      }
+
       function renderPrompt(p) {
         const text = (p || '').trim();
         promptEl.textContent = text ? text : '(geen system prompt ingesteld)';
@@ -1185,20 +2108,49 @@
       function setTab(which) {
         const isRuntime = which === 'runtime';
         const isCommands = which === 'commands';
+        const isReview = which === 'review';
+        const isRetrain = which === 'retrain';
         const isLogs = which === 'logs';
         tabRuntime.classList.toggle('active', isRuntime);
-        tabPrompt.classList.toggle('active', !isRuntime && !isLogs && !isCommands);
+        tabPrompt.classList.toggle('active', !isRuntime && !isLogs && !isCommands && !isReview && !isRetrain);
         tabCommands.classList.toggle('active', isCommands);
+        if (tabReview) tabReview.classList.toggle('active', isReview);
+        if (tabRetrain) tabRetrain.classList.toggle('active', isRetrain);
         tabLogs.classList.toggle('active', isLogs);
         tabRuntimePane.classList.toggle('hidden', !isRuntime);
-        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs || isCommands);
+        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs || isCommands || isReview || isRetrain);
         tabCommandsPane.classList.toggle('hidden', !isCommands);
+        if (tabReviewPane) tabReviewPane.classList.toggle('hidden', !isReview);
+        if (tabRetrainPane) tabRetrainPane.classList.toggle('hidden', !isRetrain);
         tabLogsPane.classList.toggle('hidden', !isLogs);
         if (isCommands) {
           refreshCommands().catch(() => {});
           refreshDances().catch(() => {});
           refreshBehaviors().catch(() => {});
         }
+        if (isReview) {
+          let stored = 'queue';
+          try {
+            stored = localStorage.getItem(REVIEW_SUBTAB_KEY) || 'queue';
+          } catch (_) {}
+          setReviewTab(stored);
+          refreshRetrainState().catch(() => {});
+        }
+        if (isRetrain) {
+          refreshRetrainStatus().catch(() => {});
+        }
+      }
+
+      function applyActiveLearningMode() {
+        if (!isActiveLearningMode()) return;
+        document.body.classList.add('al-only');
+        document.body.classList.add('al-mode');
+        if (appTitle) appTitle.textContent = 'Active learning';
+        document.title = 'Active learning';
+        if (navToMain) {
+          navToMain.href = resolveUiMode() === 'client' ? '/client' : '/server';
+        }
+        setTab('review');
       }
 
       const CFG_SUBTAB_KEY = 'cfg_subtab';
@@ -1568,6 +2520,12 @@
       function setHealth(el, state, label) {
         if (state === 'disabled') {
           el.textContent = label + ': disabled';
+          el.classList.remove('ok');
+          el.classList.remove('bad');
+          return;
+        }
+        if (state === 'loading') {
+          el.textContent = label + ': ...';
           el.classList.remove('ok');
           el.classList.remove('bad');
           return;
@@ -2177,6 +3135,15 @@
         }
       });
 
+      chatEl.addEventListener('contextmenu', (e) => {
+        const target = e.target;
+        if (!target) return;
+        const msg = target.closest('.msg.user');
+        if (!msg) return;
+        e.preventDefault();
+        openReviewMenu(msg.dataset.text || '', e.clientX, e.clientY);
+      });
+
       chatEl.addEventListener('click', async (e) => {
         const target = e.target;
         if (!target || target.tagName !== 'BUTTON') return;
@@ -2223,10 +3190,76 @@
       tabPrompt.addEventListener('click', () => setTab('prompt'));
       tabRuntime.addEventListener('click', () => setTab('runtime'));
       tabCommands.addEventListener('click', () => setTab('commands'));
+      if (tabReview) tabReview.addEventListener('click', () => setTab('review'));
+      if (tabRetrain) tabRetrain.addEventListener('click', () => setTab('retrain'));
       tabLogs.addEventListener('click', () => setTab('logs'));
       if (cfgTabNao) cfgTabNao.addEventListener('click', () => setConfigTab('nao'));
       if (cfgTabAudio) cfgTabAudio.addEventListener('click', () => setConfigTab('audio'));
       if (cfgTabReasoning) cfgTabReasoning.addEventListener('click', () => setConfigTab('reasoning'));
+      if (reviewTabQueue) reviewTabQueue.addEventListener('click', () => setReviewTab('queue'));
+      if (reviewTabReviewed) reviewTabReviewed.addEventListener('click', () => setReviewTab('reviewed'));
+      if (reviewTabAutoQueue) reviewTabAutoQueue.addEventListener('click', () => setReviewTab('auto_queue'));
+      if (reviewTabAuto) reviewTabAuto.addEventListener('click', () => setReviewTab('auto'));
+      if (btnReviewQueueRefresh) btnReviewQueueRefresh.addEventListener('click', () => loadReviewQueue(true).catch(() => {}));
+      if (btnReviewQueuePrev) btnReviewQueuePrev.addEventListener('click', () => {
+        reviewQueueOffset = Math.max(0, reviewQueueOffset - REVIEW_PAGE_SIZE);
+        loadReviewQueue(false).catch(() => {});
+      });
+      if (btnReviewQueueNext) btnReviewQueueNext.addEventListener('click', () => {
+        reviewQueueOffset = reviewQueueOffset + REVIEW_PAGE_SIZE;
+        loadReviewQueue(false).catch(() => {});
+      });
+      if (reviewQueueSort) {
+        reviewQueueSort.addEventListener('change', () => {
+          reviewQueueSortMode = reviewQueueSort.value || 'confidence';
+          try { localStorage.setItem(REVIEW_QUEUE_SORT_KEY, reviewQueueSortMode); } catch (_) {}
+          loadReviewQueue(true).catch(() => {});
+        });
+      }
+      if (btnReviewReviewedRefresh) btnReviewReviewedRefresh.addEventListener('click', () => loadReviewed(true).catch(() => {}));
+      if (btnReviewReviewedPrev) btnReviewReviewedPrev.addEventListener('click', () => {
+        reviewReviewedOffset = Math.max(0, reviewReviewedOffset - REVIEW_PAGE_SIZE);
+        loadReviewed(false).catch(() => {});
+      });
+      if (btnReviewReviewedNext) btnReviewReviewedNext.addEventListener('click', () => {
+        reviewReviewedOffset = reviewReviewedOffset + REVIEW_PAGE_SIZE;
+        loadReviewed(false).catch(() => {});
+      });
+      if (btnReviewAutoQueueRefresh) btnReviewAutoQueueRefresh.addEventListener('click', () => loadAutoTrainQueue(true).catch(() => {}));
+      if (btnReviewAutoQueuePrev) btnReviewAutoQueuePrev.addEventListener('click', () => {
+        reviewAutoQueueOffset = Math.max(0, reviewAutoQueueOffset - REVIEW_PAGE_SIZE);
+        loadAutoTrainQueue(false).catch(() => {});
+      });
+      if (btnReviewAutoQueueNext) btnReviewAutoQueueNext.addEventListener('click', () => {
+        reviewAutoQueueOffset = reviewAutoQueueOffset + REVIEW_PAGE_SIZE;
+        loadAutoTrainQueue(false).catch(() => {});
+      });
+      if (btnReviewAutoRefresh) btnReviewAutoRefresh.addEventListener('click', () => loadAutoTrain(true).catch(() => {}));
+      if (btnReviewAutoPrev) btnReviewAutoPrev.addEventListener('click', () => {
+        reviewAutoOffset = Math.max(0, reviewAutoOffset - REVIEW_PAGE_SIZE);
+        loadAutoTrain(false).catch(() => {});
+      });
+      if (btnReviewAutoNext) btnReviewAutoNext.addEventListener('click', () => {
+        reviewAutoOffset = reviewAutoOffset + REVIEW_PAGE_SIZE;
+        loadAutoTrain(false).catch(() => {});
+      });
+      if (reviewAutoQueueSort) {
+        reviewAutoQueueSort.addEventListener('change', () => {
+          reviewAutoQueueSortMode = reviewAutoQueueSort.value || 'confidence';
+          try { localStorage.setItem(REVIEW_AUTO_QUEUE_SORT_KEY, reviewAutoQueueSortMode); } catch (_) {}
+          loadAutoTrainQueue(true).catch(() => {});
+        });
+      }
+      if (reviewAutoSort) {
+        reviewAutoSort.addEventListener('change', () => {
+          reviewAutoSortMode = reviewAutoSort.value || 'confidence';
+          try { localStorage.setItem(REVIEW_AUTO_SORT_KEY, reviewAutoSortMode); } catch (_) {}
+          loadAutoTrain(true).catch(() => {});
+        });
+      }
+      if (btnRetrainStart) {
+        btnRetrainStart.addEventListener('click', () => startRetrain());
+      }
 
       btnResetCfg.addEventListener('click', async () => {
         await resetRuntimeConfig();
@@ -2291,6 +3324,13 @@
         if (el) {
           el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
         }
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!reviewMenu || reviewMenu.classList.contains('hidden')) return;
+        const target = e.target;
+        if (reviewMenu.contains(target)) return;
+        closeReviewMenu();
       });
 
       cfgMasterPrompt.addEventListener('change', async () => {
@@ -2376,6 +3416,35 @@
       if (btnCmdRun) {
         btnCmdRun.addEventListener('click', () => runSelectedCommand());
       }
+      if (reviewSave) {
+        reviewSave.addEventListener('click', () => submitReviewLabel());
+      }
+      if (reviewCancel) {
+        reviewCancel.addEventListener('click', () => closeReviewMenu());
+      }
+      if (btnRefreshAll) {
+        btnRefreshAll.addEventListener('click', async () => {
+          const cfg = getConfigFromForm();
+          setHealth(healthNao, 'loading', 'nao');
+          setHealth(healthBase, 'loading', 'base');
+          setHealth(healthBehavior, 'loading', 'behavior manager');
+          const ok = await pollHealth(cfg);
+          scheduleHealth(cfg, ok);
+          if (ok && cfg.nao_ip_enabled) {
+            if (cfg.base_autostart && cfg.base_enabled) {
+              await autoStartProcess('base');
+            }
+            if (cfg.behavior_autostart && cfg.behavior_enabled) {
+              await autoStartProcess('behavior');
+            }
+          }
+          await refreshProcessStatus();
+          await refreshProcessLogs();
+        });
+      }
+      if (btnSetEyeColor) {
+        btnSetEyeColor.addEventListener('click', () => setNaoEyeColor());
+      }
       if (btnBehaviorStart) {
         btnBehaviorStart.addEventListener('click', () => runSelectedBehavior(true));
       }
@@ -2437,9 +3506,27 @@
       }
 
       // init
+      applyActiveLearningMode();
       refreshState().catch(() => setStatus('Kan server niet bereiken.'));
       loadDevices().catch(() => {});
       loadCmdrecBundles().catch(() => {});
+      loadReviewLabels().catch(() => {});
+      refreshRetrainState().catch(() => {});
+
+      try {
+        if (reviewQueueSort) {
+          reviewQueueSortMode = localStorage.getItem(REVIEW_QUEUE_SORT_KEY) || reviewQueueSortMode;
+          reviewQueueSort.value = reviewQueueSortMode;
+        }
+        if (reviewAutoQueueSort) {
+          reviewAutoQueueSortMode = localStorage.getItem(REVIEW_AUTO_QUEUE_SORT_KEY) || reviewAutoQueueSortMode;
+          reviewAutoQueueSort.value = reviewAutoQueueSortMode;
+        }
+        if (reviewAutoSort) {
+          reviewAutoSortMode = localStorage.getItem(REVIEW_AUTO_SORT_KEY) || reviewAutoSortMode;
+          reviewAutoSort.value = reviewAutoSortMode;
+        }
+      } catch (_) {}
       loadMasterPrompts().catch(() => {});
       fetch('/api/runtime_config')
         .then(r => r.json())
