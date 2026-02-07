@@ -3249,6 +3249,64 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             pass
         return jsonify({"ok": True, "prompts": items})
 
+    @app.get("/api/agent_presets")
+    def api_agent_presets():
+        presets = _load_agent_presets()
+        return jsonify({"ok": True, "presets": presets})
+
+    @app.post("/api/agent_presets")
+    def api_agent_presets_upsert():
+        payload = request.get_json(force=True, silent=True) or {}
+        config = payload.get("config")
+        if not isinstance(config, dict):
+            return jsonify({"ok": False, "error": "config ontbreekt"}), 400
+        name = (payload.get("name") or "").strip() or "Preset"
+        mode = (payload.get("mode") or "overwrite").lower()
+        preset_id = (payload.get("id") or "").strip() or None
+
+        presets = _load_agent_presets()
+        by_id = {p.get("id"): p for p in presets if isinstance(p, dict) and p.get("id")}
+
+        if mode == "create" or preset_id is None:
+            new_id = _unique_preset_id(_slugify(name), presets)
+            preset = {
+                "id": new_id,
+                "name": name,
+                "locked": False,
+                "config": config,
+            }
+            presets.append(preset)
+            _save_agent_presets(presets)
+            return jsonify({"ok": True, "preset": preset, "presets": presets})
+
+        existing = by_id.get(preset_id)
+        if existing is None:
+            return jsonify({"ok": False, "error": "preset bestaat niet"}), 404
+        if existing.get("locked"):
+            return jsonify({"ok": False, "error": "default preset kan niet worden overschreven"}), 400
+
+        existing["name"] = name or existing.get("name") or preset_id
+        existing["config"] = config
+        _save_agent_presets(presets)
+        return jsonify({"ok": True, "preset": existing, "presets": presets})
+
+    @app.post("/api/agent_presets_delete")
+    def api_agent_presets_delete():
+        payload = request.get_json(force=True, silent=True) or {}
+        preset_id = (payload.get("id") or "").strip()
+        if not preset_id:
+            return jsonify({"ok": False, "error": "id ontbreekt"}), 400
+        presets = _load_agent_presets()
+        for idx, preset in enumerate(presets):
+            if preset.get("id") != preset_id:
+                continue
+            if preset.get("locked"):
+                return jsonify({"ok": False, "error": "default preset kan niet worden verwijderd"}), 400
+            presets.pop(idx)
+            _save_agent_presets(presets)
+            return jsonify({"ok": True, "presets": presets})
+        return jsonify({"ok": False, "error": "preset bestaat niet"}), 404
+
     @app.get("/api/ollama_models_local")
     def api_ollama_models_local():
         if not shutil.which("ollama"):
@@ -3469,6 +3527,117 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return {"ok": False, "error": "invalid response"}
         return {"ok": True, "state": payload}
 
+    def _agent_presets_path() -> str:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(repo_root, "py3_dialog_manager", "configs", "agent_presets.json")
+
+    def _default_agent_presets() -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": "echo",
+                "name": "Echo",
+                "locked": True,
+                "config": {
+                    "stt_type": "vosk",
+                    "output_target": "none",
+                    "tts_engine": "nao_native",
+                    "cmdrec": "latest",
+                    "confirm_policy": "when_guarded",
+                    "llm_type": "echo",
+                    "llm_model": "",
+                    "master_prompt_file": None,
+                },
+            },
+            {
+                "id": "local",
+                "name": "Local",
+                "locked": True,
+                "config": {
+                    "stt_type": "vosk",
+                    "output_target": "nao",
+                    "tts_engine": "piper",
+                    "cmdrec": "latest",
+                    "confirm_policy": "when_guarded",
+                    "llm_type": "ollama_local",
+                    "llm_model": "gemma:2b",
+                    "master_prompt_file": "master_prompts/short.txt",
+                },
+            },
+            {
+                "id": "cloud",
+                "name": "Cloud",
+                "locked": True,
+                "config": {
+                    "stt_type": "azure",
+                    "output_target": "nao",
+                    "tts_engine": "azure",
+                    "cmdrec": "latest",
+                    "confirm_policy": "when_guarded",
+                    "llm_type": "ollama_cloud",
+                    "llm_model": "gpt-oss:120b",
+                    "master_prompt_file": "master_prompts/atlantis.txt",
+                },
+            },
+        ]
+
+
+    def _load_agent_presets() -> List[Dict[str, Any]]:
+        path = _agent_presets_path()
+        defaults = _default_agent_presets()
+        presets: List[Dict[str, Any]] = []
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if isinstance(raw, dict):
+                presets = raw.get("presets") or []
+            elif isinstance(raw, list):
+                presets = raw
+        except Exception:
+            presets = []
+        if not isinstance(presets, list):
+            presets = []
+
+        by_id = {p.get("id"): p for p in presets if isinstance(p, dict) and p.get("id")}
+        changed = False
+        for default in defaults:
+            existing = by_id.get(default["id"])
+            if existing is None:
+                presets.append(default)
+                changed = True
+            else:
+                if existing.get("locked") is not True:
+                    existing["locked"] = True
+                    changed = True
+                if not existing.get("name"):
+                    existing["name"] = default["name"]
+                    changed = True
+
+        if not os.path.isfile(path):
+            changed = True
+        if changed:
+            _save_agent_presets(presets)
+        return presets
+
+    def _save_agent_presets(presets: List[Dict[str, Any]]) -> None:
+        path = _agent_presets_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"presets": presets}, fh, ensure_ascii=False, indent=2)
+
+    def _slugify(value: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+        return slug or "preset"
+
+    def _unique_preset_id(slug: str, presets: List[Dict[str, Any]]) -> str:
+        ids = {p.get("id") for p in presets if isinstance(p, dict)}
+        if slug not in ids:
+            return slug
+        for idx in range(2, 1000):
+            cand = f"{slug}_{idx}"
+            if cand not in ids:
+                return cand
+        return slug + "_" + uuid.uuid4().hex[:4]
+
     def _flatten_behaviors(payload: Any) -> List[str]:
         if isinstance(payload, list):
             return [str(item) for item in payload if item]
@@ -3670,6 +3839,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         label = (payload.get("label") or "").strip()
         if not label:
             return jsonify({"ok": False, "error": "Missing 'label'."}), 400
+        _touch_activity()
         sid = _get_sid()
         pipeline = _get_pipeline(sid)
         _, cmdrec, behavior_executor = _pipeline_props(pipeline)
@@ -3683,6 +3853,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             behavior_executor.execute(cmd)
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        _touch_activity()
         return jsonify({"ok": True})
 
     @app.get("/api/nao_behaviors")
@@ -3721,43 +3892,61 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         behavior = (payload.get("behavior") or "").strip()
         if not behavior:
             return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
+        _touch_activity()
         runtime_cfg = _get_runtime_cfg(_get_sid())
-        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
-        if not base_url:
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        candidates: List[Tuple[str, str]] = []
+        if behavior_enabled and behavior_url:
+            candidates.append((behavior_url, "behavior"))
+        if base_enabled and base_url:
+            candidates.append((base_url, "base"))
+        if not candidates:
             return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
-        pause_state = None
-        if runtime_cfg.get("custom_life_enabled"):
-            try:
-                pause_url = base_url + ("/nao/custom_life_pause" if mode == "behavior" else "/custom_life_pause")
-                resp = requests.post(pause_url, json={}, timeout=3.0)
-                data = resp.json() if resp.ok else {}
-                if isinstance(data, dict):
-                    pause_state = data.get("data") or data.get("state")
-            except Exception:
-                pause_state = None
-        try:
-            url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
-            resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
-            data = resp.json() if resp.ok else {}
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        finally:
+
+        last_error = None
+        for base_url, mode in candidates:
+            pause_state = None
             if runtime_cfg.get("custom_life_enabled"):
                 try:
-                    settings = runtime_cfg.get("custom_life_settings") or {}
-                    if settings:
-                        apply_url = base_url + ("/nao/custom_life_apply" if mode == "behavior" else "/custom_life_apply")
-                        requests.post(apply_url, json={"settings": settings}, timeout=3.0)
-                    elif pause_state:
-                        resume_url = base_url + (
-                            "/nao/custom_life_resume" if mode == "behavior" else "/custom_life_resume"
-                        )
-                        requests.post(resume_url, json={"state": pause_state}, timeout=3.0)
+                    pause_url = base_url + ("/nao/custom_life_pause" if mode == "behavior" else "/custom_life_pause")
+                    resp = requests.post(pause_url, json={}, timeout=3.0)
+                    data = resp.json() if resp.ok else {}
+                    if isinstance(data, dict):
+                        pause_state = data.get("data") or data.get("state")
                 except Exception:
-                    pass
-        if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-            return jsonify({"ok": False, "error": data.get("error") or "behavior failed"}), 400
-        return jsonify({"ok": True})
+                    pause_state = None
+            try:
+                url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
+                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+                data = resp.json() if resp.ok else {}
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            finally:
+                if runtime_cfg.get("custom_life_enabled"):
+                    try:
+                        settings = runtime_cfg.get("custom_life_settings") or {}
+                        if settings:
+                            apply_url = base_url + (
+                                "/nao/custom_life_apply" if mode == "behavior" else "/custom_life_apply"
+                            )
+                            requests.post(apply_url, json={"settings": settings}, timeout=3.0)
+                        elif pause_state:
+                            resume_url = base_url + (
+                                "/nao/custom_life_resume" if mode == "behavior" else "/custom_life_resume"
+                            )
+                            requests.post(resume_url, json={"state": pause_state}, timeout=3.0)
+                    except Exception:
+                        pass
+            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+                last_error = data.get("error") or "behavior failed"
+                continue
+            _touch_activity()
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": last_error or "behavior failed"}), 400
 
     @app.post("/api/nao_behavior_stop")
     def api_nao_behavior_stop():
@@ -3765,19 +3954,35 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         behavior = (payload.get("behavior") or "").strip()
         if not behavior:
             return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
+        _touch_activity()
         runtime_cfg = _get_runtime_cfg(_get_sid())
-        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
-        if not base_url:
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        candidates: List[Tuple[str, str]] = []
+        if behavior_enabled and behavior_url:
+            candidates.append((behavior_url, "behavior"))
+        if base_enabled and base_url:
+            candidates.append((base_url, "base"))
+        if not candidates:
             return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
-        try:
-            url = base_url + "/nao/stop_behavior" if mode == "behavior" else base_url + "/stop_behavior"
-            resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
-            data = resp.json() if resp.ok else {}
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-            return jsonify({"ok": False, "error": data.get("error") or "behavior failed"}), 400
-        return jsonify({"ok": True})
+
+        last_error = None
+        for base_url, mode in candidates:
+            try:
+                url = base_url + "/nao/stop_behavior" if mode == "behavior" else base_url + "/stop_behavior"
+                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+                data = resp.json() if resp.ok else {}
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+                last_error = data.get("error") or "behavior failed"
+                continue
+            _touch_activity()
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": last_error or "behavior failed"}), 400
 
     @app.get("/api/process_status")
     def api_process_status():
@@ -3815,8 +4020,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         if name == "base":
             runtime_cfg = _get_runtime_cfg(_get_sid())
-            nao_ip = (runtime_cfg.get("nao_ip") or "").strip()
-            if not nao_ip or not runtime_cfg.get("nao_ip_enabled", False):
+            payload_nao_ip = (payload.get("nao_ip") or "").strip()
+            nao_ip = payload_nao_ip or (runtime_cfg.get("nao_ip") or "").strip()
+            nao_ip_enabled = bool(payload.get("nao_ip_enabled", runtime_cfg.get("nao_ip_enabled", False)))
+            if payload_nao_ip:
+                runtime_cfg["nao_ip"] = payload_nao_ip
+            if "nao_ip_enabled" in payload:
+                runtime_cfg["nao_ip_enabled"] = nao_ip_enabled
+            if not nao_ip or not nao_ip_enabled:
                 return jsonify({"ok": False, "error": "NAO IP ontbreekt of is disabled."}), 400
             cmd, cwd, err = _base_controller_cmd(nao_ip)
         else:

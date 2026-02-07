@@ -147,7 +147,7 @@
       <div class="card">
         <div class="row tabbar" style="margin-bottom:8px">
           <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
-          <button id="tabRuntime" class="tab" type="button">Runtime config</button>
+          <button id="tabRuntime" class="tab" type="button">Agent config</button>
           <button id="tabCommands" class="tab" type="button">Commands</button>
           <button id="tabReview" class="tab" type="button">Data review</button>
           <button id="tabRetrain" class="tab" type="button">Model trainen</button>
@@ -280,7 +280,15 @@
           <div class="small" style="margin-bottom:6px">Output (laatste run)</div>
           <pre id="retrainLog" class="debug" style="height:320px; overflow:auto;"></pre>
         </div>
-                <div id="tab-runtime" class="tabpane hidden">
+        <div id="tab-runtime" class="tabpane hidden">
+          <div class="row" style="margin-bottom:8px; align-items:center; gap:8px; flex-wrap:wrap">
+            <label style="margin:0">Preset</label>
+            <select id="agentPresetSelect"></select>
+            <button id="btnPresetSave" type="button">Save</button>
+            <button id="btnPresetSaveAs" type="button">Save as</button>
+            <button id="btnPresetDelete" type="button">Delete</button>
+            <span id="presetStatus" class="small"></span>
+          </div>
           <div class="row subtabbar" style="margin-bottom:8px">
             <button id="cfgTabNao" class="subtab active" type="button">NAO config</button>
             <span class="subtab-sep">·</span>
@@ -724,6 +732,11 @@
       const cfgPiperSentenceSilence = document.getElementById('cfgPiperSentenceSilence');
       const cfgPiperVolume = document.getElementById('cfgPiperVolume');
       const cfgNaoAudioSection = document.getElementById('cfgNaoAudioSection');
+      const agentPresetSelect = document.getElementById('agentPresetSelect');
+      const btnPresetSave = document.getElementById('btnPresetSave');
+      const btnPresetSaveAs = document.getElementById('btnPresetSaveAs');
+      const btnPresetDelete = document.getElementById('btnPresetDelete');
+      const presetStatus = document.getElementById('presetStatus');
       const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
         const cfgNaoAutoRestSeconds = document.getElementById('cfgNaoAutoRestSeconds');
         const cfgNaoAutoRestNote = document.getElementById('cfgNaoAutoRestNote');
@@ -795,6 +808,49 @@
       let lastPiperDefaults = null;
       let lastTtsEngineValue = null;
       let lastAzureVoiceValue = null;
+      let agentPresets = [];
+      let agentPresetMap = {};
+      const AGENT_PRESET_KEYS = [
+        'nao_ip',
+        'nao_ip_enabled',
+        'nao_base_url',
+        'behavior_manager_url',
+        'base_enabled',
+        'behavior_enabled',
+        'base_autostart',
+        'behavior_autostart',
+        'input_device',
+        'stt_type',
+        'mic_params_ptt',
+        'mic_params_continuous',
+        'ptt_use_vad',
+        'wake_mode',
+        'wake_timeout_s',
+        'wake_words',
+        'azure_initial_silence_ms',
+        'azure_end_silence_ms',
+        'cmdrec',
+        'confirm_policy',
+        'custom_life_enabled',
+        'custom_life_settings',
+        'nao_auto_rest_after_s',
+        'llm_type',
+        'llm_model',
+        'master_prompt_file',
+        'output_target',
+        'output_device',
+        'tts_engine',
+        'piper_model_path',
+        'piper_length_scale',
+        'piper_noise_scale',
+        'piper_noise_w_scale',
+        'piper_sentence_silence',
+        'piper_volume',
+        'azure_tts_voice',
+        'azure_tts_rate',
+        'azure_tts_pitch',
+        'azure_tts_volume_db',
+      ];
 
       let audioCtx = null;
       let stream = null;
@@ -1009,10 +1065,16 @@
             if (autoStartInProgress) return;
             autoStartInProgress = true;
             try {
+              const cfg = getConfigFromForm();
+              const payload = { name };
+              if (name === 'base') {
+                payload.nao_ip = cfg.nao_ip;
+                payload.nao_ip_enabled = cfg.nao_ip_enabled;
+              }
               const r = await fetch('/api/process_start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify(payload)
               });
               const j = await r.json();
               if (j.ok) {
@@ -1309,7 +1371,8 @@
           if (!j.ok) throw new Error(j.error || 'behavior failed');
           behaviorStatus.textContent = 'ok';
         } catch (e) {
-          behaviorStatus.textContent = 'mislukt';
+          const msg = e && e.message ? e.message : String(e);
+          behaviorStatus.textContent = `mislukt: ${msg}`;
         }
       }
 
@@ -1792,6 +1855,160 @@
         } finally {
           clearTimeout(timeoutId);
         }
+      }
+
+      function pickAgentConfig(cfg) {
+        const out = {};
+        if (!cfg || typeof cfg !== 'object') return out;
+        AGENT_PRESET_KEYS.forEach((key) => {
+          if (cfg[key] !== undefined) out[key] = cfg[key];
+        });
+        return out;
+      }
+
+
+      function setPresetStatus(text) {
+        if (presetStatus) presetStatus.textContent = text || '';
+      }
+
+      function updatePresetSelect(presets, selectedId) {
+        if (!agentPresetSelect) return;
+        agentPresetSelect.innerHTML = '';
+        const ids = [];
+        presets.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.locked ? `${p.name} (default)` : p.name;
+          agentPresetSelect.appendChild(opt);
+          ids.push(p.id);
+        });
+        const stored = localStorage.getItem('nao_agent_preset_v1');
+        const desired = selectedId || stored;
+        if (desired && ids.includes(desired)) {
+          agentPresetSelect.value = desired;
+        } else if (ids.length) {
+          agentPresetSelect.value = ids[0];
+        }
+      }
+
+      async function loadAgentPresets() {
+        if (!agentPresetSelect) return;
+        const j = await fetchJsonWithTimeout('/api/agent_presets', {}, 8000);
+        if (!j.ok) {
+          setPresetStatus(j.error || 'presets laden mislukt');
+          return;
+        }
+        agentPresets = Array.isArray(j.presets) ? j.presets : [];
+        agentPresetMap = {};
+        agentPresets.forEach((p) => {
+          agentPresetMap[p.id] = p;
+        });
+        updatePresetSelect(agentPresets);
+        setPresetStatus('');
+      }
+
+      async function applySelectedPreset() {
+        if (!agentPresetSelect) return;
+        const preset = agentPresetMap[agentPresetSelect.value];
+        if (!preset || !preset.config) return;
+        const cfg = getConfigFromForm();
+        let presetCfg = preset.config || {};
+        if (preset.locked) {
+          presetCfg = { ...presetCfg };
+          delete presetCfg.input_device;
+          delete presetCfg.output_device;
+        }
+        const merged = { ...cfg, ...presetCfg };
+        setPresetStatus(`toegepast: ${preset.name}`);
+        localStorage.setItem('nao_agent_preset_v1', preset.id);
+        await applyRuntimeConfig(merged, false, !preset.locked);
+      }
+
+      async function savePreset(overwrite) {
+        if (!agentPresetSelect) return;
+        const preset = agentPresetMap[agentPresetSelect.value];
+        if (preset && preset.locked) {
+          setPresetStatus('default preset kan niet worden overschreven');
+          return;
+        }
+        const cfg = pickAgentConfig(getConfigFromForm());
+        const payload = {
+          id: preset ? preset.id : null,
+          name: preset ? preset.name : null,
+          config: cfg,
+          mode: overwrite ? 'overwrite' : 'create',
+        };
+        const j = await fetchJsonWithTimeout(
+          '/api/agent_presets',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          8000
+        );
+        if (!j.ok) {
+          setPresetStatus(j.error || 'opslaan mislukt');
+          return;
+        }
+        await loadAgentPresets();
+        if (j.preset && j.preset.id && agentPresetSelect) {
+          agentPresetSelect.value = j.preset.id;
+          localStorage.setItem('nao_agent_preset_v1', j.preset.id);
+        }
+        setPresetStatus(overwrite ? 'preset opgeslagen' : 'preset opgeslagen als nieuw');
+      }
+
+      async function savePresetAs() {
+        const name = window.prompt('Preset naam');
+        if (!name) return;
+        const cfg = pickAgentConfig(getConfigFromForm());
+        const payload = { name, config: cfg, mode: 'create' };
+        const j = await fetchJsonWithTimeout(
+          '/api/agent_presets',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          8000
+        );
+        if (!j.ok) {
+          setPresetStatus(j.error || 'opslaan mislukt');
+          return;
+        }
+        await loadAgentPresets();
+        if (j.preset && j.preset.id && agentPresetSelect) {
+          agentPresetSelect.value = j.preset.id;
+          localStorage.setItem('nao_agent_preset_v1', j.preset.id);
+        }
+        setPresetStatus('preset opgeslagen als nieuw');
+      }
+
+      async function deletePreset() {
+        if (!agentPresetSelect) return;
+        const preset = agentPresetMap[agentPresetSelect.value];
+        if (!preset) return;
+        if (preset.locked) {
+          setPresetStatus('default preset kan niet worden verwijderd');
+          return;
+        }
+        if (!window.confirm(`Preset "${preset.name}" verwijderen?`)) return;
+        const j = await fetchJsonWithTimeout(
+          '/api/agent_presets_delete',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: preset.id }),
+          },
+          8000
+        );
+        if (!j.ok) {
+          setPresetStatus(j.error || 'verwijderen mislukt');
+          return;
+        }
+        await loadAgentPresets();
+        setPresetStatus('preset verwijderd');
       }
 
       function formatTop3(top3) {
@@ -3157,6 +3374,7 @@
             if (audioOk) {
               setNaoAudioEnabled(true, '');
               refreshNaoAudio();
+              setNaoLifeEnabled(true, cfgCustomLifeEnabled && cfgCustomLifeEnabled.checked ? 'autonomous: aan' : 'autonomous: uit');
               refreshCustomLifeState();
             } else {
               setNaoAudioEnabled(false, 'NAO audio niet verbonden.');
@@ -3288,18 +3506,23 @@
         } catch (_) {}
       }
 
-      async function startProcess(name) {
-        try {
-          const cfg = getConfigFromForm();
-          if ((name === 'base' || name === 'behavior') && cfg.nao_ip_enabled && lastNaoOk === false) {
-            setStatus('NAO is down; proces niet gestart.');
-            return;
-          }
-          const r = await fetch('/api/process_start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-          });
+        async function startProcess(name) {
+          try {
+            const cfg = getConfigFromForm();
+            if ((name === 'base' || name === 'behavior') && cfg.nao_ip_enabled && lastNaoOk === false) {
+              setStatus('NAO is down; proces niet gestart.');
+              return;
+            }
+            const payload = { name };
+            if (name === 'base') {
+              payload.nao_ip = cfg.nao_ip;
+              payload.nao_ip_enabled = cfg.nao_ip_enabled;
+            }
+            const r = await fetch('/api/process_start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'start failed');
           setStatus(`${name} start aangevraagd.`);
@@ -3991,6 +4214,18 @@
       if (reviewSave) {
         reviewSave.addEventListener('click', () => submitReviewLabel());
       }
+      if (agentPresetSelect) {
+        agentPresetSelect.addEventListener('change', () => applySelectedPreset());
+      }
+      if (btnPresetSave) {
+        btnPresetSave.addEventListener('click', () => savePreset(true));
+      }
+      if (btnPresetSaveAs) {
+        btnPresetSaveAs.addEventListener('click', () => savePresetAs());
+      }
+      if (btnPresetDelete) {
+        btnPresetDelete.addEventListener('click', () => deletePreset());
+      }
       if (reviewCancel) {
         reviewCancel.addEventListener('click', () => closeReviewMenu());
       }
@@ -4085,6 +4320,7 @@
       loadPiperModels().catch(() => {});
       loadAzureVoices().catch(() => {});
       loadCmdrecBundles().catch(() => {});
+      loadAgentPresets().catch(() => {});
       loadReviewLabels().catch(() => {});
       refreshRetrainState().catch(() => {});
 

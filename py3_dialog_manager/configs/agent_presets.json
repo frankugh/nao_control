@@ -1,0 +1,49 @@
+{
+  "presets": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "locked": true,
+      "config": {
+        "stt_type": "vosk",
+        "output_target": "none",
+        "tts_engine": "nao_native",
+        "cmdrec": "latest",
+        "confirm_policy": "when_guarded",
+        "llm_type": "echo",
+        "llm_model": "",
+        "master_prompt_file": null
+      }
+    },
+    {
+      "id": "local",
+      "name": "Local",
+      "locked": true,
+      "config": {
+        "stt_type": "vosk",
+        "output_target": "nao",
+        "tts_engine": "piper",
+        "cmdrec": "latest",
+        "confirm_policy": "when_guarded",
+        "llm_type": "ollama_local",
+        "llm_model": "gemma:2b",
+        "master_prompt_file": "master_prompts/short.txt"
+      }
+    },
+    {
+      "id": "cloud",
+      "name": "Cloud",
+      "locked": true,
+      "config": {
+        "stt_type": "azure",
+        "output_target": "nao",
+        "tts_engine": "azure",
+        "cmdrec": "latest",
+        "confirm_policy": "when_guarded",
+        "llm_type": "ollama_cloud",
+        "llm_model": "gpt-oss:120b",
+        "master_prompt_file": "master_prompts/atlantis.txt"
+      }
+    }
+  ]
+}
