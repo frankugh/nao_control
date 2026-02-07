@@ -23,6 +23,7 @@ from dialog.backends.llm_ollama import OllamaClient, OllamaLLMBackend
 from dialog.backends.output_console import ConsoleOutputBackend
 from dialog.backends.output_none import NoOpOutputBackend
 from dialog.backends.output_nao import NaoTTSOutputBackend
+from dialog.backends.output_router import OutputRouterBackend
 
 __all__ = [
     # input
@@ -45,4 +46,5 @@ __all__ = [
     "ConsoleOutputBackend",
     "NoOpOutputBackend",
     "NaoTTSOutputBackend",
+    "OutputRouterBackend",
 ]

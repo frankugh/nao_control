@@ -50,6 +50,7 @@ example_audio/*.wav
 # === Large local models ===
 models/vosk-model*/
 models/*.zip
+piper_tts_models/nl/
 
 # === Active learning runtime state ===
 py3_command_recognition_train/data/al/review_queue.jsonl

@@ -61,6 +61,8 @@
       .tab.active { background: #111; color: #fff; border-color: #111; }
       .tabpane.hidden { display: none; }
       .subtabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .subtab-sep { color: #999; font-size: 12px; user-select: none; }
+      .subtab-sep.flow { color: #666; font-weight: 600; }
       .subtab { border: 1px solid #ddd; border-radius: 8px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
       .subtab.active { background: #111; color: #fff; border-color: #111; }
       .subtabpane.hidden { display: none; }
@@ -269,6 +271,7 @@
         </div>
         <div id="tab-retrain" class="tabpane hidden">
           <div class="small" style="margin-bottom:6px">Train een nieuw command-model op basis van reviewed + auto-train data.</div>
+          <div class="small" id="retrainDelta" style="margin-bottom:6px"></div>
           <div class="small" id="retrainSummary" style="margin-bottom:8px; white-space: pre-wrap;"></div>
           <div class="row" style="margin-bottom:8px">
             <button id="btnRetrainStart" type="button">Train nieuw model</button>
@@ -280,8 +283,12 @@
                 <div id="tab-runtime" class="tabpane hidden">
           <div class="row subtabbar" style="margin-bottom:8px">
             <button id="cfgTabNao" class="subtab active" type="button">NAO config</button>
-            <button id="cfgTabAudio" class="subtab" type="button">Audio (mic / STT)</button>
+            <span class="subtab-sep">·</span>
+            <button id="cfgTabAudio" class="subtab" type="button">Audio input</button>
+            <span class="subtab-sep flow">→</span>
             <button id="cfgTabReasoning" class="subtab" type="button">Reasoning</button>
+            <span class="subtab-sep flow">→</span>
+            <button id="cfgTabOutput" class="subtab" type="button">Audio output</button>
           </div>
           <div id="cfgTabNaoPane" class="subtabpane">
             <div class="formgrid">
@@ -337,27 +344,22 @@
                 </div>
               </div>
               <div>
-                <label>NAO audio</label>
-                <div class="field-row">
-                  <button id="btnVolDown" type="button">-</button>
-                  <input id="cfgNaoVol" type="number" min="0" max="100" step="5" placeholder="volume 0-100" />
-                  <button id="btnVolUp" type="button">+</button>
-                </div>
-                <div class="field-row" style="margin-top:8px">
-                  <button id="btnSpeedDown" type="button">-</button>
-                  <input id="cfgNaoSpeed" type="number" min="0" max="100" step="5" placeholder="spreeksnelheid 0-100" />
-                  <button id="btnSpeedUp" type="button">+</button>
-                </div>
+                <label>NAO gedrag</label>
                 <div class="field-row" style="margin-top:8px">
                   <label class="enable-row" style="margin:0"><span>Autonomous life:</span><input id="cfgNaoLifeEnabled" type="checkbox" /></label>
                   <span id="cfgNaoLifeState" class="pill">autonomous: onbekend</span>
+                </div>
+                <div class="field-row" style="margin-top:8px">
+                  <label class="enable-row" style="margin:0" title="Pauzeert o.a. awareness/background/speaking movement tijdens behaviors, zonder NAO naar rest te sturen.">
+                    <span>Pauzeer autonome beweging tijdens behaviors</span>
+                    <input id="cfgNaoPauseMotion" type="checkbox" />
+                  </label>
                 </div>
                 <div class="field-row" style="margin-top:8px">
                   <label class="enable-row" style="margin:0"><span>Auto-rest:</span><input id="cfgNaoAutoRestEnabled" type="checkbox" /></label>
                   <input id="cfgNaoAutoRestSeconds" type="number" min="10" step="10" placeholder="seconds" style="max-width:140px" />
                 </div>
                 <div id="cfgNaoAutoRestNote" class="small" style="margin-top:6px"></div>
-                <div id="cfgNaoAudioNote" class="small" style="margin-top:6px"></div>
               </div>
             </div>
           </div>
@@ -427,6 +429,102 @@
                   <input id="cfgAzureEndSilence" type="number" placeholder="end_silence_ms" title="End silence: extra afkapmoment naast VAD/PTT; te laag = eerder afgesneden. Richtwaarde 800–2000 ms; hoger bij lange pauzes." />
                 </div>
                 <div id="cfgAzureNote" class="small" style="margin-top:6px"></div>
+              </div>
+            </div>
+          </div>
+          <div id="cfgTabOutputPane" class="subtabpane hidden">
+            <div class="formgrid">
+              <div>
+                <label>Output target</label>
+                <div class="row">
+                  <select id="cfgOutputTarget">
+                    <option value="nao">NAO speakers</option>
+                    <option value="server">Server speakers</option>
+                    <option value="none">Geen audio (alleen tekst)</option>
+                  </select>
+                </div>
+                <div id="cfgOutputTargetNote" class="small" style="margin-top:6px"></div>
+              </div>
+              <div id="outputDeviceSection">
+                <label>Speaker device</label>
+                <div class="row">
+                  <select id="cfgOutputDevice"></select>
+                </div>
+                <div id="cfgOutputDeviceName" class="device-name"></div>
+              </div>
+              <div>
+                <label>TTS engine</label>
+                <select id="cfgTtsEngine">
+                  <option value="nao_native">nao_native</option>
+                  <option value="piper">piper</option>
+                  <option value="azure">azure</option>
+                </select>
+                <div class="small" style="margin-top:6px">Azure gebruikt AZURE_SPEECH_KEY + AZURE_SPEECH_REGION.</div>
+              </div>
+              <details id="cfgAzureTtsSection" style="display:none">
+                <summary>Azure instellingen (geavanceerd)</summary>
+                <div class="row" style="margin-top:6px">
+                  <label>Azure voice
+                    <select id="cfgAzureVoice"></select>
+                  </label>
+                </div>
+                <div class="row" style="margin-top:6px">
+                  <label>Rate (%)
+                    <input id="cfgAzureRate" type="number" step="1" placeholder="100" title="Spreeksnelheid. Default 100%. Richtwaarde 80–120." />
+                  </label>
+                  <label>Pitch (st)
+                    <input id="cfgAzurePitch" type="number" step="0.5" placeholder="0" title="Pitch in semitonen. Default 0. Richtwaarde -4 tot +4." />
+                  </label>
+                </div>
+                <div class="row" style="margin-top:6px">
+                  <label>Volume (dB)
+                    <input id="cfgAzureVolume" type="number" step="1" placeholder="0" title="Volume in dB. Default 0. Richtwaarde -6 tot +6." />
+                  </label>
+                </div>
+                <div id="cfgAzureTtsNote" class="small" style="margin-top:6px"></div>
+              </details>
+              <details id="cfgPiperSection" style="display:none">
+                <summary>Piper instellingen (geavanceerd)</summary>
+                <div class="row" style="margin-top:6px">
+                  <label>Piper model
+                    <select id="cfgPiperModel"></select>
+                  </label>
+                </div>
+                <div class="row" style="margin-top:6px">
+                  <label>Length scale (tempo)
+                    <input id="cfgPiperLength" type="number" step="0.01" placeholder="1.0" title="Spreeksnelheid (length_scale). Default 1.0. Lager = sneller (0.8–0.95), hoger = trager (1.05–1.3)." />
+                  </label>
+                  <label>Noise scale
+                    <input id="cfgPiperNoise" type="number" step="0.01" placeholder="0.667" title="Variatie/ruis (noise_scale). Default 0.667. Lager = stabieler (0.3–0.6), hoger = expressiever (0.7–1.0)." />
+                  </label>
+                </div>
+                <div class="row" style="margin-top:6px">
+                  <label>Noise w scale
+                    <input id="cfgPiperNoiseW" type="number" step="0.01" placeholder="0.8" title="Klankbreedte‑variatie (noise_w_scale). Default 0.8. Richtwaarde 0.6–1.0." />
+                  </label>
+                  <label>Sentence silence (s)
+                    <input id="cfgPiperSentenceSilence" type="number" step="0.05" placeholder="0.0" title="Stilte na iedere zin in seconden. Default 0.0. Richtwaarde 0.0–0.4." />
+                  </label>
+                </div>
+                <div class="row" style="margin-top:6px">
+                  <label>Volume
+                    <input id="cfgPiperVolume" type="number" step="0.1" placeholder="1.0" title="Volume multiplier. Default 1.0. Richtwaarde 0.6–1.5." />
+                  </label>
+                </div>
+              </details>
+              <div id="cfgNaoAudioSection">
+                <label>NAO audio</label>
+                <div class="field-row">
+                  <button id="btnVolDown" type="button">-</button>
+                  <input id="cfgNaoVol" type="number" min="0" max="100" step="5" placeholder="volume 0-100" />
+                  <button id="btnVolUp" type="button">+</button>
+                </div>
+                <div class="field-row" style="margin-top:8px">
+                  <button id="btnSpeedDown" type="button">-</button>
+                  <input id="cfgNaoSpeed" type="number" min="0" max="100" step="5" placeholder="spreeksnelheid 0-100" />
+                  <button id="btnSpeedUp" type="button">+</button>
+                </div>
+                <div id="cfgNaoAudioNote" class="small" style="margin-top:6px"></div>
               </div>
             </div>
           </div>
@@ -513,9 +611,11 @@
       const tabLogsPane = document.getElementById('tab-logs');
       const cfgTabNao = document.getElementById('cfgTabNao');
       const cfgTabAudio = document.getElementById('cfgTabAudio');
+      const cfgTabOutput = document.getElementById('cfgTabOutput');
       const cfgTabReasoning = document.getElementById('cfgTabReasoning');
       const cfgTabNaoPane = document.getElementById('cfgTabNaoPane');
       const cfgTabAudioPane = document.getElementById('cfgTabAudioPane');
+      const cfgTabOutputPane = document.getElementById('cfgTabOutputPane');
       const cfgTabReasoningPane = document.getElementById('cfgTabReasoningPane');
       const reviewTabQueue = document.getElementById('reviewTabQueue');
       const reviewTabReviewed = document.getElementById('reviewTabReviewed');
@@ -551,6 +651,7 @@
       const reviewCounterReview = document.getElementById('reviewCounterReview');
       const btnRetrainStart = document.getElementById('btnRetrainStart');
       const retrainStatus = document.getElementById('retrainStatus');
+      const retrainDelta = document.getElementById('retrainDelta');
       const retrainSummary = document.getElementById('retrainSummary');
       const retrainLog = document.getElementById('retrainLog');
         const cfgNaoBase = document.getElementById('cfgNaoBase');
@@ -574,11 +675,32 @@
         const btnSpeedDown = document.getElementById('btnSpeedDown');
         const btnSpeedUp = document.getElementById('btnSpeedUp');
         const cfgNaoAudioNote = document.getElementById('cfgNaoAudioNote');
-        const cfgNaoLifeEnabled = document.getElementById('cfgNaoLifeEnabled');
+      const cfgNaoLifeEnabled = document.getElementById('cfgNaoLifeEnabled');
       const cfgNaoLifeState = document.getElementById('cfgNaoLifeState');
+      const cfgNaoPauseMotion = document.getElementById('cfgNaoPauseMotion');
       const audioInputSection = document.getElementById('audioInputSection');
+      const outputDeviceSection = document.getElementById('outputDeviceSection');
       const pttVadSection = document.getElementById('pttVadSection');
       const wakeSection = document.getElementById('wakeSection');
+      const cfgOutputTarget = document.getElementById('cfgOutputTarget');
+      const cfgOutputTargetNote = document.getElementById('cfgOutputTargetNote');
+      const cfgOutputDevice = document.getElementById('cfgOutputDevice');
+      const cfgOutputDeviceName = document.getElementById('cfgOutputDeviceName');
+      const cfgTtsEngine = document.getElementById('cfgTtsEngine');
+      const cfgAzureTtsSection = document.getElementById('cfgAzureTtsSection');
+      const cfgAzureVoice = document.getElementById('cfgAzureVoice');
+      const cfgAzureRate = document.getElementById('cfgAzureRate');
+      const cfgAzurePitch = document.getElementById('cfgAzurePitch');
+      const cfgAzureVolume = document.getElementById('cfgAzureVolume');
+      const cfgAzureTtsNote = document.getElementById('cfgAzureTtsNote');
+      const cfgPiperSection = document.getElementById('cfgPiperSection');
+      const cfgPiperModel = document.getElementById('cfgPiperModel');
+      const cfgPiperLength = document.getElementById('cfgPiperLength');
+      const cfgPiperNoise = document.getElementById('cfgPiperNoise');
+      const cfgPiperNoiseW = document.getElementById('cfgPiperNoiseW');
+      const cfgPiperSentenceSilence = document.getElementById('cfgPiperSentenceSilence');
+      const cfgPiperVolume = document.getElementById('cfgPiperVolume');
+      const cfgNaoAudioSection = document.getElementById('cfgNaoAudioSection');
       const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
         const cfgNaoAutoRestSeconds = document.getElementById('cfgNaoAutoRestSeconds');
         const cfgNaoAutoRestNote = document.getElementById('cfgNaoAutoRestNote');
@@ -646,6 +768,10 @@
       let lastAppliedNaoIp = '';
       let ollamaLocalModels = [];
       let ollamaCloudModels = [];
+      let piperDefaultsByPath = {};
+      let lastPiperDefaults = null;
+      let lastTtsEngineValue = null;
+      let lastAzureVoiceValue = null;
 
       let audioCtx = null;
       let stream = null;
@@ -683,8 +809,9 @@
         let reviewTab = 'queue';
         let reviewQueueSortMode = 'confidence';
         let reviewAutoQueueSortMode = 'confidence';
-        let reviewAutoSortMode = 'confidence';
-        let retrainPoll = null;
+      let reviewAutoSortMode = 'confidence';
+      let retrainPoll = null;
+      let lastPiperModelValue = '';
 
       function disableConfirmCard(card, label) {
         const buttons = card.querySelectorAll('button');
@@ -790,6 +917,7 @@
         if (client && listenMode === 'continuous') {
           setListenMode('ptt');
         }
+        updateOutputAvailability();
       }
 
       if (listenModeEl) {
@@ -901,11 +1029,12 @@
           if (cfgNaoAudioNote) cfgNaoAudioNote.textContent = note || '';
         }
 
-        function setNaoLifeEnabled(enabled, stateText) {
-          const disabled = !enabled;
-          if (cfgNaoLifeEnabled) cfgNaoLifeEnabled.disabled = disabled;
-          if (cfgNaoLifeState) cfgNaoLifeState.textContent = stateText || 'autonomous: onbekend';
-        }
+      function setNaoLifeEnabled(enabled, stateText) {
+        const disabled = !enabled;
+        if (cfgNaoLifeEnabled) cfgNaoLifeEnabled.disabled = disabled;
+        if (cfgNaoLifeState) cfgNaoLifeState.textContent = stateText || 'autonomous: onbekend';
+        if (cfgNaoPauseMotion) cfgNaoPauseMotion.disabled = disabled;
+      }
 
         async function refreshNaoAudio(force = false) {
           const now = Date.now();
@@ -1431,7 +1560,7 @@
       }
 
       async function refreshRetrainState() {
-        if (!reviewCounter && !reviewCounterReview) return;
+        if (!reviewCounter && !reviewCounterReview && !retrainDelta) return;
         try {
           const r = await fetch('/api/al_retrain_state');
           const j = await r.json();
@@ -1444,6 +1573,7 @@
             : `Nieuwe reviewed sinds laatste retrain: ${count}`;
           if (reviewCounter) reviewCounter.textContent = msg;
           if (reviewCounterReview) reviewCounterReview.textContent = msg;
+          if (retrainDelta) retrainDelta.textContent = msg;
         } catch (_) {}
       }
 
@@ -2137,6 +2267,7 @@
           refreshRetrainState().catch(() => {});
         }
         if (isRetrain) {
+          refreshRetrainState().catch(() => {});
           refreshRetrainStatus().catch(() => {});
         }
       }
@@ -2157,12 +2288,15 @@
       function setConfigTab(which) {
         const isNao = which === 'nao';
         const isAudio = which === 'audio';
+        const isOutput = which === 'output';
         const isReasoning = which === 'reasoning';
         if (cfgTabNao) cfgTabNao.classList.toggle('active', isNao);
         if (cfgTabAudio) cfgTabAudio.classList.toggle('active', isAudio);
+        if (cfgTabOutput) cfgTabOutput.classList.toggle('active', isOutput);
         if (cfgTabReasoning) cfgTabReasoning.classList.toggle('active', isReasoning);
         if (cfgTabNaoPane) cfgTabNaoPane.classList.toggle('hidden', !isNao);
         if (cfgTabAudioPane) cfgTabAudioPane.classList.toggle('hidden', !isAudio);
+        if (cfgTabOutputPane) cfgTabOutputPane.classList.toggle('hidden', !isOutput);
         if (cfgTabReasoningPane) cfgTabReasoningPane.classList.toggle('hidden', !isReasoning);
         try {
           localStorage.setItem(CFG_SUBTAB_KEY, which);
@@ -2192,6 +2326,43 @@
         function readFloatOrNull(value) {
           const v = parseFloat(String(value || '').trim());
           return Number.isNaN(v) ? null : v;
+        }
+
+        function getPiperDefaultsFor(path) {
+          const fallback = {
+            length_scale: 1.0,
+            noise_scale: 0.667,
+            noise_w_scale: 0.8,
+            sentence_silence: 0.0,
+            volume: 1.0
+          };
+          if (!path) return fallback;
+          const found = piperDefaultsByPath[path];
+          return found ? { ...fallback, ...found } : fallback;
+        }
+
+        function applyPiperDefaults(force) {
+          if (!cfgPiperModel) return;
+          const defaults = getPiperDefaultsFor(cfgPiperModel.value || '');
+          const fields = [
+            { el: cfgPiperLength, key: 'length_scale' },
+            { el: cfgPiperNoise, key: 'noise_scale' },
+            { el: cfgPiperNoiseW, key: 'noise_w_scale' },
+            { el: cfgPiperSentenceSilence, key: 'sentence_silence' },
+            { el: cfgPiperVolume, key: 'volume' }
+          ];
+          fields.forEach(({ el, key }) => {
+            if (!el) return;
+            const currentRaw = String(el.value || '').trim();
+            const currentNum = parseFloat(currentRaw);
+            const prevDefault = lastPiperDefaults ? Number(lastPiperDefaults[key]) : null;
+            const isPrevDefault = prevDefault != null && !Number.isNaN(currentNum) && Math.abs(currentNum - prevDefault) < 1e-9;
+            const shouldSet = force || currentRaw === '' || isPrevDefault;
+            if (shouldSet && defaults[key] != null && !Number.isNaN(Number(defaults[key]))) {
+              el.value = String(defaults[key]);
+            }
+          });
+          lastPiperDefaults = defaults;
         }
 
         function parseWakeWords(value) {
@@ -2229,6 +2400,14 @@
             inputDevice = null;
           }
         }
+        let outputDevice = null;
+        if (cfgOutputDevice) {
+          const outputValue = cfgOutputDevice.value;
+          if (outputValue !== '') {
+            const parsed = Number(outputValue);
+            outputDevice = Number.isNaN(parsed) ? null : parsed;
+          }
+        }
         const naoIpValue = (cfgNaoIp.value || '').trim() || lastAppliedNaoIp || '';
         const naoBaseValue = (cfgNaoBase.value || '').trim() || lastAppliedBaseUrl || '';
         const behaviorValue = (cfgBehavior.value || '').trim() || lastAppliedBehaviorUrl || '';
@@ -2241,6 +2420,25 @@
             pre_roll_ms: readIntOrNull(cfgVadPreRoll.value),
             max_utterance_s: readFloatOrNull(cfgVadMaxUtter.value),
           };
+          let outputTarget = (cfgOutputTarget && cfgOutputTarget.value) || 'nao';
+          if (!isServerUi()) outputTarget = 'server';
+          if (outputTarget !== 'server') outputDevice = null;
+          if (outputTarget === 'none') {
+            outputDevice = null;
+          }
+          let piperModelPath = cfgPiperModel ? (cfgPiperModel.value || '').trim() : '';
+          if ((cfgTtsEngine && cfgTtsEngine.value) === 'piper' && !piperModelPath && cfgPiperModel) {
+            piperModelPath = cfgPiperModel.value || '';
+          }
+          const azureVoice = cfgAzureVoice ? (cfgAzureVoice.value || '').trim() : '';
+          const azureRate = readFloatOrNull(cfgAzureRate ? cfgAzureRate.value : '');
+          const azurePitch = readFloatOrNull(cfgAzurePitch ? cfgAzurePitch.value : '');
+          const azureVolume = readFloatOrNull(cfgAzureVolume ? cfgAzureVolume.value : '');
+          const piperLengthScale = readFloatOrNull(cfgPiperLength ? cfgPiperLength.value : '');
+          const piperNoiseScale = readFloatOrNull(cfgPiperNoise ? cfgPiperNoise.value : '');
+          const piperNoiseWScale = readFloatOrNull(cfgPiperNoiseW ? cfgPiperNoiseW.value : '');
+          const piperSentenceSilence = readFloatOrNull(cfgPiperSentenceSilence ? cfgPiperSentenceSilence.value : '');
+          const piperVolume = readFloatOrNull(cfgPiperVolume ? cfgPiperVolume.value : '');
           return {
             nao_ip: naoIpValue,
             nao_ip_enabled: !!cfgNaoIpEnabled.checked,
@@ -2262,6 +2460,20 @@
             azure_end_silence_ms: readIntOrNull(cfgAzureEndSilence.value),
             cmdrec: cfgCmdrec.value,
             confirm_policy: cfgConfirmPolicy.value,
+            nao_pause_autonomous_motion: !!(cfgNaoPauseMotion && cfgNaoPauseMotion.checked),
+            output_target: outputTarget,
+            output_device: outputDevice,
+            tts_engine: (cfgTtsEngine && cfgTtsEngine.value) || 'nao_native',
+            piper_model_path: piperModelPath,
+            piper_length_scale: piperLengthScale,
+            piper_noise_scale: piperNoiseScale,
+            piper_noise_w_scale: piperNoiseWScale,
+            piper_sentence_silence: piperSentenceSilence,
+            piper_volume: piperVolume,
+            azure_tts_voice: azureVoice || null,
+            azure_tts_rate: azureRate,
+            azure_tts_pitch: azurePitch,
+            azure_tts_volume_db: azureVolume,
           llm_type: cfgLlmType.value,
           llm_model: (cfgLlmModel.value || '').trim(),
           master_prompt_file: cfgMasterPrompt.value || null,
@@ -2337,6 +2549,59 @@
             ? `auto-rest: aan (${cfgNaoAutoRestSeconds.value}s)`
             : 'auto-rest: uit';
         }
+        if (cfgNaoPauseMotion) {
+          cfgNaoPauseMotion.checked = !!cfg.nao_pause_autonomous_motion;
+        }
+        const outputTarget = cfg.output_target || (cfg.output_nao_tts ? 'nao' : 'server');
+        if (cfgOutputTarget) {
+          cfgOutputTarget.value = outputTarget;
+        }
+        if (cfgOutputDevice) {
+          cfgOutputDevice.value = cfg.output_device == null ? '' : String(cfg.output_device);
+        }
+        if (cfgTtsEngine) {
+          const desiredEngine = (cfg.tts_engine || '').toLowerCase() || (outputTarget === 'server' ? 'piper' : 'nao_native');
+          const hasOption = [...cfgTtsEngine.options].some(o => o.value === desiredEngine);
+          cfgTtsEngine.value = hasOption ? desiredEngine : (outputTarget === 'server' ? 'piper' : 'nao_native');
+        }
+        if (cfgAzureVoice) {
+          lastAzureVoiceValue = cfg.azure_tts_voice || '';
+          if (cfg.azure_tts_voice && [...cfgAzureVoice.options].some(o => o.value === cfg.azure_tts_voice)) {
+            cfgAzureVoice.value = cfg.azure_tts_voice;
+          }
+        }
+        if (cfgAzureRate) {
+          cfgAzureRate.value = (cfg.azure_tts_rate != null) ? String(cfg.azure_tts_rate) : '100';
+        }
+        if (cfgAzurePitch) {
+          cfgAzurePitch.value = (cfg.azure_tts_pitch != null) ? String(cfg.azure_tts_pitch) : '0';
+        }
+        if (cfgAzureVolume) {
+          cfgAzureVolume.value = (cfg.azure_tts_volume_db != null) ? String(cfg.azure_tts_volume_db) : '0';
+        }
+        if (cfgPiperModel) {
+          lastPiperModelValue = cfg.piper_model_path || '';
+          if (cfg.piper_model_path && [...cfgPiperModel.options].some(o => o.value === cfg.piper_model_path)) {
+            cfgPiperModel.value = cfg.piper_model_path;
+          }
+        }
+        const piperDefaults = getPiperDefaultsFor((cfg.piper_model_path || (cfgPiperModel ? cfgPiperModel.value : '')));
+        if (cfgPiperLength) {
+          cfgPiperLength.value = (cfg.piper_length_scale != null) ? String(cfg.piper_length_scale) : String(piperDefaults.length_scale ?? '');
+        }
+        if (cfgPiperNoise) {
+          cfgPiperNoise.value = (cfg.piper_noise_scale != null) ? String(cfg.piper_noise_scale) : String(piperDefaults.noise_scale ?? '');
+        }
+        if (cfgPiperNoiseW) {
+          cfgPiperNoiseW.value = (cfg.piper_noise_w_scale != null) ? String(cfg.piper_noise_w_scale) : String(piperDefaults.noise_w_scale ?? '');
+        }
+        if (cfgPiperSentenceSilence) {
+          cfgPiperSentenceSilence.value = (cfg.piper_sentence_silence != null) ? String(cfg.piper_sentence_silence) : String(piperDefaults.sentence_silence ?? '');
+        }
+        if (cfgPiperVolume) {
+          cfgPiperVolume.value = (cfg.piper_volume != null) ? String(cfg.piper_volume) : String(piperDefaults.volume ?? '');
+        }
+        lastPiperDefaults = piperDefaults;
         const deviceValue = cfg.input_device == null ? '' : String(cfg.input_device);
         if (deviceValue === 'nao_ssh' && ![...cfgInputDevice.options].some(o => o.value === 'nao_ssh')) {
           const optNao = document.createElement('option');
@@ -2346,6 +2611,8 @@
         }
         cfgInputDevice.value = deviceValue;
         updateDeviceName();
+        updateOutputDeviceName();
+        updateOutputAvailability();
       }
 
       async function loadDevices() {
@@ -2377,6 +2644,84 @@
         updateDeviceName();
       }
 
+      async function loadOutputDevices() {
+        if (!cfgOutputDevice) return;
+        const r = await fetch('/api/audio_output_devices');
+        const j = await r.json();
+        if (!j.ok) return;
+        const current = cfgOutputDevice.value;
+        cfgOutputDevice.innerHTML = '';
+        const optDefault = document.createElement('option');
+        optDefault.value = '';
+        optDefault.textContent = 'Default speakers';
+        cfgOutputDevice.appendChild(optDefault);
+        (j.devices || []).forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = String(d.index);
+          opt.textContent = d.name || `Device ${d.index}`;
+          cfgOutputDevice.appendChild(opt);
+        });
+        if (current) {
+          cfgOutputDevice.value = current;
+        }
+        updateOutputDeviceName();
+      }
+
+      async function loadPiperModels() {
+        if (!cfgPiperModel) return;
+        const r = await fetch('/api/piper_models');
+        const j = await r.json();
+        if (!j.ok) return;
+        piperDefaultsByPath = {};
+        const current = cfgPiperModel.value;
+        cfgPiperModel.innerHTML = '';
+        (j.models || []).forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.path;
+          opt.textContent = m.label;
+          cfgPiperModel.appendChild(opt);
+          if (m.defaults) {
+            piperDefaultsByPath[m.path] = m.defaults;
+          }
+        });
+        const desired = current || lastPiperModelValue;
+        if (desired && [...cfgPiperModel.options].some(o => o.value === desired)) {
+          cfgPiperModel.value = desired;
+        } else if (j.default_model) {
+          cfgPiperModel.value = j.default_model;
+        }
+        applyPiperDefaults(false);
+      }
+
+      async function loadAzureVoices() {
+        if (!cfgAzureVoice) return;
+        const r = await fetch('/api/azure_voices');
+        const j = await r.json();
+        if (!j.ok) {
+          cfgAzureVoice.innerHTML = '';
+          if (cfgAzureTtsNote) {
+            cfgAzureTtsNote.textContent = j.error || 'Azure key/region ontbreekt.';
+          }
+          return;
+        }
+        if (cfgAzureTtsNote) cfgAzureTtsNote.textContent = '';
+        const current = cfgAzureVoice.value;
+        cfgAzureVoice.innerHTML = '';
+        (j.voices || []).forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.short_name;
+          const meta = [];
+          if (v.locale) meta.push(v.locale);
+          if (v.voice_type) meta.push(v.voice_type);
+          opt.textContent = meta.length ? `${v.short_name} (${meta.join(', ')})` : v.short_name;
+          cfgAzureVoice.appendChild(opt);
+        });
+        const desired = current || lastAzureVoiceValue || j.default_voice;
+        if (desired && [...cfgAzureVoice.options].some(o => o.value === desired)) {
+          cfgAzureVoice.value = desired;
+        }
+      }
+
       function updateDeviceName() {
         const selected = cfgInputDevice.options[cfgInputDevice.selectedIndex];
         if (!selected) {
@@ -2390,6 +2735,113 @@
         } else {
           cfgInputDeviceName.textContent = selected.textContent;
         }
+      }
+
+      function updateOutputDeviceName() {
+        if (!cfgOutputDevice || !cfgOutputDeviceName) return;
+        const selected = cfgOutputDevice.options[cfgOutputDevice.selectedIndex];
+        if (!selected) {
+          cfgOutputDeviceName.textContent = '';
+          return;
+        }
+        if (selected.value === '') {
+          cfgOutputDeviceName.textContent = 'Default speakers';
+        } else {
+          cfgOutputDeviceName.textContent = selected.textContent;
+        }
+      }
+
+      function updatePiperVisibility() {
+        if (!cfgPiperSection || !cfgTtsEngine) return;
+        const engine = (cfgTtsEngine.value || '').toLowerCase();
+        const show = engine === 'piper';
+        cfgPiperSection.style.display = show ? '' : 'none';
+        [cfgPiperModel, cfgPiperLength, cfgPiperNoise, cfgPiperNoiseW, cfgPiperSentenceSilence, cfgPiperVolume].forEach((el) => {
+          if (!el) return;
+          el.disabled = !show;
+        });
+        if (show) {
+          applyPiperDefaults(false);
+        }
+      }
+
+      function updateAzureTtsVisibility() {
+        if (!cfgAzureTtsSection || !cfgTtsEngine) return;
+        const target = (cfgOutputTarget && cfgOutputTarget.value) || 'server';
+        const engine = (cfgTtsEngine.value || '').toLowerCase();
+        const show = engine === 'azure' && target !== 'none';
+        cfgAzureTtsSection.style.display = show ? '' : 'none';
+        [cfgAzureVoice, cfgAzureRate, cfgAzurePitch, cfgAzureVolume].forEach((el) => {
+          if (!el) return;
+          el.disabled = !show || !!cfgTtsEngine.disabled;
+        });
+        if (cfgAzureVoice) {
+          if (show && cfgAzureVoice.options.length === 0) {
+            loadAzureVoices().catch(() => {});
+          }
+        }
+      }
+
+      function updateOutputAvailability() {
+        const client = !isServerUi();
+        const naoAvailable = !!(cfgNaoIpEnabled && cfgNaoIpEnabled.checked && (cfgNaoIp.value || '').trim() && lastNaoOk);
+        if (cfgOutputTarget) {
+          if (client) {
+            cfgOutputTarget.value = 'server';
+            cfgOutputTarget.disabled = true;
+          } else {
+            cfgOutputTarget.disabled = false;
+            const naoOpt = [...cfgOutputTarget.options].find(o => o.value === 'nao');
+            if (naoOpt) naoOpt.disabled = !naoAvailable;
+            if (!naoAvailable && cfgOutputTarget.value === 'nao') {
+              cfgOutputTarget.value = 'server';
+            }
+          }
+        }
+        const target = (cfgOutputTarget && cfgOutputTarget.value) || 'server';
+        if (cfgOutputTargetNote) {
+          if (client) {
+            cfgOutputTargetNote.textContent = 'Client gebruikt server-instellingen (read-only).';
+          } else if (target === 'none') {
+            cfgOutputTargetNote.textContent = 'Geen audio output: alleen tekst in UI/logs.';
+          } else if (target === 'server') {
+            cfgOutputTargetNote.textContent = '';
+          } else if (!naoAvailable) {
+            cfgOutputTargetNote.textContent = 'NAO is niet verbonden.';
+          } else {
+            cfgOutputTargetNote.textContent = '';
+          }
+        }
+        if (outputDeviceSection) outputDeviceSection.style.display = target === 'server' ? '' : 'none';
+        if (cfgOutputDevice) cfgOutputDevice.disabled = client || target !== 'server';
+        if (cfgTtsEngine) cfgTtsEngine.disabled = client || target === 'none';
+        if (cfgNaoAudioSection) cfgNaoAudioSection.style.display = target === 'nao' ? '' : 'none';
+        if (target !== 'nao') {
+          setNaoAudioEnabled(false, 'Alleen relevant bij NAO output.');
+        }
+        if (cfgTtsEngine) {
+          if (target === 'none') {
+            if (!lastTtsEngineValue) lastTtsEngineValue = cfgTtsEngine.value;
+            cfgTtsEngine.disabled = true;
+          } else if (!client) {
+            cfgTtsEngine.disabled = false;
+            if (lastTtsEngineValue) {
+              cfgTtsEngine.value = lastTtsEngineValue;
+              lastTtsEngineValue = null;
+            }
+            if (target === 'server') {
+              if (cfgTtsEngine.value === 'nao_native') {
+                cfgTtsEngine.value = 'piper';
+              }
+            }
+          }
+          const naoNativeOpt = [...cfgTtsEngine.options].find(o => o.value === 'nao_native');
+          if (naoNativeOpt) {
+            naoNativeOpt.disabled = target !== 'nao';
+          }
+        }
+        updatePiperVisibility();
+        updateAzureTtsVisibility();
       }
 
       function updateAzureFields() {
@@ -2612,8 +3064,8 @@
                 updateDeviceName();
                 setStatus('NAO mic is down; switched to default device.');
               }
-            lastNaoOk = naoOk;
             }
+            updateOutputAvailability();
             if (!cfg.base_enabled) {
               setHealth(healthBase, 'disabled', 'base');
             } else {
@@ -3195,6 +3647,7 @@
       tabLogs.addEventListener('click', () => setTab('logs'));
       if (cfgTabNao) cfgTabNao.addEventListener('click', () => setConfigTab('nao'));
       if (cfgTabAudio) cfgTabAudio.addEventListener('click', () => setConfigTab('audio'));
+      if (cfgTabOutput) cfgTabOutput.addEventListener('click', () => setConfigTab('output'));
       if (cfgTabReasoning) cfgTabReasoning.addEventListener('click', () => setConfigTab('reasoning'));
       if (reviewTabQueue) reviewTabQueue.addEventListener('click', () => setReviewTab('queue'));
       if (reviewTabReviewed) reviewTabReviewed.addEventListener('click', () => setReviewTab('reviewed'));
@@ -3320,6 +3773,43 @@
       });
 
       cfgInputDevice.addEventListener('change', () => { updateDeviceName(); updateContinuousAvailability(); updateRecButton(); });
+      if (cfgOutputTarget) {
+        cfgOutputTarget.addEventListener('change', () => {
+          updateOutputAvailability();
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgOutputDevice) {
+        cfgOutputDevice.addEventListener('change', () => {
+          updateOutputDeviceName();
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgTtsEngine) {
+        cfgTtsEngine.addEventListener('change', () => {
+          updateOutputAvailability();
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgPiperModel) {
+        cfgPiperModel.addEventListener('change', () => {
+          applyPiperDefaults(false);
+          applyRuntimeConfig(getConfigFromForm(), false, false);
+        });
+      }
+      if (cfgAzureVoice) {
+        cfgAzureVoice.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
+      [cfgAzureRate, cfgAzurePitch, cfgAzureVolume].forEach((el) => {
+        if (el) {
+          el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+        }
+      });
+      [cfgPiperLength, cfgPiperNoise, cfgPiperNoiseW, cfgPiperSentenceSilence, cfgPiperVolume].forEach((el) => {
+        if (el) {
+          el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+        }
+      });
       [cfgVadStartRms, cfgVadStopSilence, cfgVadPreRoll, cfgVadMaxUtter].forEach((el) => {
         if (el) {
           el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
@@ -3358,6 +3848,8 @@
         pollHealth(cfg).then(ok => scheduleHealth(cfg, ok));
         applyRuntimeConfig(cfg, false, false);
         loadDevices().catch(() => {});
+        loadOutputDevices().catch(() => {});
+        updateOutputAvailability();
       });
 
       cfgCmdrec.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
@@ -3409,6 +3901,9 @@
         cfgNaoLifeEnabled.addEventListener('change', () => {
           setNaoLife(cfgNaoLifeEnabled.checked);
         });
+      }
+      if (cfgNaoPauseMotion) {
+        cfgNaoPauseMotion.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       }
       if (danceList) {
         danceList.addEventListener('change', () => updateDanceCommandLabel());
@@ -3499,7 +3994,7 @@
           return null;
         }
       })();
-      if (savedCfgTab === 'nao' || savedCfgTab === 'audio' || savedCfgTab === 'reasoning') {
+      if (savedCfgTab === 'nao' || savedCfgTab === 'audio' || savedCfgTab === 'output' || savedCfgTab === 'reasoning') {
         setConfigTab(savedCfgTab);
       } else {
         setConfigTab('nao');
@@ -3509,6 +4004,9 @@
       applyActiveLearningMode();
       refreshState().catch(() => setStatus('Kan server niet bereiken.'));
       loadDevices().catch(() => {});
+      loadOutputDevices().catch(() => {});
+      loadPiperModels().catch(() => {});
+      loadAzureVoices().catch(() => {});
       loadCmdrecBundles().catch(() => {});
       loadReviewLabels().catch(() => {});
       refreshRetrainState().catch(() => {});
@@ -3545,8 +4043,11 @@
             cfg = merged;
             await applyRuntimeConfig(cfg, true);
           }
-        applyConfigToForm(cfg, j.effective_config || null);
+          applyConfigToForm(cfg, j.effective_config || null);
           loadDevices().catch(() => {});
+          loadOutputDevices().catch(() => {});
+          loadPiperModels().catch(() => {});
+          loadAzureVoices().catch(() => {});
           cfgLlmModel.disabled = cfgLlmType.value === 'echo';
           if (cfgLlmType.value === 'ollama_local') {
             await loadOllamaModels('local');

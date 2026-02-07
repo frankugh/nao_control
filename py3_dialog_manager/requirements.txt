@@ -9,3 +9,5 @@ ollama
 webrtcvad
 prompt_toolkit
 azure-cognitiveservices-speech
+piper-tts
+pathvalidate

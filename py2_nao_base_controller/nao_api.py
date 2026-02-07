@@ -328,6 +328,109 @@ def autonomous_life_set():
         return make_response(status="error", error=repr(e))
 
 
+def _as_bool(value):
+    try:
+        if isinstance(value, bool):
+            return value
+        v = str(value).strip().lower()
+        return v in ("1", "true", "yes", "on")
+    except Exception:
+        return False
+
+
+@app.route("/autonomous_motion_pause", methods=["POST"])
+def autonomous_motion_pause():
+    try:
+        _touch_activity()
+        state = {}
+
+        try:
+            awareness = get_proxy("ALBasicAwareness")
+            enabled = bool(awareness.isEnabled())
+            state["basic_awareness"] = enabled
+            if enabled:
+                awareness.setEnabled(False)
+        except Exception as e:
+            state["basic_awareness_error"] = repr(e)
+
+        try:
+            bg = get_proxy("ALBackgroundMovement")
+            enabled = bool(bg.isEnabled())
+            state["background_movement"] = enabled
+            if enabled:
+                bg.setEnabled(False)
+        except Exception as e:
+            state["background_movement_error"] = repr(e)
+
+        try:
+            sm = get_proxy("ALSpeakingMovement")
+            enabled = bool(sm.isEnabled())
+            state["speaking_movement"] = enabled
+            if enabled:
+                sm.setEnabled(False)
+        except Exception as e:
+            state["speaking_movement_error"] = repr(e)
+
+        try:
+            motion = get_proxy("ALMotion")
+            enabled = bool(motion.getBreathEnabled("Body"))
+            state["breath_body"] = enabled
+            if enabled:
+                motion.setBreathEnabled("Body", False)
+        except Exception as e:
+            state["breath_body_error"] = repr(e)
+
+        return make_response(data=state)
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/autonomous_motion_restore", methods=["POST"])
+def autonomous_motion_restore():
+    try:
+        _touch_activity()
+        payload = request.get_json(force=True) or {}
+        state = payload.get("state") or {}
+        if not isinstance(state, dict):
+            state = {}
+        errors = {}
+
+        try:
+            if "basic_awareness" in state:
+                awareness = get_proxy("ALBasicAwareness")
+                awareness.setEnabled(_as_bool(state.get("basic_awareness")))
+        except Exception as e:
+            errors["basic_awareness"] = repr(e)
+
+        try:
+            if "background_movement" in state:
+                bg = get_proxy("ALBackgroundMovement")
+                bg.setEnabled(_as_bool(state.get("background_movement")))
+        except Exception as e:
+            errors["background_movement"] = repr(e)
+
+        try:
+            if "speaking_movement" in state:
+                sm = get_proxy("ALSpeakingMovement")
+                sm.setEnabled(_as_bool(state.get("speaking_movement")))
+        except Exception as e:
+            errors["speaking_movement"] = repr(e)
+
+        try:
+            if "breath_body" in state:
+                motion = get_proxy("ALMotion")
+                motion.setBreathEnabled("Body", _as_bool(state.get("breath_body")))
+        except Exception as e:
+            errors["breath_body"] = repr(e)
+
+        resp = {"restored": True}
+        if errors:
+            resp["errors"] = errors
+        return make_response(data=resp)
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
 @app.route("/tts", methods=["POST"])
 def tts_say():
     try:

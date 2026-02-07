@@ -130,6 +130,16 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         state = data.get("state", None)
         return _wrap_py2_call(nao_actions.set_autonomous_life, enabled, state)
 
+    @app.route("/nao/autonomous_motion_pause", methods=["POST"])
+    def nao_autonomous_motion_pause():
+        return _wrap_py2_call(nao_actions.pause_autonomous_motion)
+
+    @app.route("/nao/autonomous_motion_restore", methods=["POST"])
+    def nao_autonomous_motion_restore():
+        data = request.get_json(force=True, silent=True) or {}
+        state = data.get("state", None)
+        return _wrap_py2_call(nao_actions.restore_autonomous_motion, state)
+
     @app.route("/nao/tts", methods=["POST"])
     def nao_tts():
         data = request.get_json(force=True, silent=True) or {}

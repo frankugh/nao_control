@@ -237,6 +237,19 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
 
     output_cfg = (cfg_src.get("output", {}) or {})
     output_type = (output_cfg.get("type") or "none").lower()
+    output_params = output_cfg.get("params", {}) if isinstance(output_cfg.get("params"), dict) else {}
+    output_target = output_cfg.get("target")
+    if not output_target:
+        if output_type == "none":
+            output_target = "none"
+        else:
+            output_target = "nao" if output_type in ("nao_tts", "nao_py2", "nao") else "server"
+    tts_engine = output_cfg.get("engine")
+    if not tts_engine:
+        if output_type == "none":
+            tts_engine = "none"
+        else:
+            tts_engine = "nao_native" if output_type in ("nao_tts", "nao_py2", "nao") else "piper"
 
     input_device = mic_params.get("input_device", None)
     if mic_cfg.get("type") == "nao_ssh":
@@ -267,6 +280,15 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "llm_model": llm_params.get("model", ""),
         "master_prompt_file": master_prompt_file,
         "output_nao_tts": output_type in ("nao_tts", "nao_py2", "nao"),
+        "output_target": output_target,
+        "output_device": output_cfg.get("device", None) if output_cfg.get("device", None) is not None else output_params.get("output_device"),
+        "tts_engine": tts_engine,
+        "piper_model_path": output_cfg.get("piper_model_path") or output_params.get("piper_model_path"),
+        "azure_tts_voice": output_cfg.get("azure_tts_voice") or output_params.get("azure_tts_voice"),
+        "azure_tts_rate": output_cfg.get("azure_tts_rate") or output_params.get("azure_tts_rate"),
+        "azure_tts_pitch": output_cfg.get("azure_tts_pitch") or output_params.get("azure_tts_pitch"),
+        "azure_tts_volume_db": output_cfg.get("azure_tts_volume_db") or output_params.get("azure_tts_volume_db"),
+        "nao_pause_autonomous_motion": bool(cfg_src.get("nao_pause_autonomous_motion", False)),
         "nao_auto_rest_after_s": cfg_src.get("nao_auto_rest_after_s", 0),
     }
 
@@ -382,6 +404,48 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     else:
         cfg_out["output"] = {"type": "none", "params": {}}
         cfg_out["behavior_backend"] = "print"
+
+    if "nao_pause_autonomous_motion" in runtime_cfg:
+        cfg_out["nao_pause_autonomous_motion"] = bool(runtime_cfg.get("nao_pause_autonomous_motion"))
+
+    output_target = (runtime_cfg.get("output_target") or "").lower()
+    tts_engine = (runtime_cfg.get("tts_engine") or "").lower()
+    output_device = runtime_cfg.get("output_device", None)
+    piper_model_path = runtime_cfg.get("piper_model_path")
+    piper_length_scale = runtime_cfg.get("piper_length_scale")
+    piper_noise_scale = runtime_cfg.get("piper_noise_scale")
+    piper_noise_w_scale = runtime_cfg.get("piper_noise_w_scale")
+    piper_sentence_silence = runtime_cfg.get("piper_sentence_silence")
+    piper_volume = runtime_cfg.get("piper_volume")
+    azure_tts_voice = runtime_cfg.get("azure_tts_voice")
+    azure_tts_rate = runtime_cfg.get("azure_tts_rate")
+    azure_tts_pitch = runtime_cfg.get("azure_tts_pitch")
+    azure_tts_volume_db = runtime_cfg.get("azure_tts_volume_db")
+    base_output_params = (cfg_out.get("output") or {}).get("params", {}) or {}
+    output_timeout = base_output_params.get("timeout")
+    if output_target or tts_engine or output_device is not None:
+        if output_target == "none" or tts_engine == "none":
+            cfg_out["output"] = {"type": "none", "params": {}}
+        else:
+            cfg_out["output"] = {
+                "type": "router",
+                "params": {
+                    "target": output_target or "nao",
+                    "tts_engine": tts_engine or "nao_native",
+                    "output_device": output_device,
+                    "piper_model_path": piper_model_path,
+                    "piper_length_scale": piper_length_scale,
+                    "piper_noise_scale": piper_noise_scale,
+                    "piper_noise_w_scale": piper_noise_w_scale,
+                    "piper_sentence_silence": piper_sentence_silence,
+                    "piper_volume": piper_volume,
+                    "azure_tts_voice": azure_tts_voice,
+                    "azure_tts_rate": azure_tts_rate,
+                    "azure_tts_pitch": azure_tts_pitch,
+                    "azure_tts_volume_db": azure_tts_volume_db,
+                    "timeout": output_timeout,
+                },
+            }
 
     return cfg_out
 
@@ -696,12 +760,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     ) -> None:
         if not text or emit_used != "pipeline":
             return
-        output_enabled = bool(runtime_cfg.get("base_enabled", True))
-        if output_enabled:
-            base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-            if not _check_ping(base_url, "/ping"):
-                output_enabled = False
-        if not output_enabled:
+        if not _output_enabled(runtime_cfg):
             return
         try:
             pipeline.output.emit(text)
@@ -1894,11 +1953,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     ),
                 )
 
-        output_enabled = bool(runtime_cfg.get("base_enabled", True))
-        if output_enabled:
-            base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-            if not _check_ping(base_url, "/ping"):
-                output_enabled = False
+        output_enabled = _output_enabled(runtime_cfg)
         if not output_enabled:
             emit_used = "none"
         output_backend = pipeline.output if emit_used == "pipeline" else NoOpOutputBackend()
@@ -2231,8 +2286,21 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             }
 
     def _run_retrain_job() -> None:
-        reviewed_count = _reviewed_count()
+        reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
+        auto_train_path = os.path.join(al_dir, "auto_train.jsonl")
+        auto_queue_path = os.path.join(al_dir, "auto_train_queue.jsonl")
+        with al_lock:
+            reviewed_count = len(_load_jsonl(reviewed_path))
+            auto_count = len(_load_jsonl(auto_train_path))
+            auto_queue_count = len(_load_jsonl(auto_queue_path))
         auto_sample = int(math.floor(0.5 * reviewed_count))
+        state = _load_retrain_state()
+        state, _ = _sync_retrain_state(state)
+        since = int(state.get("since_last_retrain", 0))
+        _append_retrain_log(
+            f"INFO: AL counts: reviewed={reviewed_count} auto_train={auto_count} auto_train_queue={auto_queue_count} new_since_last_retrain={since}"
+        )
+        _append_retrain_log(f"INFO: Auto-train sample cap: {auto_sample} (50% van reviewed)")
         cmd = [
             _cmdrec_train_python(),
             "tools/retrain_cmdrec.py",
@@ -2939,6 +3007,136 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         except Exception:
             return {"devices": [], "default_input": None}
 
+    def _list_audio_output_devices() -> Dict[str, Any]:
+        if sd is None:
+            return {"devices": [], "default_output": None}
+        devices = []
+        try:
+            raw = sd.query_devices()
+            default_hostapi = sd.default.hostapi
+            default_out = sd.default.device[1] if sd.default.device else None
+            for idx, d in enumerate(raw):
+                if d.get("max_output_channels", 0) <= 0:
+                    continue
+                name = d.get("name", "")
+                if "microsoft sound mapper" in name.lower():
+                    continue
+                if default_hostapi is not None and d.get("hostapi") != default_hostapi:
+                    continue
+                devices.append({"index": idx, "name": name, "default": idx == default_out})
+            if not devices:
+                for idx, d in enumerate(raw):
+                    if d.get("max_output_channels", 0) <= 0:
+                        continue
+                    name = d.get("name", "")
+                    if "microsoft sound mapper" in name.lower():
+                        continue
+                    devices.append({"index": idx, "name": name, "default": idx == default_out})
+            return {"devices": devices, "default_output": default_out}
+        except Exception:
+            return {"devices": [], "default_output": None}
+
+    def _piper_models_root() -> Path:
+        env_root = os.environ.get("PIPER_MODELS_DIR")
+        if env_root:
+            return Path(env_root)
+        return Path(repo_root) / "piper_tts_models"
+
+    def _list_piper_models() -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        root = _piper_models_root()
+        if not root.exists():
+            return [], None
+        models: List[Dict[str, Any]] = []
+        for onnx_path in sorted(root.rglob("*.onnx")):
+            config_path = Path(str(onnx_path) + ".json")
+            if not config_path.exists():
+                continue
+            try:
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                cfg = {}
+            sample_rate = (cfg.get("audio") or {}).get("sample_rate")
+            inference = cfg.get("inference") or {}
+            def _safe_float(value: Any, fallback: float) -> float:
+                try:
+                    return float(value)
+                except Exception:
+                    return float(fallback)
+            defaults = {
+                "length_scale": _safe_float(inference.get("length_scale", 1.0), 1.0),
+                "noise_scale": _safe_float(inference.get("noise_scale", 0.667), 0.667),
+                "noise_w_scale": _safe_float(inference.get("noise_w", 0.8), 0.8),
+                "sentence_silence": 0.0,
+                "volume": 1.0,
+            }
+            rel = onnx_path.relative_to(root)
+            parts = rel.parts
+            label = "/".join(parts[-4:-1]) if len(parts) >= 4 else "/".join(parts[:-1])
+            models.append(
+                {
+                    "path": str(onnx_path),
+                    "label": label or onnx_path.stem,
+                    "sample_rate": sample_rate,
+                    "defaults": defaults,
+                }
+            )
+        default_model = None
+        for m in models:
+            if "nathalie" in m["label"].lower() and "medium" in m["label"].lower():
+                default_model = m["path"]
+                break
+        if default_model is None and models:
+            default_model = models[0]["path"]
+        return models, default_model
+
+    def _azure_env() -> Tuple[Optional[str], Optional[str]]:
+        key = os.environ.get("AZURE_SPEECH_KEY") or os.environ.get("AZURE_TTS_KEY")
+        region = os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("AZURE_TTS_REGION")
+        return key, region
+
+    def _list_azure_voices() -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:
+        key, region = _azure_env()
+        if not key or not region:
+            return [], None, "AZURE_SPEECH_KEY of AZURE_SPEECH_REGION ontbreekt."
+        url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/voices/list"
+        try:
+            resp = requests.get(url, headers={"Ocp-Apim-Subscription-Key": key}, timeout=5)
+        except requests.RequestException as exc:
+            return [], None, f"Azure voices fetch failed: {exc}"
+        if resp.status_code >= 400:
+            return [], None, f"Azure voices fetch failed ({resp.status_code})."
+        try:
+            payload = resp.json()
+        except ValueError:
+            return [], None, "Azure voices response is not JSON."
+        voices_raw: List[Dict[str, Any]] = []
+        for item in payload if isinstance(payload, list) else []:
+            short_name = item.get("ShortName")
+            if not short_name:
+                continue
+            voices_raw.append(
+                {
+                    "short_name": short_name,
+                    "locale": item.get("Locale"),
+                    "gender": item.get("Gender"),
+                    "voice_type": item.get("VoiceType"),
+                }
+            )
+        voices = [v for v in voices_raw if str(v.get("locale") or "").lower().startswith("nl-")]
+        if not voices:
+            voices = voices_raw
+        default_voice = None
+        for loc in ("nl-NL", "nl-BE"):
+            for v in voices:
+                if v.get("locale") == loc and str(v.get("voice_type") or "").lower() == "neural":
+                    default_voice = v["short_name"]
+                    break
+            if default_voice:
+                break
+        if default_voice is None and voices:
+            default_voice = voices[0]["short_name"]
+        return voices, default_voice, None
+
     def _check_ping(url: Optional[str], path: str) -> bool:
         if not url:
             return False
@@ -2954,9 +3152,39 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return True
         return data.get("status") == "ok"
 
+    def _output_enabled(runtime_cfg: JsonLike) -> bool:
+        target = (runtime_cfg.get("output_target") or "").lower()
+        if target == "none":
+            return False
+        if target == "server":
+            return True
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        if not base_enabled:
+            return False
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        if not _check_ping(base_url, "/ping"):
+            return False
+        return True
+
     @app.get("/api/audio_devices")
     def api_audio_devices():
         return jsonify({"ok": True, **_list_audio_devices()})
+
+    @app.get("/api/audio_output_devices")
+    def api_audio_output_devices():
+        return jsonify({"ok": True, **_list_audio_output_devices()})
+
+    @app.get("/api/piper_models")
+    def api_piper_models():
+        models, default_model = _list_piper_models()
+        return jsonify({"ok": True, "models": models, "default_model": default_model})
+
+    @app.get("/api/azure_voices")
+    def api_azure_voices():
+        voices, default_voice, err = _list_azure_voices()
+        if err:
+            return jsonify({"ok": False, "error": err, "voices": []})
+        return jsonify({"ok": True, "voices": voices, "default_voice": default_voice})
 
     @app.get("/api/cmdrec_bundles")
     def api_cmdrec_bundles():
@@ -3057,7 +3285,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         sid = _get_sid()
         runtime_cfg = _get_runtime_cfg(sid)
         merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
-        output_enabled = bool(runtime_cfg.get("output_nao_tts", True))
+        output_enabled = _output_enabled(runtime_cfg)
         resp = jsonify(
             {
                 "ok": True,

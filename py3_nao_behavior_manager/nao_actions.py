@@ -84,6 +84,19 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+    def pause_autonomous_motion(self, timeout=None):
+        """Pauzeer autonome bewegingen (awareness/background/speaking/breath)."""
+        resp = self._post_json("/autonomous_motion_pause", {}, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def restore_autonomous_motion(self, state, timeout=None):
+        """Herstel autonome bewegingen met eerder opgeslagen state."""
+        payload = {"state": state or {}}
+        resp = self._post_json("/autonomous_motion_restore", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def say_native(self, text, timeout=None):
         """
         Roep de Py2 /tts-endpoint aan met JSON {"text": ...}.

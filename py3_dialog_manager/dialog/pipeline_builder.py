@@ -32,6 +32,7 @@ from dialog.backends.llm_ollama import OllamaClient, OllamaLLMBackend
 from dialog.backends.output_console import ConsoleOutputBackend
 from dialog.backends.output_none import NoOpOutputBackend
 from dialog.backends.output_nao import NaoTTSOutputBackend
+from dialog.backends.output_router import OutputRouterBackend
 
 
 JsonLike = Dict[str, Any]
@@ -401,6 +402,8 @@ def _make_output(cfg: JsonLike, *, api_router: Optional[NaoApiRouter] = None):
         return NoOpOutputBackend()
     if t in ("nao_tts", "nao_py2", "nao"):
         return NaoTTSOutputBackend(api_router=api_router, **p)
+    if t in ("router", "output_router"):
+        return OutputRouterBackend(api_router=api_router, **p)
 
     raise ValueError(f"Onbekende output.type: {t!r}")
 
@@ -468,7 +471,10 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     if cmdrec_cfg["cmdrec"] != "none":
         cmdrec_recognizer = CmdRecRecognizer(cmdrec_cfg)
         if api_router is not None and cmdrec_cfg["behavior_backend"] == "nao":
-            behavior_executor = ConsoleAndBehaviorExecutor(BehaviorExecutor(api_router=api_router))
+            pause_motion = bool(cfg.get("nao_pause_autonomous_motion", False))
+            behavior_executor = ConsoleAndBehaviorExecutor(
+                BehaviorExecutor(api_router=api_router, pause_autonomous_motion=pause_motion)
+            )
         else:
             behavior_executor = PrintBehaviorExecutor()
         _preload_cmdrec(cmdrec_recognizer)
