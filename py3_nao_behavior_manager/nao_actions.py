@@ -36,10 +36,16 @@ class NaoActions(object):
         timeout = kwargs.get("timeout", self.timeout)
         return requests.post(self.base_url + path, files=files, data=data or {}, timeout=timeout)
 
-    def _post_stream(self, path, data, headers=None, **kwargs):
+    def _post_stream(self, path, data, headers=None, params=None, **kwargs):
         """Stuur raw bytes (audio-stream) door naar Py2."""
         timeout = kwargs.get("timeout", self.timeout)
-        return requests.post(self.base_url + path, data=data, headers=headers or {}, timeout=timeout)
+        return requests.post(
+            self.base_url + path,
+            data=data,
+            headers=headers or {},
+            params=params or {},
+            timeout=timeout,
+        )
 
     # ===== eenvoudige NAO-acties (JSON) =====
 
@@ -284,13 +290,21 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
-    def play_stream(self, audio_bytes, content_type="application/octet-stream", timeout=None):
+    def play_stream(self, audio_bytes, content_type="application/octet-stream", sample_rate=None, timeout=None):
         """
         Proxy naar /play_stream voor raw PCM-audio.
         :param audio_bytes: bytes-object met audio-data
         :param content_type: Content-Type header (default application/octet-stream)
+        :param sample_rate: sample rate (Hz), optioneel
         """
         headers = {"Content-Type": content_type}
-        resp = self._post_stream("/play_stream", data=audio_bytes, headers=headers, timeout=timeout or self.timeout)
+        params = {"sample_rate": int(sample_rate)} if sample_rate else None
+        resp = self._post_stream(
+            "/play_stream",
+            data=audio_bytes,
+            headers=headers,
+            params=params,
+            timeout=timeout or self.timeout,
+        )
         resp.raise_for_status()
         return resp.json()

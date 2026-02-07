@@ -295,7 +295,12 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
 
         # Content-Type laten we doorlopen; als die niet gezet is valt Py2 terug op zijn default
         content_type = request.headers.get("Content-Type", "application/octet-stream")
-        return _wrap_py2_call(nao_actions.play_stream, audio_bytes, content_type)
+        sr = request.args.get("sample_rate") or request.headers.get("X-Sample-Rate")
+        try:
+            sample_rate = int(sr) if sr else None
+        except Exception:
+            sample_rate = None
+        return _wrap_py2_call(nao_actions.play_stream, audio_bytes, content_type, sample_rate)
 
     return app
 

@@ -1043,9 +1043,14 @@ def play_stream():
     """
     try:
         audio_bytes = request.data
+        sr = request.args.get("sample_rate") or request.headers.get("X-Sample-Rate")
+        try:
+            sample_rate = int(sr) if sr else 22050
+        except Exception:
+            sample_rate = 22050
         utils = _utils()
-        utils.stream_and_play(audio_bytes)
-        return jsonify({"status": "playing (streamed)"})
+        utils.stream_and_play(audio_bytes, sample_rate=sample_rate)
+        return jsonify({"status": "playing (streamed)", "sample_rate": int(sample_rate)})
     except Exception as e:
         app.logger.error(traceback.format_exc())
         return make_response(status="error", error=repr(e))

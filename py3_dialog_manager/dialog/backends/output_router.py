@@ -5,6 +5,7 @@ import subprocess
 import io
 import tempfile
 import wave
+import time
 from typing import Optional
 
 import numpy as np
@@ -74,6 +75,10 @@ class OutputRouterBackend(OutputBackend):
         self._api_router = api_router
         self._timeout = float(timeout) if timeout else 5.0
         self._warned = False
+        self._stream_failures = 0
+        self._stream_cooldown_until = 0.0
+        self._stream_fail_threshold = 2
+        self._stream_cooldown_s = 300.0
 
     def _warn(self, msg: str) -> None:
         self._console.emit(msg)
@@ -139,6 +144,44 @@ class OutputRouterBackend(OutputBackend):
             return
         if resp.status_code >= 400:
             self._warn(f"[output] NAO play_audio returned {resp.status_code}")
+
+    def _try_stream_to_nao(self, wav_bytes: bytes) -> bool:
+        if self._api_router is None:
+            self._warn("[output] NAO router ontbreekt; kan audio niet streamen.")
+            return False
+        now = time.time()
+        if now < self._stream_cooldown_until:
+            return False
+        try:
+            audio, sample_rate = self._wav_bytes_to_int16(wav_bytes)
+        except Exception as exc:
+            self._warn(f"[output] WAV->PCM faalde: {exc}")
+            return False
+        try:
+            resp = self._api_router.post(
+                "/play_stream",
+                data=audio.tobytes(),
+                headers={"Content-Type": "application/octet-stream"},
+                params={"sample_rate": int(sample_rate)},
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            self._stream_failures += 1
+            if self._stream_failures >= self._stream_fail_threshold:
+                self._stream_cooldown_until = now + self._stream_cooldown_s
+                self._warn("[output] Stream faalde; tijdelijk terug naar upload (cooldown).")
+            self._warn(f"[output] NAO play_stream failed: {exc}")
+            return False
+        if resp.status_code >= 400:
+            self._stream_failures += 1
+            if self._stream_failures >= self._stream_fail_threshold:
+                self._stream_cooldown_until = now + self._stream_cooldown_s
+                self._warn("[output] Stream faalde; tijdelijk terug naar upload (cooldown).")
+            self._warn(f"[output] NAO play_stream returned {resp.status_code}")
+            return False
+        self._stream_failures = 0
+        self._stream_cooldown_until = 0.0
+        return True
 
     def _synthesize_piper(self, text: str) -> Optional[bytes]:
         if not self.piper_model_path:
@@ -263,6 +306,8 @@ class OutputRouterBackend(OutputBackend):
             if self.target == "server":
                 return self._play_wav_bytes(wav_bytes)
             if self.target == "nao":
+                if self._try_stream_to_nao(wav_bytes):
+                    return
                 return self._send_wav_to_nao(wav_bytes)
 
         if self.tts_engine == "azure":
@@ -272,6 +317,8 @@ class OutputRouterBackend(OutputBackend):
             if self.target == "server":
                 return self._play_wav_bytes(wav_bytes)
             if self.target == "nao":
+                if self._try_stream_to_nao(wav_bytes):
+                    return
                 return self._send_wav_to_nao(wav_bytes)
 
         if not self._warned:
