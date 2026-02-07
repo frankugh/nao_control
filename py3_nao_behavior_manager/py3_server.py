@@ -130,6 +130,32 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         state = data.get("state", None)
         return _wrap_py2_call(nao_actions.set_autonomous_life, enabled, state)
 
+    @app.route("/nao/custom_life_apply", methods=["POST"])
+    def nao_custom_life_apply():
+        data = request.get_json(force=True, silent=True) or {}
+        settings = data.get("settings", None)
+        return _wrap_py2_call(nao_actions.custom_life_apply, settings)
+
+    @app.route("/nao/custom_life_state", methods=["GET"])
+    def nao_custom_life_state():
+        return _wrap_py2_call(nao_actions.custom_life_state)
+
+    @app.route("/nao/custom_life_restore", methods=["POST"])
+    def nao_custom_life_restore():
+        data = request.get_json(force=True, silent=True) or {}
+        state = data.get("state", None)
+        return _wrap_py2_call(nao_actions.custom_life_restore, state)
+
+    @app.route("/nao/custom_life_pause", methods=["POST"])
+    def nao_custom_life_pause():
+        return _wrap_py2_call(nao_actions.custom_life_pause)
+
+    @app.route("/nao/custom_life_resume", methods=["POST"])
+    def nao_custom_life_resume():
+        data = request.get_json(force=True, silent=True) or {}
+        state = data.get("state", None)
+        return _wrap_py2_call(nao_actions.custom_life_resume, state)
+
     @app.route("/nao/autonomous_motion_pause", methods=["POST"])
     def nao_autonomous_motion_pause():
         return _wrap_py2_call(nao_actions.pause_autonomous_motion)

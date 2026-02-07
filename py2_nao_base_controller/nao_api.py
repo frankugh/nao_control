@@ -431,6 +431,200 @@ def autonomous_motion_restore():
         return make_response(status="error", error=repr(e))
 
 
+def _custom_life_state():
+    state = {}
+    abilities = {}
+    try:
+        life = get_proxy("ALAutonomousLife")
+        if hasattr(life, "getAutonomousAbilityEnabled"):
+            try:
+                abilities["basic_awareness"] = bool(life.getAutonomousAbilityEnabled("BasicAwareness"))
+            except Exception as e:
+                abilities["basic_awareness_error"] = repr(e)
+            try:
+                abilities["background_movement"] = bool(life.getAutonomousAbilityEnabled("BackgroundMovement"))
+            except Exception as e:
+                abilities["background_movement_error"] = repr(e)
+            try:
+                abilities["speaking_movement"] = bool(life.getAutonomousAbilityEnabled("SpeakingMovement"))
+            except Exception as e:
+                abilities["speaking_movement_error"] = repr(e)
+    except Exception as e:
+        abilities["life_error"] = repr(e)
+    try:
+        awareness = get_proxy("ALBasicAwareness")
+        if hasattr(awareness, "isAwarenessRunning"):
+            state["basic_awareness"] = bool(awareness.isAwarenessRunning())
+        elif hasattr(awareness, "isEnabled"):
+            state["basic_awareness"] = bool(awareness.isEnabled())
+        else:
+            raise AttributeError("ALBasicAwareness has no isAwarenessRunning/isEnabled")
+    except Exception as e:
+        state["basic_awareness_error"] = repr(e)
+    try:
+        moves = get_proxy("ALAutonomousMoves")
+        if hasattr(moves, "getExpressiveListeningEnabled"):
+            state["background_movement"] = bool(moves.getExpressiveListeningEnabled())
+        elif hasattr(moves, "isExpressiveListeningEnabled"):
+            state["background_movement"] = bool(moves.isExpressiveListeningEnabled())
+        else:
+            raise AttributeError("ALAutonomousMoves has no get/isExpressiveListeningEnabled")
+    except Exception as e:
+        state["background_movement_error"] = repr(e)
+    try:
+        motion = get_proxy("ALMotion")
+        state["breathing"] = bool(motion.getBreathEnabled("Body"))
+    except Exception as e:
+        state["breathing_error"] = repr(e)
+    if abilities:
+        state["abilities"] = abilities
+    return state
+
+
+def _apply_custom_life_state(state):
+    if not isinstance(state, dict):
+        return
+    abilities = state.get("abilities") if isinstance(state.get("abilities"), dict) else None
+    def _get_setting(key):
+        if abilities is not None and key in abilities:
+            return abilities.get(key)
+        if key in state:
+            return state.get(key)
+        return None
+
+    try:
+        life = get_proxy("ALAutonomousLife")
+        if hasattr(life, "setAutonomousAbilityEnabled"):
+            basic = _get_setting("basic_awareness")
+            if basic is not None:
+                life.setAutonomousAbilityEnabled("BasicAwareness", _as_bool(basic))
+            background = _get_setting("background_movement")
+            if background is not None:
+                life.setAutonomousAbilityEnabled("BackgroundMovement", _as_bool(background))
+    except Exception:
+        pass
+    try:
+        basic = _get_setting("basic_awareness")
+        if basic is not None:
+            awareness = get_proxy("ALBasicAwareness")
+            enabled = _as_bool(basic)
+            if enabled and hasattr(awareness, "startAwareness"):
+                awareness.startAwareness()
+            elif (not enabled) and hasattr(awareness, "stopAwareness"):
+                awareness.stopAwareness()
+            elif hasattr(awareness, "setEnabled"):
+                awareness.setEnabled(enabled)
+    except Exception:
+        pass
+    try:
+        background = _get_setting("background_movement")
+        if background is not None:
+            moves = get_proxy("ALAutonomousMoves")
+            if hasattr(moves, "setExpressiveListeningEnabled"):
+                moves.setExpressiveListeningEnabled(_as_bool(background))
+    except Exception:
+        pass
+    try:
+        breathing = _get_setting("breathing")
+        if breathing is not None:
+            motion = get_proxy("ALMotion")
+            motion.setBreathEnabled("Body", _as_bool(breathing))
+    except Exception:
+        pass
+
+
+@app.route("/custom_life_apply", methods=["POST"])
+def custom_life_apply():
+    try:
+        _touch_activity()
+        payload = request.get_json(force=True) or {}
+        settings = payload.get("settings") or {}
+        if not isinstance(settings, dict):
+            settings = {}
+        prev_state = {"modules": _custom_life_state()}
+        try:
+            life = get_proxy("ALAutonomousLife")
+            prev_state["life_state"] = life.getState()
+        except Exception:
+            pass
+        _apply_custom_life_state(settings)
+        return make_response(data={"prev_state": prev_state, "applied": settings})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/custom_life_restore", methods=["POST"])
+def custom_life_restore():
+    try:
+        _touch_activity()
+        payload = request.get_json(force=True) or {}
+        state = payload.get("state") or {}
+        if not isinstance(state, dict):
+            state = {}
+        life_state = state.get("life_state", None)
+        if life_state is not None:
+            try:
+                life = get_proxy("ALAutonomousLife")
+                life.setState(life_state)
+            except Exception:
+                pass
+        modules = state.get("modules") or {}
+        _apply_custom_life_state(modules)
+        return make_response(data={"restored": True})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/custom_life_pause", methods=["POST"])
+def custom_life_pause():
+    try:
+        _touch_activity()
+        state = _custom_life_state()
+        _apply_custom_life_state(
+            {
+                "basic_awareness": False,
+                "background_movement": False,
+                "breathing": False,
+            }
+        )
+        return make_response(data=state)
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/custom_life_state", methods=["GET"])
+def custom_life_state():
+    try:
+        _touch_activity()
+        data = {"modules": _custom_life_state()}
+        try:
+            life = get_proxy("ALAutonomousLife")
+            state = life.getState()
+            data["life_state"] = state
+            data["life_enabled"] = str(state).lower() != "disabled"
+        except Exception as e:
+            data["life_error"] = repr(e)
+        try:
+            data["is_awake"] = bool(is_awake())
+        except Exception:
+            pass
+        return make_response(data=data)
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/custom_life_resume", methods=["POST"])
+def custom_life_resume():
+    try:
+        _touch_activity()
+        payload = request.get_json(force=True) or {}
+        state = payload.get("state") or {}
+        _apply_custom_life_state(state)
+        return make_response(data={"restored": True})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
 @app.route("/tts", methods=["POST"])
 def tts_say():
     try:

@@ -84,6 +84,39 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+    def custom_life_apply(self, settings=None, timeout=None):
+        """Activeer custom life (AL uit, modules aan/uit)."""
+        payload = {"settings": settings or {}}
+        resp = self._post_json("/custom_life_apply", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def custom_life_state(self, timeout=None):
+        """Haal custom life status op."""
+        resp = self._get("/custom_life_state", timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def custom_life_restore(self, state, timeout=None):
+        """Herstel eerdere AL/modules state."""
+        payload = {"state": state or {}}
+        resp = self._post_json("/custom_life_restore", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def custom_life_pause(self, timeout=None):
+        """Pauzeer custom life (modules uit)."""
+        resp = self._post_json("/custom_life_pause", {}, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def custom_life_resume(self, state, timeout=None):
+        """Herstel custom life modules."""
+        payload = {"state": state or {}}
+        resp = self._post_json("/custom_life_resume", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def pause_autonomous_motion(self, timeout=None):
         """Pauzeer autonome bewegingen (awareness/background/speaking/breath)."""
         resp = self._post_json("/autonomous_motion_pause", {}, timeout=timeout or self.timeout)

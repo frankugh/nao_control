@@ -16,7 +16,8 @@ class BehaviorExecutor(ICommandExecutor):
         *,
         timeout_s: Optional[float] = None,
         api_router: Optional[NaoApiRouter] = None,
-        pause_autonomous_motion: bool = False,
+        custom_life_enabled: bool = False,
+        custom_life_settings: Optional[dict] = None,
         on_finish: Optional[Callable[[CommandDecision], None]] = None,
     ) -> None:
         self.api_router = api_router
@@ -29,37 +30,47 @@ class BehaviorExecutor(ICommandExecutor):
             timeout_s = self.api_router.timeout_s
         self.timeout_s = float(timeout_s or 5.0)
         self._on_finish = on_finish
-        self._pause_autonomous_motion_enabled = bool(pause_autonomous_motion)
+        self._custom_life_enabled = bool(custom_life_enabled)
+        self._custom_life_settings = (
+            dict(custom_life_settings) if isinstance(custom_life_settings, dict) else None
+        )
 
-    def _pause_autonomous_motion(self) -> Optional[dict]:
-        if not self._pause_autonomous_motion_enabled:
+    def _pause_custom_life(self) -> Optional[dict]:
+        if not self._custom_life_enabled:
             return None
         payload = {}
         try:
             if self.api_router is not None:
-                resp = self.api_router.post("/autonomous_motion_pause", json=payload, timeout=self.timeout_s)
+                resp = self.api_router.post("/custom_life_pause", json=payload, timeout=self.timeout_s)
             else:
-                resp = requests.post(f"{self.base_url}/autonomous_motion_pause", json=payload, timeout=self.timeout_s)
+                resp = requests.post(f"{self.base_url}/custom_life_pause", json=payload, timeout=self.timeout_s)
             data = resp.json() if resp.ok else {}
         except Exception as exc:
-            print(f"[NAO] pause autonomous motion failed: {exc}")
+            print(f"[NAO] pause custom life failed: {exc}")
             return None
         state = None
         if isinstance(data, dict):
             state = data.get("data") or data.get("state")
         return state if isinstance(state, dict) else None
 
-    def _restore_autonomous_motion(self, state: Optional[dict]) -> None:
-        if not self._pause_autonomous_motion_enabled or not state:
+    def _restore_custom_life(self, state: Optional[dict]) -> None:
+        if not self._custom_life_enabled:
             return
-        payload = {"state": state}
+        if self._custom_life_settings is not None:
+            payload = {"settings": self._custom_life_settings}
+            path = "/custom_life_apply"
+        else:
+            if not state:
+                return
+            payload = {"state": state}
+            path = "/custom_life_resume"
         try:
             if self.api_router is not None:
-                self.api_router.post("/autonomous_motion_restore", json=payload, timeout=self.timeout_s)
+                self.api_router.post(path, json=payload, timeout=self.timeout_s)
             else:
-                requests.post(f"{self.base_url}/autonomous_motion_restore", json=payload, timeout=self.timeout_s)
+                requests.post(f"{self.base_url}{path}", json=payload, timeout=self.timeout_s)
         except Exception as exc:
-            print(f"[NAO] restore autonomous motion failed: {exc}")
+            print(f"[NAO] restore custom life failed: {exc}")
 
     def set_on_finish(self, on_finish: Optional[Callable[[CommandDecision], None]]) -> None:
         self._on_finish = on_finish
@@ -89,7 +100,7 @@ class BehaviorExecutor(ICommandExecutor):
         if not behavior:
             raise ValueError(f"Geen behavior mapping voor label {cmd.label!r}.")
         payload = {"behavior": behavior}
-        pause_state = self._pause_autonomous_motion()
+        pause_state = self._pause_custom_life()
         try:
             if self.api_router is not None:
                 resp = self.api_router.post("/do_behavior", json=payload, timeout=self.timeout_s)
@@ -106,7 +117,7 @@ class BehaviorExecutor(ICommandExecutor):
         except requests.RequestException as exc:
             print(f"[NAO] behavior request failed: {exc}")
         finally:
-            self._restore_autonomous_motion(pause_state)
+            self._restore_custom_life(pause_state)
         self._notify_finish(cmd)
 
     def _normalize_label(self, label: str) -> str:

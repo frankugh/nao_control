@@ -288,7 +288,8 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "azure_tts_rate": output_cfg.get("azure_tts_rate") or output_params.get("azure_tts_rate"),
         "azure_tts_pitch": output_cfg.get("azure_tts_pitch") or output_params.get("azure_tts_pitch"),
         "azure_tts_volume_db": output_cfg.get("azure_tts_volume_db") or output_params.get("azure_tts_volume_db"),
-        "nao_pause_autonomous_motion": bool(cfg_src.get("nao_pause_autonomous_motion", False)),
+        "custom_life_enabled": bool(cfg_src.get("custom_life_enabled", False)),
+        "custom_life_settings": cfg_src.get("custom_life_settings", {}),
         "nao_auto_rest_after_s": cfg_src.get("nao_auto_rest_after_s", 0),
     }
 
@@ -405,8 +406,10 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
         cfg_out["output"] = {"type": "none", "params": {}}
         cfg_out["behavior_backend"] = "print"
 
-    if "nao_pause_autonomous_motion" in runtime_cfg:
-        cfg_out["nao_pause_autonomous_motion"] = bool(runtime_cfg.get("nao_pause_autonomous_motion"))
+    if "custom_life_enabled" in runtime_cfg:
+        cfg_out["custom_life_enabled"] = bool(runtime_cfg.get("custom_life_enabled"))
+    if "custom_life_settings" in runtime_cfg:
+        cfg_out["custom_life_settings"] = runtime_cfg.get("custom_life_settings") or {}
 
     output_target = (runtime_cfg.get("output_target") or "").lower()
     tts_engine = (runtime_cfg.get("tts_engine") or "").lower()
@@ -3323,6 +3326,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
         _rebuild_pipeline_for_sid(sid, merged)
+        _apply_custom_life(sid, runtime_cfg)
         resp = jsonify(
             {
                 "ok": True,
@@ -3374,6 +3378,34 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return base_url, "base"
         return None, "none"
 
+    def _apply_custom_life(sid: str, runtime_cfg: JsonLike) -> None:
+        enabled = bool(runtime_cfg.get("custom_life_enabled", False))
+        settings = runtime_cfg.get("custom_life_settings") or {}
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return
+        if mode == "behavior":
+            apply_url = base_url + "/nao/custom_life_apply"
+            restore_url = base_url + "/nao/custom_life_restore"
+        else:
+            apply_url = base_url + "/custom_life_apply"
+            restore_url = base_url + "/custom_life_restore"
+        state = _get_runtime_state(sid)
+        prev_state = state.get("custom_life_prev_state")
+        try:
+            if enabled:
+                resp = requests.post(apply_url, json={"settings": settings}, timeout=3.0)
+                data = resp.json() if resp.ok else {}
+                payload = data.get("data") if isinstance(data, dict) else None
+                if isinstance(payload, dict) and payload.get("prev_state") is not None:
+                    state["custom_life_prev_state"] = payload.get("prev_state")
+            else:
+                if prev_state:
+                    requests.post(restore_url, json={"state": prev_state}, timeout=3.0)
+                state.pop("custom_life_prev_state", None)
+        except Exception:
+            pass
+
     def _get_nao_audio_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
         base_url, mode = _resolve_nao_audio_url(runtime_cfg)
         if not base_url:
@@ -3419,6 +3451,23 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if enabled is None and state is not None:
             enabled = str(state).lower() != "disabled"
         return {"ok": True, "state": state, "enabled": enabled}
+
+    def _get_nao_custom_life_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "error": "NAO audio endpoint ontbreekt."}
+        try:
+            url = base_url + "/nao/custom_life_state" if mode == "behavior" else base_url + "/custom_life_state"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        payload = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(payload, dict):
+            return {"ok": False, "error": "invalid response"}
+        return {"ok": True, "state": payload}
 
     def _flatten_behaviors(payload: Any) -> List[str]:
         if isinstance(payload, list):
@@ -3531,6 +3580,11 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def api_nao_autonomous_life_state():
         runtime_cfg = _get_runtime_cfg(_get_sid())
         return jsonify(_get_nao_autonomous_life_state(runtime_cfg))
+
+    @app.get("/api/nao_custom_life_state")
+    def api_nao_custom_life_state():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        return jsonify(_get_nao_custom_life_state(runtime_cfg))
 
     @app.post("/api/nao_autonomous_life_set")
     def api_nao_autonomous_life_set():
@@ -3671,12 +3725,36 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         base_url, mode = _resolve_nao_audio_url(runtime_cfg)
         if not base_url:
             return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+        pause_state = None
+        if runtime_cfg.get("custom_life_enabled"):
+            try:
+                pause_url = base_url + ("/nao/custom_life_pause" if mode == "behavior" else "/custom_life_pause")
+                resp = requests.post(pause_url, json={}, timeout=3.0)
+                data = resp.json() if resp.ok else {}
+                if isinstance(data, dict):
+                    pause_state = data.get("data") or data.get("state")
+            except Exception:
+                pause_state = None
         try:
             url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
             resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
             data = resp.json() if resp.ok else {}
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        finally:
+            if runtime_cfg.get("custom_life_enabled"):
+                try:
+                    settings = runtime_cfg.get("custom_life_settings") or {}
+                    if settings:
+                        apply_url = base_url + ("/nao/custom_life_apply" if mode == "behavior" else "/custom_life_apply")
+                        requests.post(apply_url, json={"settings": settings}, timeout=3.0)
+                    elif pause_state:
+                        resume_url = base_url + (
+                            "/nao/custom_life_resume" if mode == "behavior" else "/custom_life_resume"
+                        )
+                        requests.post(resume_url, json={"state": pause_state}, timeout=3.0)
+                except Exception:
+                    pass
         if isinstance(data, dict) and data.get("status") not in (None, "ok"):
             return jsonify({"ok": False, "error": data.get("error") or "behavior failed"}), 400
         return jsonify({"ok": True})

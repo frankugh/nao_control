@@ -346,15 +346,34 @@
               <div>
                 <label>NAO gedrag</label>
                 <div class="field-row" style="margin-top:8px">
-                  <label class="enable-row" style="margin:0"><span>Autonomous life:</span><input id="cfgNaoLifeEnabled" type="checkbox" /></label>
+                  <label class="enable-row" style="margin:0">
+                    <span>Autonomous life:</span>
+                    <input id="cfgCustomLifeEnabled" type="checkbox" />
+                  </label>
                   <span id="cfgNaoLifeState" class="pill">autonomous: onbekend</span>
                 </div>
-                <div class="field-row" style="margin-top:8px">
-                  <label class="enable-row" style="margin:0" title="Pauzeert o.a. awareness/background/speaking movement tijdens behaviors, zonder NAO naar rest te sturen.">
-                    <span>Pauzeer autonome beweging tijdens behaviors</span>
-                    <input id="cfgNaoPauseMotion" type="checkbox" />
-                  </label>
-                </div>
+                <details id="cfgCustomLifeAdvanced" style="display:none; margin-top:8px">
+                  <summary>Autonomous life (geavanceerd)</summary>
+                  <div class="row" style="margin-top:6px">
+                    <label class="enable-row" style="margin:0">
+                      <span>Basic awareness (eye contact)</span>
+                      <input id="cfgCustomLifeAwareness" type="checkbox" />
+                    </label>
+                  </div>
+                  <div class="row" style="margin-top:6px">
+                    <label class="enable-row" style="margin:0">
+                      <span>Background movement</span>
+                      <input id="cfgCustomLifeBackground" type="checkbox" />
+                    </label>
+                  </div>
+                  <div class="row" style="margin-top:6px">
+                    <label class="enable-row" style="margin:0">
+                      <span>Breathing (body)</span>
+                      <input id="cfgCustomLifeBreathing" type="checkbox" />
+                    </label>
+                  </div>
+                </details>
+                <div id="cfgCustomLifeStatus" class="small" style="margin-top:6px"></div>
                 <div class="field-row" style="margin-top:8px">
                   <label class="enable-row" style="margin:0"><span>Auto-rest:</span><input id="cfgNaoAutoRestEnabled" type="checkbox" /></label>
                   <input id="cfgNaoAutoRestSeconds" type="number" min="10" step="10" placeholder="seconds" style="max-width:140px" />
@@ -419,8 +438,8 @@
                   <option value="azure">azure (cloud)</option>
                 </select>
               </div>
-              <div id="cfgAzureSection">
-                <label>Azure STT timeouts (ms)</label>
+              <details id="cfgAzureSection" class="collapsible" style="display:none">
+                <summary>Azure STT instellingen (geavanceerd)</summary>
                 <div class="small" title="Initial silence: als er te lang geen spraak is aan het begin, geeft Azure vaak 'no match'/lege tekst (fragment genegeerd). End silence: extra afkapmoment naast VAD/PTT; te laag = eerder afgesneden. Richtwaarden: initial_silence_ms ~ 3000–8000 (langzame start = hoger), end_silence_ms ~ 800–2000 (meer pauzes = hoger).">
                   Azure bepaalt zelf waar spraak start/stop in het audiobestand.
                 </div>
@@ -429,7 +448,7 @@
                   <input id="cfgAzureEndSilence" type="number" placeholder="end_silence_ms" title="End silence: extra afkapmoment naast VAD/PTT; te laag = eerder afgesneden. Richtwaarde 800–2000 ms; hoger bij lange pauzes." />
                 </div>
                 <div id="cfgAzureNote" class="small" style="margin-top:6px"></div>
-              </div>
+              </details>
             </div>
           </div>
           <div id="cfgTabOutputPane" class="subtabpane hidden">
@@ -675,9 +694,13 @@
         const btnSpeedDown = document.getElementById('btnSpeedDown');
         const btnSpeedUp = document.getElementById('btnSpeedUp');
         const cfgNaoAudioNote = document.getElementById('cfgNaoAudioNote');
-      const cfgNaoLifeEnabled = document.getElementById('cfgNaoLifeEnabled');
       const cfgNaoLifeState = document.getElementById('cfgNaoLifeState');
-      const cfgNaoPauseMotion = document.getElementById('cfgNaoPauseMotion');
+      const cfgCustomLifeEnabled = document.getElementById('cfgCustomLifeEnabled');
+      const cfgCustomLifeAdvanced = document.getElementById('cfgCustomLifeAdvanced');
+      const cfgCustomLifeAwareness = document.getElementById('cfgCustomLifeAwareness');
+      const cfgCustomLifeBackground = document.getElementById('cfgCustomLifeBackground');
+      const cfgCustomLifeBreathing = document.getElementById('cfgCustomLifeBreathing');
+      const cfgCustomLifeStatus = document.getElementById('cfgCustomLifeStatus');
       const audioInputSection = document.getElementById('audioInputSection');
       const outputDeviceSection = document.getElementById('outputDeviceSection');
       const pttVadSection = document.getElementById('pttVadSection');
@@ -778,7 +801,7 @@
       let processor = null;
       let input = null;
       let recording = false;
-      let lastLifeFetchAt = 0;
+      let lastCustomLifeFetchAt = 0;
       let selectedBehavior = '';
       let pcmChunks = [];
       let listenMode = 'ptt';
@@ -1031,9 +1054,12 @@
 
       function setNaoLifeEnabled(enabled, stateText) {
         const disabled = !enabled;
-        if (cfgNaoLifeEnabled) cfgNaoLifeEnabled.disabled = disabled;
         if (cfgNaoLifeState) cfgNaoLifeState.textContent = stateText || 'autonomous: onbekend';
-        if (cfgNaoPauseMotion) cfgNaoPauseMotion.disabled = disabled;
+        if (cfgCustomLifeEnabled) cfgCustomLifeEnabled.disabled = disabled;
+        if (cfgCustomLifeAdvanced) cfgCustomLifeAdvanced.open = false;
+        [cfgCustomLifeAwareness, cfgCustomLifeBackground, cfgCustomLifeBreathing].forEach((el) => {
+          if (el) el.disabled = disabled;
+        });
       }
 
         async function refreshNaoAudio(force = false) {
@@ -1055,25 +1081,47 @@
           }
         }
 
-      async function refreshNaoLife(force = false) {
+      async function refreshCustomLifeState(force = false) {
+        if (!cfgCustomLifeStatus) return;
+        if (!cfgCustomLifeEnabled || cfgCustomLifeEnabled.disabled) {
+          cfgCustomLifeStatus.textContent = '';
+          return;
+        }
+        if (!cfgCustomLifeEnabled.checked) {
+          cfgCustomLifeStatus.textContent = '';
+          if (cfgNaoLifeState) cfgNaoLifeState.textContent = 'autonomous: uit';
+          return;
+        }
         const now = Date.now();
-        if (!force && (now - lastLifeFetchAt) < 5000) return;
-        lastLifeFetchAt = now;
-          try {
-            const r = await fetch('/api/nao_autonomous_life_state');
-            const j = await r.json();
-            if (!j.ok) {
-              setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
-              return;
-            }
-            if (cfgNaoLifeEnabled && j.enabled != null) cfgNaoLifeEnabled.checked = !!j.enabled;
-            if (cfgNaoLifeState) {
-              const stateLabel = j.state ? String(j.state) : (j.enabled ? 'enabled' : 'disabled');
-              cfgNaoLifeState.textContent = `autonomous: ${stateLabel}`;
-            }
-            setNaoLifeEnabled(true, cfgNaoLifeState ? cfgNaoLifeState.textContent : '');
+        if (!force && (now - lastCustomLifeFetchAt) < 5000) return;
+        lastCustomLifeFetchAt = now;
+        try {
+          const r = await fetch('/api/nao_custom_life_state');
+          const j = await r.json();
+          if (!j.ok) {
+            cfgCustomLifeStatus.textContent = 'autonomous life: niet beschikbaar';
+            return;
+          }
+          const state = j.state || {};
+          const modules = (state.modules && typeof state.modules === 'object') ? state.modules : {};
+          const parts = [];
+          if (state.is_awake != null) parts.push(`awake:${state.is_awake ? 'ja' : 'nee'}`);
+          if (state.life_state != null) parts.push(`life:${state.life_state}`);
+          const onOff = (val) => (val ? 'aan' : 'uit');
+          if ('basic_awareness' in modules) parts.push(`awareness:${onOff(modules.basic_awareness)}`);
+          if ('background_movement' in modules) parts.push(`background:${onOff(modules.background_movement)}`);
+          if ('breathing' in modules) parts.push(`breathing:${onOff(modules.breathing)}`);
+          const errors = [];
+          Object.entries(modules).forEach(([key, val]) => {
+            if (!key.endsWith('_error')) return;
+            errors.push(`${key.replace('_error', '')}: ${val}`);
+          });
+          if (state.life_error) errors.push(`life: ${state.life_error}`);
+          const base = parts.join(' | ');
+          cfgCustomLifeStatus.textContent = errors.length ? `${base} | errors: ${errors.join('; ')}` : base;
+          if (cfgNaoLifeState) cfgNaoLifeState.textContent = 'autonomous: aan';
         } catch (e) {
-          setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
+          cfgCustomLifeStatus.textContent = 'autonomous life: niet beschikbaar';
         }
       }
 
@@ -1264,25 +1312,6 @@
           behaviorStatus.textContent = 'mislukt';
         }
       }
-
-        async function setNaoLife(value) {
-          try {
-            const r = await fetch('/api/nao_autonomous_life_set', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ enabled: !!value })
-            });
-            const j = await r.json();
-            if (!j.ok) throw new Error(j.error || 'autonomous life failed');
-            if (cfgNaoLifeEnabled) cfgNaoLifeEnabled.checked = !!j.enabled;
-            if (cfgNaoLifeState) {
-              const stateLabel = j.state ? String(j.state) : (j.enabled ? 'enabled' : 'disabled');
-              cfgNaoLifeState.textContent = `autonomous: ${stateLabel}`;
-            }
-          } catch (e) {
-            setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
-          }
-        }
 
         async function setNaoVolume(value) {
           const v = clampVolume(parseInt(value, 10));
@@ -2460,7 +2489,12 @@
             azure_end_silence_ms: readIntOrNull(cfgAzureEndSilence.value),
             cmdrec: cfgCmdrec.value,
             confirm_policy: cfgConfirmPolicy.value,
-            nao_pause_autonomous_motion: !!(cfgNaoPauseMotion && cfgNaoPauseMotion.checked),
+            custom_life_enabled: !!(cfgCustomLifeEnabled && cfgCustomLifeEnabled.checked),
+            custom_life_settings: {
+              basic_awareness: !!(cfgCustomLifeAwareness && cfgCustomLifeAwareness.checked),
+              background_movement: !!(cfgCustomLifeBackground && cfgCustomLifeBackground.checked),
+              breathing: !!(cfgCustomLifeBreathing && cfgCustomLifeBreathing.checked),
+            },
             output_target: outputTarget,
             output_device: outputDevice,
             tts_engine: (cfgTtsEngine && cfgTtsEngine.value) || 'nao_native',
@@ -2549,9 +2583,21 @@
             ? `auto-rest: aan (${cfgNaoAutoRestSeconds.value}s)`
             : 'auto-rest: uit';
         }
-        if (cfgNaoPauseMotion) {
-          cfgNaoPauseMotion.checked = !!cfg.nao_pause_autonomous_motion;
+        if (cfgCustomLifeEnabled) {
+          cfgCustomLifeEnabled.checked = !!cfg.custom_life_enabled;
         }
+        const customDefaults = {
+          basic_awareness: true,
+          background_movement: false,
+          breathing: true,
+        };
+        const customSettings = (cfg.custom_life_settings && typeof cfg.custom_life_settings === 'object')
+          ? { ...customDefaults, ...cfg.custom_life_settings }
+          : customDefaults;
+        if (cfgCustomLifeAwareness) cfgCustomLifeAwareness.checked = !!customSettings.basic_awareness;
+        if (cfgCustomLifeBackground) cfgCustomLifeBackground.checked = !!customSettings.background_movement;
+        if (cfgCustomLifeBreathing) cfgCustomLifeBreathing.checked = !!customSettings.breathing;
+        updateCustomLifeVisibility();
         const outputTarget = cfg.output_target || (cfg.output_nao_tts ? 'nao' : 'server');
         if (cfgOutputTarget) {
           cfgOutputTarget.value = outputTarget;
@@ -2849,6 +2895,9 @@
         if (cfgAzureSection) cfgAzureSection.style.display = isAzure ? '' : 'none';
         cfgAzureInitialSilence.disabled = !isAzure;
         cfgAzureEndSilence.disabled = !isAzure;
+        if (!isAzure && cfgAzureSection && cfgAzureSection.open) {
+          cfgAzureSection.open = false;
+        }
         if (cfgAzureNote) {
           if (!isAzure) {
             cfgAzureNote.textContent = '';
@@ -2860,6 +2909,26 @@
             cfgAzureNote.textContent = 'Azure defaults (not set). Laat leeg = Azure bepaalt zelf.';
           } else {
             cfgAzureNote.textContent = '';
+          }
+        }
+      }
+
+      function updateCustomLifeVisibility() {
+        if (!cfgCustomLifeAdvanced || !cfgCustomLifeEnabled) return;
+        const enabled = !!cfgCustomLifeEnabled.checked;
+        cfgCustomLifeAdvanced.style.display = enabled ? '' : 'none';
+        if (!enabled) {
+          cfgCustomLifeAdvanced.open = false;
+        }
+        [cfgCustomLifeAwareness, cfgCustomLifeBackground, cfgCustomLifeBreathing].forEach((el) => {
+          if (!el) return;
+          el.disabled = !enabled || !!cfgCustomLifeEnabled.disabled;
+        });
+        if (cfgNaoLifeState) {
+          if (cfgCustomLifeEnabled.disabled) {
+            cfgNaoLifeState.textContent = 'autonomous: niet beschikbaar';
+          } else {
+            cfgNaoLifeState.textContent = enabled ? 'autonomous: aan' : 'autonomous: uit';
           }
         }
       }
@@ -3088,10 +3157,11 @@
             if (audioOk) {
               setNaoAudioEnabled(true, '');
               refreshNaoAudio();
-              refreshNaoLife();
+              refreshCustomLifeState();
             } else {
               setNaoAudioEnabled(false, 'NAO audio niet verbonden.');
               setNaoLifeEnabled(false, 'autonomous: niet beschikbaar');
+              if (cfgCustomLifeStatus) cfgCustomLifeStatus.textContent = '';
             }
             const naoConnected = cfg.nao_ip_enabled && naoOk;
             if (naoConnected) {
@@ -3153,6 +3223,7 @@
         applyConfigToForm(j.runtime_config || j.config || cfg, j.effective_config || null);
         refreshProcessStatus();
         refreshProcessLogs();
+        refreshCustomLifeState(true);
       }
 
       async function resetRuntimeConfig() {
@@ -3897,19 +3968,25 @@
           applyRuntimeConfig(getConfigFromForm(), false, false);
         });
       }
-      if (cfgNaoLifeEnabled) {
-        cfgNaoLifeEnabled.addEventListener('change', () => {
-          setNaoLife(cfgNaoLifeEnabled.checked);
+      if (cfgCustomLifeEnabled) {
+        cfgCustomLifeEnabled.addEventListener('change', () => {
+          updateCustomLifeVisibility();
+          applyRuntimeConfig(getConfigFromForm(), false, false);
         });
       }
-      if (cfgNaoPauseMotion) {
-        cfgNaoPauseMotion.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
-      }
+      [cfgCustomLifeAwareness, cfgCustomLifeBackground, cfgCustomLifeBreathing].forEach((el) => {
+        if (el) {
+          el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+        }
+      });
       if (danceList) {
         danceList.addEventListener('change', () => updateDanceCommandLabel());
       }
       if (btnCmdRun) {
         btnCmdRun.addEventListener('click', () => runSelectedCommand());
+      }
+      if (cmdList) {
+        cmdList.addEventListener('dblclick', () => runSelectedCommand());
       }
       if (reviewSave) {
         reviewSave.addEventListener('click', () => submitReviewLabel());

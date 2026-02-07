@@ -471,9 +471,15 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     if cmdrec_cfg["cmdrec"] != "none":
         cmdrec_recognizer = CmdRecRecognizer(cmdrec_cfg)
         if api_router is not None and cmdrec_cfg["behavior_backend"] == "nao":
-            pause_motion = bool(cfg.get("nao_pause_autonomous_motion", False))
+            custom_life_enabled = bool(cfg.get("custom_life_enabled", False))
+            raw_custom_settings = cfg.get("custom_life_settings") or {}
+            custom_life_settings = raw_custom_settings if isinstance(raw_custom_settings, dict) and raw_custom_settings else None
             behavior_executor = ConsoleAndBehaviorExecutor(
-                BehaviorExecutor(api_router=api_router, pause_autonomous_motion=pause_motion)
+                BehaviorExecutor(
+                    api_router=api_router,
+                    custom_life_enabled=custom_life_enabled,
+                    custom_life_settings=custom_life_settings,
+                )
             )
         else:
             behavior_executor = PrintBehaviorExecutor()

@@ -186,7 +186,7 @@ class InputLLMOutputPipeline(DialogPipeline):
         else:
             print(f"DIALOG: reason={decision.reason or 'none'} top3=[{top3_str}]")
 
-    def _reset_behavior_state(self) -> None:
+    def _reset_behavior_state(self, *args, **kwargs) -> None:
         if self._behavior_reset_timer is not None:
             self._behavior_reset_timer.cancel()
             self._behavior_reset_timer = None

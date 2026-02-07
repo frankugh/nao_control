@@ -20,3 +20,27 @@
 {"text": "Geef eens een box.", "label": "BOX", "source": "al_reviewed"}
 {"text": "zo kun je dit nu eindelijk", "label": "NONE", "source": "al_reviewed"}
 {"text": "kun je ook dat happy dansje doen", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou duidelijk hoor, geef maar een box.", "label": "BOX", "source": "ui_review"}
+{"text": "Alex, Waar kom je vandaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "vertel eens iets.", "label": "NONE", "source": "al_reviewed"}
+{"text": "vertel eens wat leuks", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens wie je bent?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Het stoombootje.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens een verhaal over robots en draken.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oké, We zijn klaar, ga maar slapen.", "label": "REST", "source": "al_reviewed"}
+{"text": "Wie ben jij?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens iets over draken?", "label": "NONE", "source": "al_reviewed"}
+{"text": "hoe gaat het?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Welke dansjes kun je?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vind je het nu leuk bij ons om te wonen?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oh, dat lijkt best goed.", "label": "NONE", "source": "al_reviewed"}
+{"text": "OK, geef me nu eens een box", "label": "BOX", "source": "al_reviewed"}
+{"text": "Vertel eens iets over draken in een mythe.", "label": "NONE", "source": "al_reviewed"}
+{"text": "hoe gaat het", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ik wil weten hoe je ontsnapt bent uit Atlantis.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Kun je me een beetje verstaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens iets over draken in een mythische setting.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Alex box", "label": "BOX", "source": "al_reviewed"}
+{"text": "Wat is daar dan gebeurd?", "label": "NONE", "source": "al_reviewed"}
+{"text": "uit", "label": "REST", "source": "al_reviewed"}
+{"text": "Hoi, sta eens op Alex", "label": "STAND\\_UP", "source": "al_reviewed"}
