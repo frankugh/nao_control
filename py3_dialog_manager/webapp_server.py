@@ -107,6 +107,99 @@ _MIC_VAD_KEYS = {
 
 _WAKE_MODE_VALUES = {"never", "always", "timeout"}
 _DEFAULT_WAKE_WORDS = ["NAO", "Alex"]
+_LISTEN_MODE_VALUES = {"ptt", "continuous"}
+_UI_ACTIVE_TAB_VALUES = {"prompt", "runtime", "commands", "camera", "review", "retrain", "logs"}
+_CONTINUOUS_PHASE_LOG_LIMIT = 40
+_CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN = "until_next_user_turn"
+_CUSTOM_LIFE_LOCK_UNTIL_STOP = "until_stop"
+_CUSTOM_LIFE_LOCK_MODES = {
+    _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN,
+    _CUSTOM_LIFE_LOCK_UNTIL_STOP,
+}
+
+
+def _new_continuous_state(now_ts: Optional[float] = None) -> Dict[str, Any]:
+    now = float(time.time() if now_ts is None else now_ts)
+    return {
+        "running": False,
+        "stop": None,
+        "thread": None,
+        "last_error": None,
+        "phase": "idle",
+        "phase_reason": "init",
+        "phase_changed_at": now,
+        "phase_seq": 0,
+        "phase_log": [{"seq": 0, "phase": "idle", "reason": "init", "ts": now}],
+        "wake_open_until": 0.0,
+        "wake_open_once": False,
+        "wake_stt": None,
+        "wake_stt_key": None,
+        "last_wake_text": "",
+        "eye_phase": None,
+        "eye_last_try": 0.0,
+    }
+
+
+def _ensure_continuous_phase_meta(state: Dict[str, Any], now_ts: Optional[float] = None) -> None:
+    now = float(time.time() if now_ts is None else now_ts)
+    phase = str(state.get("phase") or "idle").strip().lower() or "idle"
+    reason = str(state.get("phase_reason") or "init").strip() or "init"
+    try:
+        seq = int(state.get("phase_seq", 0))
+    except Exception:
+        seq = 0
+    changed_at_raw = state.get("phase_changed_at")
+    try:
+        changed_at = float(changed_at_raw)
+    except Exception:
+        changed_at = now
+
+    log = state.get("phase_log")
+    if not isinstance(log, list):
+        log = []
+    if not log:
+        log = [{"seq": seq, "phase": phase, "reason": reason, "ts": changed_at}]
+    if len(log) > _CONTINUOUS_PHASE_LOG_LIMIT:
+        del log[: len(log) - _CONTINUOUS_PHASE_LOG_LIMIT]
+
+    state["phase"] = phase
+    state["phase_reason"] = reason
+    state["phase_seq"] = seq
+    state["phase_changed_at"] = changed_at
+    state["phase_log"] = log
+
+
+def _transition_continuous_phase(
+    state: Dict[str, Any],
+    phase: str,
+    *,
+    reason: str,
+    now_ts: Optional[float] = None,
+) -> bool:
+    _ensure_continuous_phase_meta(state, now_ts=now_ts)
+    now = float(time.time() if now_ts is None else now_ts)
+    next_phase = str(phase or "").strip().lower() or "idle"
+    next_reason = str(reason or "").strip() or "unspecified"
+    prev_phase = str(state.get("phase") or "idle").strip().lower() or "idle"
+    changed = next_phase != prev_phase
+
+    state["phase"] = next_phase
+    state["phase_reason"] = next_reason
+
+    if not changed:
+        return False
+
+    seq = int(state.get("phase_seq", 0)) + 1
+    state["phase_seq"] = seq
+    state["phase_changed_at"] = now
+    log = state.get("phase_log")
+    if not isinstance(log, list):
+        log = []
+    log.append({"seq": seq, "phase": next_phase, "reason": next_reason, "ts": now})
+    if len(log) > _CONTINUOUS_PHASE_LOG_LIMIT:
+        del log[: len(log) - _CONTINUOUS_PHASE_LOG_LIMIT]
+    state["phase_log"] = log
+    return True
 
 
 def _clean_mic_params(raw: Any) -> Dict[str, Any]:
@@ -173,6 +266,48 @@ def _clean_wake_words(raw: Any) -> List[str]:
         seen.add(key)
         deduped.append(item)
     return deduped or list(_DEFAULT_WAKE_WORDS)
+
+
+def _clean_listen_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value in _LISTEN_MODE_VALUES:
+        return value
+    return "ptt"
+
+
+def _clean_ui_active_tab(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value in _UI_ACTIVE_TAB_VALUES:
+        return value
+    return "prompt"
+
+
+def _continuous_capture_timeout_s(
+    start_timeout_s: float,
+    *,
+    wake_mode: str,
+    gate_open: bool,
+    wake_open_until: float,
+    now_s: Optional[float] = None,
+    probe_max_s: float = 0.8,
+) -> float:
+    base = float(start_timeout_s)
+    if wake_mode != "timeout" or not gate_open:
+        return base
+
+    now = float(time.time() if now_s is None else now_s)
+    try:
+        wake_until = float(wake_open_until or 0.0)
+    except Exception:
+        wake_until = 0.0
+
+    if wake_until <= now:
+        # Gate is effectively closed; re-check soon.
+        return min(base, max(0.25, float(probe_max_s)))
+
+    remaining = wake_until - now
+    probe = max(0.25, min(float(probe_max_s), remaining))
+    return min(base, probe)
 
 
 def _parse_host_port(raw: Optional[str], default_port: int) -> Tuple[Optional[str], int]:
@@ -274,6 +409,8 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "wake_mode": _clean_wake_mode(input_params.get("wake_mode", "never")),
         "wake_timeout_s": _clean_wake_timeout_s(input_params.get("wake_timeout_s", 20), default=20),
         "wake_words": _clean_wake_words(input_params.get("wake_words")),
+        "listen_mode": _clean_listen_mode(cfg_src.get("listen_mode", "ptt")),
+        "ui_active_tab": _clean_ui_active_tab(cfg_src.get("ui_active_tab", "prompt")),
         "cmdrec": cfg_src.get("cmdrec", "latest"),
         "ptt_use_vad": bool(cfg_src.get("ptt_use_vad", False)),
         "llm_type": llm_cfg.get("type", "echo"),
@@ -588,26 +725,33 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         )
 
     def _get_runtime_state(sid: str) -> Dict[str, Any]:
-        return runtime_context_state.setdefault(sid, {"last_action": None})
-
-    def _get_continuous_state(sid: str) -> Dict[str, Any]:
-        return continuous_state.setdefault(
+        state = runtime_context_state.setdefault(
             sid,
             {
-                "running": False,
-                "stop": None,
-                "thread": None,
-                "last_error": None,
-                "phase": "idle",
-                "wake_open_until": 0.0,
-                "wake_open_once": False,
-                "wake_stt": None,
-                "wake_stt_key": None,
-                "last_wake_text": "",
-                "eye_phase": None,
-                "eye_last_try": 0.0,
+                "last_action": None,
+                "custom_life_lock_mode": None,
+                "custom_life_paused": False,
+                "custom_life_pause_state": None,
+                "custom_life_pause_base_url": None,
+                "custom_life_pause_mode": None,
             },
         )
+        if "custom_life_lock_mode" not in state:
+            state["custom_life_lock_mode"] = None
+        if "custom_life_paused" not in state:
+            state["custom_life_paused"] = False
+        if "custom_life_pause_state" not in state:
+            state["custom_life_pause_state"] = None
+        if "custom_life_pause_base_url" not in state:
+            state["custom_life_pause_base_url"] = None
+        if "custom_life_pause_mode" not in state:
+            state["custom_life_pause_mode"] = None
+        return state
+
+    def _get_continuous_state(sid: str) -> Dict[str, Any]:
+        state = continuous_state.setdefault(sid, _new_continuous_state())
+        _ensure_continuous_phase_meta(state)
+        return state
 
     def _get_ptt_state(sid: str) -> Dict[str, Any]:
         return ptt_state.setdefault(
@@ -618,9 +762,221 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def _set_last_action(sid: str, summary: Optional[str]) -> None:
         _get_runtime_state(sid)["last_action"] = summary
 
+    def _normalize_command_label(label: Optional[str]) -> str:
+        return str(label or "").upper().strip().replace("\\_", "_")
+
+    def _custom_life_merge_lock_mode(current_mode: Optional[str], requested_mode: Optional[str]) -> Optional[str]:
+        current = str(current_mode or "").strip().lower()
+        requested = str(requested_mode or "").strip().lower()
+        if current not in _CUSTOM_LIFE_LOCK_MODES:
+            current = ""
+        if requested not in _CUSTOM_LIFE_LOCK_MODES:
+            requested = ""
+        if current == _CUSTOM_LIFE_LOCK_UNTIL_STOP or requested == _CUSTOM_LIFE_LOCK_UNTIL_STOP:
+            return _CUSTOM_LIFE_LOCK_UNTIL_STOP
+        if requested:
+            return requested
+        return current or None
+
+    def _custom_life_lock_mode_for_command(cmd: CommandDecision) -> Optional[str]:
+        label = _normalize_command_label(cmd.label)
+        if label in ("WALK_WITH_ME",):
+            return _CUSTOM_LIFE_LOCK_UNTIL_STOP
+        if label == "LOCOMOTION_REQUEST":
+            resolved = cmd.resolved or {}
+            locomotion = str(resolved.get("locomotion") or "").strip().lower()
+            if locomotion == "exit":
+                return None
+            return _CUSTOM_LIFE_LOCK_UNTIL_STOP
+        if label in ("BOX", "HIGH_FIVE", "DANCE"):
+            return _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN
+        return None
+
+    def _custom_life_lock_mode_for_behavior_name(behavior: str) -> Optional[str]:
+        behavior_norm = str(behavior or "").strip().lower()
+        if not behavior_norm:
+            return None
+        if "walkwithme" in behavior_norm:
+            return _CUSTOM_LIFE_LOCK_UNTIL_STOP
+        if behavior_norm.startswith("dances/"):
+            return _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN
+        if behavior_norm in ("greetings", "greetings/doboxsit", "greetings/dohighfive"):
+            return _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN
+        return None
+
+    def _walk_behavior_active_for_sid(sid: str) -> bool:
+        runtime_state = _get_runtime_state(sid)
+        if runtime_state.get("custom_life_lock_mode") == _CUSTOM_LIFE_LOCK_UNTIL_STOP:
+            return True
+        cmd_state = _get_cmdrec_state(sid)
+        active = _normalize_command_label(cmd_state.get("active_behavior"))
+        return active in ("WALK_WITH_ME", "LOCOMOTION_REQUEST")
+
+    def _post_stop_standup_delay_s(runtime_cfg_local: Optional[JsonLike] = None) -> float:
+        cfg_local = runtime_cfg_local or {}
+        raw = cfg_local.get("nao_post_stop_standup_delay_s", base_cfg.get("nao_post_stop_standup_delay_s", 0.8))
+        try:
+            delay_s = float(raw)
+        except Exception:
+            delay_s = 0.8
+        return max(0.0, delay_s)
+
+    def _execute_standup_after_stop_if_needed(
+        sid: str,
+        behavior_executor,
+        *,
+        runtime_cfg_local: Optional[JsonLike] = None,
+    ) -> None:
+        if behavior_executor is None:
+            return
+        if not _walk_behavior_active_for_sid(sid):
+            return
+        try:
+            delay_s = _post_stop_standup_delay_s(runtime_cfg_local)
+            if delay_s > 0.0:
+                time.sleep(delay_s)
+            behavior_executor.execute(
+                CommandDecision(
+                    label="STAND_UP",
+                    confidence=1.0,
+                    raw_text="auto_standup_after_stop",
+                )
+            )
+        except Exception as exc:
+            print(f"[NAO] post-stop standup failed: {exc}")
+
+    def _set_behavior_executor_custom_life_management(behavior_executor, enabled: bool) -> None:
+        if behavior_executor is None:
+            return
+        setter = getattr(behavior_executor, "set_custom_life_management_enabled", None)
+        if callable(setter):
+            try:
+                setter(bool(enabled))
+            except Exception:
+                pass
+
+    def _custom_life_pause_on_endpoint(base_url: str, endpoint_mode: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        pause_url = base_url + ("/nao/custom_life_pause" if endpoint_mode == "behavior" else "/custom_life_pause")
+        try:
+            resp = requests.post(pause_url, json={}, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return False, None
+        pause_state = None
+        if isinstance(data, dict):
+            payload = data.get("data") or data.get("state")
+            if isinstance(payload, dict):
+                pause_state = payload
+        return True, pause_state
+
+    def _custom_life_restore_on_endpoint(
+        base_url: str,
+        endpoint_mode: str,
+        runtime_cfg_local: JsonLike,
+        pause_state: Optional[Dict[str, Any]],
+    ) -> None:
+        settings = runtime_cfg_local.get("custom_life_settings") or {}
+        if runtime_cfg_local.get("custom_life_enabled") and settings:
+            restore_url = base_url + ("/nao/custom_life_apply" if endpoint_mode == "behavior" else "/custom_life_apply")
+            resp = requests.post(restore_url, json={"settings": settings}, timeout=3.0)
+            resp.raise_for_status()
+            return
+        if pause_state:
+            restore_url = base_url + ("/nao/custom_life_resume" if endpoint_mode == "behavior" else "/custom_life_resume")
+            resp = requests.post(restore_url, json={"state": pause_state}, timeout=3.0)
+            resp.raise_for_status()
+
+    def _custom_life_clear_lock_state(state: Dict[str, Any]) -> None:
+        state["custom_life_lock_mode"] = None
+        state["custom_life_paused"] = False
+        state["custom_life_pause_state"] = None
+        state["custom_life_pause_base_url"] = None
+        state["custom_life_pause_mode"] = None
+
+    def _custom_life_lock_is_active(state: Dict[str, Any]) -> bool:
+        mode = str(state.get("custom_life_lock_mode") or "").strip().lower()
+        return bool(state.get("custom_life_paused")) and mode in _CUSTOM_LIFE_LOCK_MODES
+
+    def _custom_life_store_lock_state(
+        state: Dict[str, Any],
+        *,
+        lock_mode: str,
+        pause_state: Optional[Dict[str, Any]],
+        base_url: str,
+        endpoint_mode: str,
+    ) -> None:
+        state["custom_life_lock_mode"] = lock_mode
+        state["custom_life_paused"] = True
+        state["custom_life_pause_state"] = pause_state
+        state["custom_life_pause_base_url"] = base_url
+        state["custom_life_pause_mode"] = endpoint_mode
+
+    def _acquire_custom_life_lock(
+        sid: str,
+        runtime_cfg_local: JsonLike,
+        lock_mode: Optional[str],
+        *,
+        base_url: Optional[str] = None,
+        endpoint_mode: Optional[str] = None,
+    ) -> bool:
+        if lock_mode not in _CUSTOM_LIFE_LOCK_MODES:
+            return False
+        state = _get_runtime_state(sid)
+        if _custom_life_lock_is_active(state):
+            state["custom_life_lock_mode"] = _custom_life_merge_lock_mode(state.get("custom_life_lock_mode"), lock_mode)
+            return True
+        if not runtime_cfg_local.get("custom_life_enabled"):
+            return False
+        resolved_base = base_url
+        resolved_mode = endpoint_mode
+        if not resolved_base or resolved_mode not in ("behavior", "base"):
+            resolved_base, resolved_mode = _resolve_nao_audio_url(runtime_cfg_local)
+        if not resolved_base or resolved_mode not in ("behavior", "base"):
+            return False
+        paused, pause_state = _custom_life_pause_on_endpoint(resolved_base, resolved_mode)
+        if not paused:
+            return False
+        _custom_life_store_lock_state(
+            state,
+            lock_mode=lock_mode,
+            pause_state=pause_state,
+            base_url=resolved_base,
+            endpoint_mode=resolved_mode,
+        )
+        return True
+
+    def _release_custom_life_lock(sid: str, runtime_cfg_local: JsonLike) -> bool:
+        state = _get_runtime_state(sid)
+        if not _custom_life_lock_is_active(state):
+            if state.get("custom_life_lock_mode") in _CUSTOM_LIFE_LOCK_MODES:
+                _custom_life_clear_lock_state(state)
+            return False
+
+        base_url = state.get("custom_life_pause_base_url")
+        endpoint_mode = state.get("custom_life_pause_mode")
+        pause_state = state.get("custom_life_pause_state")
+        if not base_url or endpoint_mode not in ("behavior", "base"):
+            base_url, endpoint_mode = _resolve_nao_audio_url(runtime_cfg_local)
+        if base_url and endpoint_mode in ("behavior", "base"):
+            try:
+                _custom_life_restore_on_endpoint(base_url, endpoint_mode, runtime_cfg_local, pause_state)
+            except Exception as exc:
+                print(f"[NAO] restore custom life lock failed: {exc}")
+        _custom_life_clear_lock_state(state)
+        return True
+
+    def _release_custom_life_lock_if_needed_on_user_turn(sid: str, runtime_cfg_local: JsonLike) -> None:
+        state = _get_runtime_state(sid)
+        if state.get("custom_life_lock_mode") == _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN:
+            _release_custom_life_lock(sid, runtime_cfg_local)
+
     # runtime pipeline helpers
     def _get_runtime_cfg(sid: str) -> JsonLike:
-        return runtime_cfg_by_sid.setdefault(sid, _extract_runtime_config(base_cfg))
+        cfg = runtime_cfg_by_sid.setdefault(sid, _extract_runtime_config(base_cfg))
+        cfg["listen_mode"] = _clean_listen_mode(cfg.get("listen_mode", "ptt"))
+        cfg["ui_active_tab"] = _clean_ui_active_tab(cfg.get("ui_active_tab", "prompt"))
+        return cfg
 
     def _auto_rest_timeout_s(runtime_cfg: JsonLike) -> float:
         value = runtime_cfg.get("nao_auto_rest_after_s", base_cfg.get("nao_auto_rest_after_s", 0))
@@ -881,7 +1237,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             _append_user(history, text)
             pending_confirms.pop(sid, None)
             if behavior_executor:
+                _set_behavior_executor_custom_life_management(behavior_executor, False)
                 behavior_executor.execute(cmd)
+                _execute_standup_after_stop_if_needed(
+                    sid,
+                    behavior_executor,
+                    runtime_cfg_local=runtime_cfg,
+                )
+            _release_custom_life_lock(sid, runtime_cfg)
             _touch_activity()
             state["mode"] = "DIALOG"
             state["active_behavior"] = None
@@ -963,7 +1326,11 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return payload
 
         _append_user(history, text)
+        lock_mode = _custom_life_lock_mode_for_command(cmd)
+        if lock_mode:
+            _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
         if behavior_executor:
+            _set_behavior_executor_custom_life_management(behavior_executor, False)
             behavior_executor.execute(cmd)
         _touch_activity()
         state["mode"] = "PERFORMING"
@@ -1088,7 +1455,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return next(iter(runtime_cfg_by_sid.values()))
         return _extract_runtime_config(base_cfg)
 
-    def _try_nao_rest(runtime_cfg: JsonLike, *, reason: str) -> None:
+    def _try_nao_rest(runtime_cfg: JsonLike, *, reason: str) -> bool:
+        def _rest_ok(resp) -> bool:
+            if resp is None:
+                return False
+            if getattr(resp, "status_code", 500) >= 400:
+                return False
+            try:
+                payload = resp.json()
+            except Exception:
+                return True
+            if isinstance(payload, dict):
+                if payload.get("ok") is False:
+                    return False
+                status = payload.get("status")
+                if status not in (None, "ok"):
+                    return False
+            return True
+
         base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
         base_enabled = bool(runtime_cfg.get("base_enabled", True))
@@ -1096,16 +1480,20 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         if behavior_enabled and behavior_url and _check_ping(behavior_url, "/ping"):
             try:
-                requests.post(behavior_url + "/nao/rest", json={}, timeout=2.0)
-                return
+                resp = requests.post(behavior_url + "/nao/rest", json={}, timeout=2.0)
+                if _rest_ok(resp):
+                    return True
             except Exception:
                 pass
 
         if base_enabled and base_url and _check_ping(base_url, "/ping"):
             try:
-                requests.post(base_url + "/rest", json={}, timeout=2.0)
+                resp = requests.post(base_url + "/rest", json={}, timeout=2.0)
+                if _rest_ok(resp):
+                    return True
             except Exception:
                 pass
+        return False
 
     def _stop_all_processes() -> None:
         _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="shutdown")
@@ -1133,8 +1521,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 last_ts = last_activity["ts"]
             if time.time() - last_ts < timeout_s:
                 continue
-            _try_nao_rest(runtime_cfg, reason="idle")
-            _touch_activity()
+            if _try_nao_rest(runtime_cfg, reason="idle"):
+                _touch_activity()
 
     threading.Thread(target=_auto_rest_loop, daemon=True).start()
 
@@ -1708,6 +2096,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         pipeline = _get_pipeline(sid)
         debug_cmdrec, cmdrec, behavior_executor = _pipeline_props(pipeline)
         runtime_cfg = _get_runtime_cfg(sid)
+        _set_behavior_executor_custom_life_management(behavior_executor, False)
+        _release_custom_life_lock_if_needed_on_user_turn(sid, runtime_cfg)
         if reset:
             sessions[sid] = []
             _set_last_action(sid, None)
@@ -1725,7 +2115,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 _append_user(history, text)
                 pending_confirms.pop(sid, None)
                 if behavior_executor:
+                    _set_behavior_executor_custom_life_management(behavior_executor, False)
                     behavior_executor.execute(decision.command)
+                    _execute_standup_after_stop_if_needed(
+                        sid,
+                        behavior_executor,
+                        runtime_cfg_local=runtime_cfg,
+                    )
+                _release_custom_life_lock(sid, runtime_cfg)
                 state["mode"] = "DIALOG"
                 state["active_behavior"] = None
                 _set_last_action(
@@ -2031,6 +2428,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     def _continuous_eye_color_for_phase(phase: str) -> str:
         phase_norm = (phase or "").strip().lower()
+        if phase_norm == "stopped":
+            return "#D50000"  # explicitly stopped
         if phase_norm in ("wake_listening", "idle"):
             return "#1E4DFF"  # idle/waiting for wake word
         if phase_norm == "listening":
@@ -2073,12 +2472,39 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         except Exception:
             pass
 
+    def _set_continuous_phase(
+        sid: str,
+        state: Dict[str, Any],
+        phase: str,
+        *,
+        reason: str,
+        runtime_cfg_local: Optional[JsonLike] = None,
+    ) -> bool:
+        changed = _transition_continuous_phase(state, phase, reason=reason)
+        if not changed:
+            return False
+        cfg_local = runtime_cfg_local if runtime_cfg_local is not None else _get_runtime_cfg(sid)
+        _set_continuous_eye_phase(cfg_local, state, str(state.get("phase") or "idle"))
+        return True
+
+    def _continuous_gate_phase(runtime_cfg: JsonLike, state: Dict[str, Any]) -> str:
+        wake_mode = _wake_mode(runtime_cfg)
+        if wake_mode == "always":
+            return "listening" if bool(state.get("wake_open_once")) else "wake_listening"
+        if wake_mode == "timeout":
+            now_s = time.time()
+            gate_open = now_s <= float(state.get("wake_open_until", 0.0) or 0.0)
+            return "listening" if gate_open else "wake_listening"
+        return "listening"
+
     @app.post("/api/continuous_start")
     def api_continuous_start():
         sid = _get_sid()
         state = _get_continuous_state(sid)
         if state.get("running"):
-            return jsonify({"ok": True, "running": True, "error": state.get("last_error")})
+            resp = jsonify({"ok": True, "running": True, "error": state.get("last_error")})
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
 
         stop_event = threading.Event()
         state["stop"] = stop_event
@@ -2086,13 +2512,15 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         state["last_error"] = None
         state["eye_phase"] = None
         state["eye_last_try"] = 0.0
-
-        def _set_phase(phase: str, runtime_cfg_local: Optional[JsonLike] = None) -> None:
-            state["phase"] = phase
-            cfg_local = runtime_cfg_local if runtime_cfg_local is not None else _get_runtime_cfg(sid)
-            _set_continuous_eye_phase(cfg_local, state, phase)
-
-        _set_phase("listening")
+        runtime_cfg = _get_runtime_cfg(sid)
+        start_phase = _continuous_gate_phase(runtime_cfg, state)
+        _set_continuous_phase(
+            sid,
+            state,
+            start_phase,
+            reason="continuous_start",
+            runtime_cfg_local=runtime_cfg,
+        )
 
         def _worker():
             try:
@@ -2103,21 +2531,42 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     wake_timeout_s = _wake_timeout_s(runtime_cfg)
                     wake_words = _wake_words(runtime_cfg)
                     if wake_mode == "always":
-                        _set_phase("listening" if state.get("wake_open_once") else "wake_listening", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "listening" if state.get("wake_open_once") else "wake_listening",
+                            reason="wake_mode_always_gate",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                     elif wake_mode == "timeout":
-                        _set_phase(
+                        _set_continuous_phase(
+                            sid,
+                            state,
                             "listening" if (time.time() <= float(state.get("wake_open_until", 0.0) or 0.0)) else "wake_listening",
-                            runtime_cfg,
+                            reason="wake_mode_timeout_gate",
+                            runtime_cfg_local=runtime_cfg,
                         )
                     else:
-                        _set_phase("listening", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "listening",
+                            reason="wake_mode_never_open",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         state["wake_open_once"] = False
                         state["wake_open_until"] = 0.0
                     try:
                         mic = _make_mic_from_config(merged, mode="continuous")
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        _set_phase("idle", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "idle",
+                            reason="mic_init_error",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         time.sleep(1.0)
                         continue
 
@@ -2125,14 +2574,39 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         (merged.get("input", {}).get("params") or {}),
                         default=10**9,
                     )
+                    if wake_mode == "always":
+                        gate_open_for_capture = bool(state.get("wake_open_once"))
+                    elif wake_mode == "timeout":
+                        gate_open_for_capture = time.time() <= float(state.get("wake_open_until", 0.0) or 0.0)
+                    else:
+                        gate_open_for_capture = True
+                    timeout_s = _continuous_capture_timeout_s(
+                        timeout_s,
+                        wake_mode=wake_mode,
+                        gate_open=gate_open_for_capture,
+                        wake_open_until=float(state.get("wake_open_until", 0.0) or 0.0),
+                    )
                     try:
                         audio = mic.capture_utterance(timeout_s=timeout_s)
                     except TimeoutError:
-                        _set_phase("listening", runtime_cfg)
+                        timeout_phase = _continuous_gate_phase(runtime_cfg, state)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            timeout_phase,
+                            reason="capture_timeout_gate_open" if timeout_phase == "listening" else "capture_timeout_wait_wake",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         continue
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        _set_phase("idle", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "idle",
+                            reason="capture_error",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         time.sleep(0.5)
                         continue
 
@@ -2150,7 +2624,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         gate_open = True
 
                     if not gate_open:
-                        _set_phase("wake_listening", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "wake_listening",
+                            reason="gate_closed_wait_wake",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         wake_key = (tuple([_normalize_text(w) for w in wake_words]),)
                         if state.get("wake_stt_key") != wake_key or state.get("wake_stt") is None:
                             try:
@@ -2158,7 +2638,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                                 state["wake_stt_key"] = wake_key
                             except Exception as exc:
                                 state["last_error"] = "wake-stt: " + str(exc)
-                                _set_phase("idle", runtime_cfg)
+                                _set_continuous_phase(
+                                    sid,
+                                    state,
+                                    "idle",
+                                    reason="wake_stt_build_error",
+                                    runtime_cfg_local=runtime_cfg,
+                                )
                                 time.sleep(0.5)
                                 continue
                         try:
@@ -2167,32 +2653,74 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                             state["last_wake_text"] = wake_text
                         except Exception as exc:
                             state["last_error"] = "wake-stt: " + str(exc)
-                            _set_phase("idle", runtime_cfg)
+                            _set_continuous_phase(
+                                sid,
+                                state,
+                                "idle",
+                                reason="wake_stt_transcribe_error",
+                                runtime_cfg_local=runtime_cfg,
+                            )
                             continue
                         if not _text_has_wake_word(wake_text, wake_words):
-                            _set_phase("wake_listening", runtime_cfg)
+                            _set_continuous_phase(
+                                sid,
+                                state,
+                                "wake_listening",
+                                reason="wake_word_not_detected",
+                                runtime_cfg_local=runtime_cfg,
+                            )
                             continue
                         state["last_error"] = None
                         if wake_mode == "always":
                             state["wake_open_once"] = True
                         else:
                             state["wake_open_until"] = time.time() + float(wake_timeout_s)
-                        _set_phase("listening", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "listening",
+                            reason="wake_word_detected",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         continue
 
-                    _set_phase("transcribing", runtime_cfg)
+                    _set_continuous_phase(
+                        sid,
+                        state,
+                        "transcribing",
+                        reason="stt_transcribe_start",
+                        runtime_cfg_local=runtime_cfg,
+                    )
                     try:
                         res = _get_stt(sid).transcribe(audio)
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        _set_phase("idle", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "idle",
+                            reason="stt_transcribe_error",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         continue
 
                     text_in = (res.text or "").strip()
-                    _set_phase("thinking", runtime_cfg)
+                    _set_continuous_phase(
+                        sid,
+                        state,
+                        "thinking",
+                        reason="pipeline_processing",
+                        runtime_cfg_local=runtime_cfg,
+                    )
                     if not text_in:
                         if wake_mode == "timeout" and float(state.get("wake_open_until", 0.0) or 0.0) < time.time():
-                            _set_phase("wake_listening", runtime_cfg)
+                            _set_continuous_phase(
+                                sid,
+                                state,
+                                "wake_listening",
+                                reason="empty_input_gate_closed",
+                                runtime_cfg_local=runtime_cfg,
+                            )
                         continue
 
                     try:
@@ -2206,16 +2734,40 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                             )
                         if wake_mode == "always":
                             state["wake_open_once"] = False
-                            _set_phase("wake_listening", runtime_cfg)
+                            _set_continuous_phase(
+                                sid,
+                                state,
+                                "wake_listening",
+                                reason="turn_done_wait_wake",
+                                runtime_cfg_local=runtime_cfg,
+                            )
                         elif wake_mode == "timeout":
                             state["wake_open_until"] = time.time() + float(wake_timeout_s)
-                            _set_phase("listening", runtime_cfg)
+                            _set_continuous_phase(
+                                sid,
+                                state,
+                                "listening",
+                                reason="turn_done_gate_open",
+                                runtime_cfg_local=runtime_cfg,
+                            )
                         else:
-                            _set_phase("listening", runtime_cfg)
+                            _set_continuous_phase(
+                                sid,
+                                state,
+                                "listening",
+                                reason="turn_done_listening",
+                                runtime_cfg_local=runtime_cfg,
+                            )
                         state["last_error"] = None
                     except Exception as exc:
                         state["last_error"] = str(exc)
-                        _set_phase("idle", runtime_cfg)
+                        _set_continuous_phase(
+                            sid,
+                            state,
+                            "idle",
+                            reason="pipeline_error",
+                            runtime_cfg_local=runtime_cfg,
+                        )
                         continue
             finally:
                 state["running"] = False
@@ -2223,12 +2775,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 state["wake_open_until"] = 0.0
                 state["last_wake_text"] = ""
                 if state.get("phase") != "stopped":
-                    _set_phase("idle")
+                    _set_continuous_phase(sid, state, "idle", reason="worker_exit")
 
         t = threading.Thread(target=_worker, daemon=True)
         state["thread"] = t
         t.start()
-        return jsonify({"ok": True, "running": True})
+        resp = jsonify({"ok": True, "running": True})
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     @app.post("/api/continuous_stop")
     def api_continuous_stop():
@@ -2242,23 +2796,37 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         state["wake_open_once"] = False
         state["wake_open_until"] = 0.0
         state["last_wake_text"] = ""
-        state["phase"] = "stopped"
-        _set_continuous_eye_color(runtime_cfg, state, "#D50000", duration=0.25)
-        return jsonify({"ok": True, "running": False})
+        _set_continuous_phase(
+            sid,
+            state,
+            "stopped",
+            reason="manual_stop",
+            runtime_cfg_local=runtime_cfg,
+        )
+        resp = jsonify({"ok": True, "running": False})
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     @app.get("/api/continuous_state")
     def api_continuous_state():
         sid = _get_sid()
         state = _get_continuous_state(sid)
-        return jsonify(
+        _ensure_continuous_phase_meta(state)
+        resp = jsonify(
             {
                 "ok": True,
                 "running": bool(state.get("running")),
                 "error": state.get("last_error"),
                 "phase": state.get("phase"),
+                "phase_reason": state.get("phase_reason"),
+                "phase_seq": int(state.get("phase_seq", 0)),
+                "phase_changed_at": float(state.get("phase_changed_at") or 0.0),
+                "phase_log": list(state.get("phase_log") or []),
                 "last_wake_text": state.get("last_wake_text", ""),
             }
         )
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     @app.get("/api/al_retrain_state")
     def api_al_retrain_state():
@@ -2910,13 +3478,26 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         pending_confirms.pop(sid, None)
         cmd = pending["command"]
+        runtime_cfg = _get_runtime_cfg(sid)
         pipeline = _get_pipeline(sid)
         _, _, behavior_executor = _pipeline_props(pipeline)
+        _set_behavior_executor_custom_life_management(behavior_executor, False)
         stt_used, stt_edited = _extract_stt_meta(pending.get("input_meta"))
 
         if confirmed:
+            lock_mode = _custom_life_lock_mode_for_command(cmd)
+            if lock_mode:
+                _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
             if behavior_executor:
                 behavior_executor.execute(cmd)
+                if _normalize_command_label(cmd.label) == "STOP":
+                    _execute_standup_after_stop_if_needed(
+                        sid,
+                        behavior_executor,
+                        runtime_cfg_local=runtime_cfg,
+                    )
+            if _normalize_command_label(cmd.label) == "STOP":
+                _release_custom_life_lock(sid, runtime_cfg)
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
             _append_assistant(history, f"✅ Uitgevoerd: {cmd.label}")
             summary = _format_action_summary("Behavior", cmd.label, cmd.resolved)
@@ -3367,12 +3948,16 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             pipeline_by_sid.pop(sid, None)
             stt_by_sid.pop(sid, None)
             cfg_out = _get_runtime_cfg(sid)
+            if not cfg_out.get("custom_life_enabled", False):
+                _release_custom_life_lock(sid, cfg_out)
             resp = jsonify({"ok": True, "config": cfg_out, "system_prompt": _system_prompt_for_sid(sid)})
             resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
             return resp
 
         runtime_cfg = _get_runtime_cfg(sid)
         runtime_cfg.update(payload.get("config", payload))
+        runtime_cfg["listen_mode"] = _clean_listen_mode(runtime_cfg.get("listen_mode", "ptt"))
+        runtime_cfg["ui_active_tab"] = _clean_ui_active_tab(runtime_cfg.get("ui_active_tab", "prompt"))
         runtime_cfg_by_sid[sid] = runtime_cfg
 
         if runtime_cfg.get("base_enabled", True):
@@ -3385,6 +3970,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
         _rebuild_pipeline_for_sid(sid, merged)
         _apply_custom_life(sid, runtime_cfg)
+        if not runtime_cfg.get("custom_life_enabled", False):
+            _release_custom_life_lock(sid, runtime_cfg)
         resp = jsonify(
             {
                 "ok": True,
@@ -3959,20 +4546,34 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return jsonify({"ok": False, "error": "Missing 'label'."}), 400
         _touch_activity()
         sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
         pipeline = _get_pipeline(sid)
         _, cmdrec, behavior_executor = _pipeline_props(pipeline)
+        _set_behavior_executor_custom_life_management(behavior_executor, False)
         if behavior_executor is None:
             return jsonify({"ok": False, "error": "behavior executor niet beschikbaar."}), 400
         resolved = payload.get("resolved") if isinstance(payload.get("resolved"), dict) else None
         if label.upper() == "DANCE" and not resolved:
             resolved = _default_dance_resolution(cmdrec)
         cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=resolved)
+        lock_mode = _custom_life_lock_mode_for_command(cmd)
+        if lock_mode:
+            _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
         try:
             behavior_executor.execute(cmd)
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        if _normalize_command_label(cmd.label) == "STOP":
+            _execute_standup_after_stop_if_needed(
+                sid,
+                behavior_executor,
+                runtime_cfg_local=runtime_cfg,
+            )
+            _release_custom_life_lock(sid, runtime_cfg)
         _touch_activity()
-        return jsonify({"ok": True})
+        resp = jsonify({"ok": True})
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     @app.get("/api/nao_behaviors")
     def api_nao_behaviors():
@@ -4011,11 +4612,15 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if not behavior:
             return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
         _touch_activity()
-        runtime_cfg = _get_runtime_cfg(_get_sid())
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
         base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
         behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
         base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        lock_mode = _custom_life_lock_mode_for_behavior_name(behavior)
+        state = _get_runtime_state(sid)
+        lock_active = _custom_life_lock_is_active(state)
         candidates: List[Tuple[str, str]] = []
         if behavior_enabled and behavior_url:
             candidates.append((behavior_url, "behavior"))
@@ -4026,44 +4631,46 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         last_error = None
         for base_url, mode in candidates:
+            paused_now = False
             pause_state = None
-            if runtime_cfg.get("custom_life_enabled"):
-                try:
-                    pause_url = base_url + ("/nao/custom_life_pause" if mode == "behavior" else "/custom_life_pause")
-                    resp = requests.post(pause_url, json={}, timeout=3.0)
-                    data = resp.json() if resp.ok else {}
-                    if isinstance(data, dict):
-                        pause_state = data.get("data") or data.get("state")
-                except Exception:
-                    pause_state = None
+            if lock_mode and not lock_active:
+                paused_now, pause_state = _custom_life_pause_on_endpoint(base_url, mode)
             try:
                 url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
                 resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
                 data = resp.json() if resp.ok else {}
             except Exception as exc:
                 last_error = str(exc)
-                continue
-            finally:
-                if runtime_cfg.get("custom_life_enabled"):
+                if paused_now:
                     try:
-                        settings = runtime_cfg.get("custom_life_settings") or {}
-                        if settings:
-                            apply_url = base_url + (
-                                "/nao/custom_life_apply" if mode == "behavior" else "/custom_life_apply"
-                            )
-                            requests.post(apply_url, json={"settings": settings}, timeout=3.0)
-                        elif pause_state:
-                            resume_url = base_url + (
-                                "/nao/custom_life_resume" if mode == "behavior" else "/custom_life_resume"
-                            )
-                            requests.post(resume_url, json={"state": pause_state}, timeout=3.0)
+                        _custom_life_restore_on_endpoint(base_url, mode, runtime_cfg, pause_state)
                     except Exception:
                         pass
+                continue
             if isinstance(data, dict) and data.get("status") not in (None, "ok"):
                 last_error = data.get("error") or "behavior failed"
+                if paused_now:
+                    try:
+                        _custom_life_restore_on_endpoint(base_url, mode, runtime_cfg, pause_state)
+                    except Exception:
+                        pass
                 continue
+            if lock_mode:
+                if lock_active:
+                    state["custom_life_lock_mode"] = _custom_life_merge_lock_mode(state.get("custom_life_lock_mode"), lock_mode)
+                elif paused_now:
+                    _custom_life_store_lock_state(
+                        state,
+                        lock_mode=lock_mode,
+                        pause_state=pause_state,
+                        base_url=base_url,
+                        endpoint_mode=mode,
+                    )
+                    lock_active = True
             _touch_activity()
-            return jsonify({"ok": True})
+            resp = jsonify({"ok": True})
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
         return jsonify({"ok": False, "error": last_error or "behavior failed"}), 400
 
     @app.post("/api/nao_behavior_stop")
@@ -4073,7 +4680,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if not behavior:
             return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
         _touch_activity()
-        runtime_cfg = _get_runtime_cfg(_get_sid())
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
         base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
         behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
@@ -4087,6 +4695,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
 
         last_error = None
+        walk_behavior_stop = "walkwithme" in behavior.strip().lower()
         for base_url, mode in candidates:
             try:
                 url = base_url + "/nao/stop_behavior" if mode == "behavior" else base_url + "/stop_behavior"
@@ -4098,8 +4707,20 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             if isinstance(data, dict) and data.get("status") not in (None, "ok"):
                 last_error = data.get("error") or "behavior failed"
                 continue
+            if walk_behavior_stop:
+                try:
+                    delay_s = _post_stop_standup_delay_s(runtime_cfg)
+                    if delay_s > 0.0:
+                        time.sleep(delay_s)
+                    do_behavior_url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
+                    requests.post(do_behavior_url, json={"behavior": "basic/standup"}, timeout=5.0)
+                except Exception:
+                    pass
+            _release_custom_life_lock(sid, runtime_cfg)
             _touch_activity()
-            return jsonify({"ok": True})
+            resp = jsonify({"ok": True})
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
         return jsonify({"ok": False, "error": last_error or "behavior failed"}), 400
 
     @app.get("/api/process_status")

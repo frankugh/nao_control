@@ -145,18 +145,18 @@ class OutputRouterBackend(OutputBackend):
         if resp.status_code >= 400:
             self._warn(f"[output] NAO play_audio returned {resp.status_code}")
 
-    def _try_stream_to_nao(self, wav_bytes: bytes) -> bool:
+    def _try_stream_to_nao(self, wav_bytes: bytes) -> str:
         if self._api_router is None:
             self._warn("[output] NAO router ontbreekt; kan audio niet streamen.")
-            return False
+            return "fallback_upload"
         now = time.time()
         if now < self._stream_cooldown_until:
-            return False
+            return "fallback_upload"
         try:
             audio, sample_rate = self._wav_bytes_to_int16(wav_bytes)
         except Exception as exc:
             self._warn(f"[output] WAV->PCM faalde: {exc}")
-            return False
+            return "fallback_upload"
         try:
             resp = self._api_router.post(
                 "/play_stream",
@@ -165,23 +165,33 @@ class OutputRouterBackend(OutputBackend):
                 params={"sample_rate": int(sample_rate)},
                 timeout=self._timeout,
             )
+        except requests.Timeout as exc:
+            self._stream_failures += 1
+            if self._stream_failures >= self._stream_fail_threshold:
+                self._stream_cooldown_until = now + self._stream_cooldown_s
+                self._warn("[output] Stream timeout; tijdelijk geen stream retries.")
+            self._warn(f"[output] NAO play_stream timeout: {exc}")
+            # Belangrijk: niet uploaden als fallback na timeout; kan dubbele playback geven.
+            return "no_retry"
         except requests.RequestException as exc:
             self._stream_failures += 1
             if self._stream_failures >= self._stream_fail_threshold:
                 self._stream_cooldown_until = now + self._stream_cooldown_s
                 self._warn("[output] Stream faalde; tijdelijk terug naar upload (cooldown).")
             self._warn(f"[output] NAO play_stream failed: {exc}")
-            return False
+            return "no_retry"
         if resp.status_code >= 400:
             self._stream_failures += 1
             if self._stream_failures >= self._stream_fail_threshold:
                 self._stream_cooldown_until = now + self._stream_cooldown_s
                 self._warn("[output] Stream faalde; tijdelijk terug naar upload (cooldown).")
             self._warn(f"[output] NAO play_stream returned {resp.status_code}")
-            return False
+            if resp.status_code in (404, 405, 501):
+                return "fallback_upload"
+            return "no_retry"
         self._stream_failures = 0
         self._stream_cooldown_until = 0.0
-        return True
+        return "ok"
 
     def _synthesize_piper(self, text: str) -> Optional[bytes]:
         if not self.piper_model_path:
@@ -306,9 +316,12 @@ class OutputRouterBackend(OutputBackend):
             if self.target == "server":
                 return self._play_wav_bytes(wav_bytes)
             if self.target == "nao":
-                if self._try_stream_to_nao(wav_bytes):
+                stream_result = self._try_stream_to_nao(wav_bytes)
+                if stream_result == "ok":
                     return
-                return self._send_wav_to_nao(wav_bytes)
+                if stream_result == "fallback_upload":
+                    return self._send_wav_to_nao(wav_bytes)
+                return
 
         if self.tts_engine == "azure":
             wav_bytes = self._synthesize_azure(text)
@@ -317,9 +330,12 @@ class OutputRouterBackend(OutputBackend):
             if self.target == "server":
                 return self._play_wav_bytes(wav_bytes)
             if self.target == "nao":
-                if self._try_stream_to_nao(wav_bytes):
+                stream_result = self._try_stream_to_nao(wav_bytes)
+                if stream_result == "ok":
                     return
-                return self._send_wav_to_nao(wav_bytes)
+                if stream_result == "fallback_upload":
+                    return self._send_wav_to_nao(wav_bytes)
+                return
 
         if not self._warned:
             self._warned = True

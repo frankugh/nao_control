@@ -18,6 +18,7 @@ class BehaviorExecutor(ICommandExecutor):
         api_router: Optional[NaoApiRouter] = None,
         custom_life_enabled: bool = False,
         custom_life_settings: Optional[dict] = None,
+        manage_custom_life: bool = True,
         on_finish: Optional[Callable[[CommandDecision], None]] = None,
     ) -> None:
         self.api_router = api_router
@@ -34,8 +35,14 @@ class BehaviorExecutor(ICommandExecutor):
         self._custom_life_settings = (
             dict(custom_life_settings) if isinstance(custom_life_settings, dict) else None
         )
+        self._manage_custom_life = bool(manage_custom_life)
+
+    def set_custom_life_management_enabled(self, enabled: bool) -> None:
+        self._manage_custom_life = bool(enabled)
 
     def _pause_custom_life(self) -> Optional[dict]:
+        if not self._manage_custom_life:
+            return None
         if not self._custom_life_enabled:
             return None
         payload = {}
@@ -54,6 +61,8 @@ class BehaviorExecutor(ICommandExecutor):
         return state if isinstance(state, dict) else None
 
     def _restore_custom_life(self, state: Optional[dict]) -> None:
+        if not self._manage_custom_life:
+            return
         if not self._custom_life_enabled:
             return
         if self._custom_life_settings is not None:
@@ -237,6 +246,13 @@ class ConsoleAndBehaviorExecutor(ICommandExecutor):
 
     def set_on_finish(self, on_finish: Optional[Callable[[CommandDecision], None]]) -> None:
         self._on_finish = on_finish
+
+    def set_custom_life_management_enabled(self, enabled: bool) -> None:
+        if self._executor is None:
+            return
+        setter = getattr(self._executor, "set_custom_life_management_enabled", None)
+        if callable(setter):
+            setter(enabled)
 
     def execute(self, cmd: CommandDecision) -> None:
         self._printer.execute(cmd)

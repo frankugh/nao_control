@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from types import SimpleNamespace
 
@@ -43,7 +43,10 @@ def _make_app_with_spy(monkeypatch, *, reply: str = "ok"):
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
     monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
 
-    app, _, _ = webapp_server.create_app(cfg={}, config_path="<memory>")
+    app, _, _ = webapp_server.create_app(
+        cfg={"output": {"type": "console"}},
+        config_path="<memory>",
+    )
     return app, spy
 
 
@@ -51,7 +54,7 @@ def test_web_send_emit_none_does_not_call_output(monkeypatch):
     app, spy = _make_app_with_spy(monkeypatch, reply="hi")
     client = app.test_client()
 
-    resp = client.post("/api/send", json={"text": "hello"})
+    resp = client.post("/api/send", json={"text": "hello", "emit": "none"})
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
@@ -69,4 +72,3 @@ def test_web_send_emit_pipeline_calls_output(monkeypatch):
     assert data["ok"] is True
     assert data["emit_used"] == "pipeline"
     assert spy.calls == ["hi"]
-

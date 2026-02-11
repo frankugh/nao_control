@@ -14,7 +14,6 @@
       @media (max-width: 900px) { .chatcard { height: calc(100vh - 140px); } }
       body.al-only .layout { grid-template-columns: 1fr; }
       body.al-only .chatcard { display: none; }
-      body.al-only #flowHint { display: none; }
       body.al-only #tabPrompt,
       body.al-only #tabRuntime,
       body.al-only #tabCommands,
@@ -120,10 +119,6 @@
       <a id="navToActiveLearning" class="small" href="/active_learning">Active learning</a>
       <a id="navToMain" class="small" href="/">Terug naar NAO Studio</a>
     </div>
-    <div class="small" id="flowHint">
-      Flow: <span class="pill">record</span> → <span class="pill">stop</span> (STT) → <span class="pill">edit</span> → <span class="pill">send</span> (LLM+output)
-    </div>
-
     <div class="layout">
       <!-- LEFT: chat + controls -->
       <div class="card chatcard">
@@ -907,33 +902,35 @@
       let selectedBehavior = '';
       let pcmChunks = [];
       let listenMode = 'ptt';
+      let activeTab = 'prompt';
       let serverPttActive = false;
       let uiMode = 'client';
       let continuousActive = false;
       let continuousPoll = null;
-      let phaseStickyUntil = 0;
-        let lastPhase = 'idle';
-        let lastTranscript = null;
-        let lastAudioFetchAt = 0;
-        let autoStartInProgress = false;
-        const lastAutoStartAt = { base: 0, behavior: 0 };
-        const autoStartPauseUntil = { base: 0, behavior: 0 };
-        let healthBoostUntil = 0;
-        const resolvedConfirms = new Set();
-        let reviewTargetText = '';
-        let reviewLabels = [];
-        const REVIEW_PAGE_SIZE = 20;
-        let reviewQueueOffset = 0;
-        let reviewQueueTotal = 0;
-        let reviewReviewedOffset = 0;
-        let reviewReviewedTotal = 0;
-        let reviewAutoQueueOffset = 0;
-        let reviewAutoQueueTotal = 0;
-        let reviewAutoOffset = 0;
-        let reviewAutoTotal = 0;
-        let reviewTab = 'queue';
-        let reviewQueueSortMode = 'confidence';
-        let reviewAutoQueueSortMode = 'confidence';
+      let uiPrefsSyncTimer = null;
+      let uiPrefsSyncInFlight = false;
+      let pendingUiPrefs = null;
+      let lastTranscript = null;
+      let lastAudioFetchAt = 0;
+      let autoStartInProgress = false;
+      const lastAutoStartAt = { base: 0, behavior: 0 };
+      const autoStartPauseUntil = { base: 0, behavior: 0 };
+      let healthBoostUntil = 0;
+      const resolvedConfirms = new Set();
+      let reviewTargetText = '';
+      let reviewLabels = [];
+      const REVIEW_PAGE_SIZE = 20;
+      let reviewQueueOffset = 0;
+      let reviewQueueTotal = 0;
+      let reviewReviewedOffset = 0;
+      let reviewReviewedTotal = 0;
+      let reviewAutoQueueOffset = 0;
+      let reviewAutoQueueTotal = 0;
+      let reviewAutoOffset = 0;
+      let reviewAutoTotal = 0;
+      let reviewTab = 'queue';
+      let reviewQueueSortMode = 'confidence';
+      let reviewAutoQueueSortMode = 'confidence';
       let reviewAutoSortMode = 'confidence';
       let retrainPoll = null;
       let lastPiperModelValue = '';
@@ -975,12 +972,63 @@
         }
       }
 
-      function setListenMode(mode) {
-        listenMode = mode;
+      function normalizeListenMode(mode) {
+        return (String(mode || '').toLowerCase() === 'continuous') ? 'continuous' : 'ptt';
+      }
+
+      function normalizeActiveTab(which) {
+        const value = String(which || '').trim().toLowerCase();
+        if (isActiveLearningMode()) {
+          return value === 'retrain' ? 'retrain' : 'review';
+        }
+        const allowed = ['prompt', 'runtime', 'commands', 'camera', 'logs'];
+        return allowed.includes(value) ? value : 'prompt';
+      }
+
+      function currentUiPrefs() {
+        return {
+          listen_mode: normalizeListenMode(listenMode),
+          ui_active_tab: normalizeActiveTab(activeTab),
+        };
+      }
+
+      async function flushUiPrefsSync() {
+        if (uiPrefsSyncInFlight || !pendingUiPrefs) return;
+        const prefs = pendingUiPrefs;
+        pendingUiPrefs = null;
+        uiPrefsSyncInFlight = true;
+        try {
+          await fetch('/api/runtime_config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: prefs })
+          });
+        } catch (_) {}
+        uiPrefsSyncInFlight = false;
+        if (pendingUiPrefs) {
+          flushUiPrefsSync().catch(() => {});
+        }
+      }
+
+      function queueUiPrefsSync() {
+        const prefs = currentUiPrefs();
+        pendingUiPrefs = prefs;
+        const localCfg = loadLocalConfig() || {};
+        saveLocalConfig({ ...localCfg, ...prefs });
+        if (uiPrefsSyncTimer) clearTimeout(uiPrefsSyncTimer);
+        uiPrefsSyncTimer = setTimeout(() => {
+          uiPrefsSyncTimer = null;
+          flushUiPrefsSync().catch(() => {});
+        }, 120);
+      }
+
+      function setListenMode(mode, opts = {}) {
+        const persistRuntime = !!opts.persistRuntime;
+        listenMode = normalizeListenMode(mode);
         if (listenModeEl) {
           const buttons = listenModeEl.querySelectorAll('button');
           buttons.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
+            btn.classList.toggle('active', btn.dataset.mode === listenMode);
           });
         }
         if (listenModeNote && listenMode === 'ptt') {
@@ -997,6 +1045,9 @@
           }
         updateContinuousAvailability();
         updateRecButton();
+        if (persistRuntime) {
+          queueUiPrefsSync();
+        }
       }
 
       function getCookie(name) {
@@ -1056,7 +1107,7 @@
         listenModeEl.addEventListener('click', (e) => {
           const btn = e.target;
           if (!btn || btn.tagName !== 'BUTTON') return;
-          setListenMode(btn.dataset.mode || 'ptt');
+          setListenMode(btn.dataset.mode || 'ptt', { persistRuntime: true });
         });
       }
       function useNaoMic() { return cfgInputDevice.value === 'nao_ssh'; }
@@ -1732,19 +1783,10 @@
           if (!j.ok) return;
           const err = (j.error || '').trim();
           const phase = (j.phase || '').toLowerCase();
-          const now = Date.now();
-          if (phase === 'transcribing' || phase === 'thinking') {
-            lastPhase = phase;
-            phaseStickyUntil = now + 800;
-          }
-          let showPhase = phase;
-          if (phase === 'listening' && now < phaseStickyUntil) {
-            showPhase = lastPhase;
-          }
-          if (showPhase === 'listening') {
+          if (phase === 'listening') {
             setRecState('luisteren', 'listening');
             setStatus(err ? `Luisteren... (fout: ${err})` : 'Luisteren...');
-          } else if (showPhase === 'wake_listening') {
+          } else if (phase === 'wake_listening') {
             setRecState('wachten op wake-word', 'listening');
             const heard = (j.last_wake_text || '').trim();
             if (err) {
@@ -1754,19 +1796,30 @@
             } else {
               setStatus('Wachten op wake-word...');
             }
-          } else if (showPhase === 'transcribing') {
+          } else if (phase === 'transcribing') {
             setRecState('transcriberen', 'transcribing');
             setStatus('Transcriberen...');
-          } else if (showPhase === 'thinking') {
+          } else if (phase === 'thinking') {
             setRecState('denken', 'thinking');
             setStatus('Denken...');
-          } else if (showPhase === 'stopped') {
+          } else if (phase === 'stopped') {
             setRecState('idle');
             setStatus('Continuous luisteren gestopt.');
-          } else if (continuousActive) {
+          } else if (phase === 'idle') {
             setRecState('idle');
+            if (continuousActive) {
+              setStatus(err ? `Idle (fout: ${err})` : 'Idle');
+            }
+          } else if (continuousActive) {
+            setRecState('status onbekend');
+            setStatus(`Continuous status onbekend (phase="${phase || 'n/a'}").`);
           }
-        } catch (_) {}
+        } catch (_) {
+          if (continuousActive) {
+            setRecState('status onbekend');
+            setStatus('Continuous status onbekend; laatste status kan verouderd zijn.');
+          }
+        }
       }
 
       function stopContinuousPoll() {
@@ -2786,13 +2839,18 @@
         promptEl.textContent = text ? text : '(geen system prompt ingesteld)';
       }
 
-      function setTab(which) {
-        const isRuntime = which === 'runtime';
-        const isCommands = which === 'commands';
-        const isCamera = which === 'camera';
-        const isReview = which === 'review';
-        const isRetrain = which === 'retrain';
-        const isLogs = which === 'logs';
+      function setTab(which, opts = {}) {
+        const persistRuntime = !!opts.persistRuntime;
+        const tab = normalizeActiveTab(which);
+        const prevTab = activeTab;
+        const changed = prevTab !== tab;
+        activeTab = tab;
+        const isRuntime = tab === 'runtime';
+        const isCommands = tab === 'commands';
+        const isCamera = tab === 'camera';
+        const isReview = tab === 'review';
+        const isRetrain = tab === 'retrain';
+        const isLogs = tab === 'logs';
         tabRuntime.classList.toggle('active', isRuntime);
         tabPrompt.classList.toggle('active', !isRuntime && !isLogs && !isCommands && !isCamera && !isReview && !isRetrain);
         tabCommands.classList.toggle('active', isCommands);
@@ -2807,6 +2865,12 @@
         if (tabReviewPane) tabReviewPane.classList.toggle('hidden', !isReview);
         if (tabRetrainPane) tabRetrainPane.classList.toggle('hidden', !isRetrain);
         tabLogsPane.classList.toggle('hidden', !isLogs);
+        if (persistRuntime) {
+          queueUiPrefsSync();
+        }
+        if (!changed) {
+          return;
+        }
         if (!isCamera) stopCameraStream();
         if (!isCamera) stopPeoplePoll();
         if (isCamera) startPeoplePoll();
@@ -3013,6 +3077,8 @@
             wake_mode: (cfgWakeMode && cfgWakeMode.value) || 'never',
             wake_timeout_s: readIntOrNull(cfgWakeTimeout ? cfgWakeTimeout.value : ''),
             wake_words: parseWakeWords(cfgWakeWords ? cfgWakeWords.value : ''),
+            listen_mode: normalizeListenMode(listenMode),
+            ui_active_tab: normalizeActiveTab(activeTab),
             azure_initial_silence_ms: readIntOrNull(cfgAzureInitialSilence.value),
             azure_end_silence_ms: readIntOrNull(cfgAzureEndSilence.value),
             cmdrec: cfgCmdrec.value,
@@ -3187,6 +3253,8 @@
         updateDeviceName();
         updateOutputDeviceName();
         updateOutputAvailability();
+        setListenMode(cfg.listen_mode || 'ptt');
+        setTab(cfg.ui_active_tab || (isActiveLearningMode() ? 'review' : 'prompt'));
       }
 
       async function loadDevices() {
@@ -4244,13 +4312,13 @@
         }
       });
 
-      tabPrompt.addEventListener('click', () => setTab('prompt'));
-      tabRuntime.addEventListener('click', () => setTab('runtime'));
-      tabCommands.addEventListener('click', () => setTab('commands'));
-      if (tabCamera) tabCamera.addEventListener('click', () => setTab('camera'));
-      if (tabReview) tabReview.addEventListener('click', () => setTab('review'));
-      if (tabRetrain) tabRetrain.addEventListener('click', () => setTab('retrain'));
-      tabLogs.addEventListener('click', () => setTab('logs'));
+      tabPrompt.addEventListener('click', () => setTab('prompt', { persistRuntime: true }));
+      tabRuntime.addEventListener('click', () => setTab('runtime', { persistRuntime: true }));
+      tabCommands.addEventListener('click', () => setTab('commands', { persistRuntime: true }));
+      if (tabCamera) tabCamera.addEventListener('click', () => setTab('camera', { persistRuntime: true }));
+      if (tabReview) tabReview.addEventListener('click', () => setTab('review', { persistRuntime: true }));
+      if (tabRetrain) tabRetrain.addEventListener('click', () => setTab('retrain', { persistRuntime: true }));
+      tabLogs.addEventListener('click', () => setTab('logs', { persistRuntime: true }));
       if (btnCameraToggle) btnCameraToggle.addEventListener('click', () => toggleCameraStream());
       if (cameraSource) cameraSource.addEventListener('change', () => {
         if (cameraStreamEnabled) fetchCameraFrame().catch(() => {});
@@ -4703,6 +4771,9 @@
     </script>
   </body>
 </html>
+
+
+
 
 
 
