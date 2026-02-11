@@ -123,6 +123,19 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+    def people_detection_state(self, timeout=None):
+        """Haal AL people-detection status op."""
+        resp = self._get("/people_detection_state", timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    def people_detection_set(self, api_name, enabled, timeout=None):
+        """Zet 1 people-detection API actief/inactief."""
+        payload = {"api": api_name, "enabled": bool(enabled)}
+        resp = self._post_json("/people_detection_set", payload, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def pause_autonomous_motion(self, timeout=None):
         """Pauzeer autonome bewegingen (awareness/background/speaking/breath)."""
         resp = self._post_json("/autonomous_motion_pause", {}, timeout=timeout or self.timeout)

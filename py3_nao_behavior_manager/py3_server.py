@@ -156,6 +156,21 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         state = data.get("state", None)
         return _wrap_py2_call(nao_actions.custom_life_resume, state)
 
+    @app.route("/nao/people_detection_state", methods=["GET"])
+    def nao_people_detection_state():
+        return _wrap_py2_call(nao_actions.people_detection_state)
+
+    @app.route("/nao/people_detection_set", methods=["POST"])
+    def nao_people_detection_set():
+        data = request.get_json(force=True, silent=True) or {}
+        api_name = (data.get("api") or "").strip()
+        enabled = data.get("enabled", None)
+        if not api_name:
+            return jsonify({"status": "error", "error": "Missing 'api'"}), 400
+        if enabled is None:
+            return jsonify({"status": "error", "error": "Missing 'enabled'"}), 400
+        return _wrap_py2_call(nao_actions.people_detection_set, api_name, bool(enabled))
+
     @app.route("/nao/autonomous_motion_pause", methods=["POST"])
     def nao_autonomous_motion_pause():
         return _wrap_py2_call(nao_actions.pause_autonomous_motion)
@@ -301,6 +316,64 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         except Exception:
             sample_rate = None
         return _wrap_py2_call(nao_actions.play_stream, audio_bytes, content_type, sample_rate)
+
+    @app.route("/nao/camera_snapshot", methods=["GET"])
+    def nao_camera_snapshot():
+        params = {}
+        for key in ("camera", "resolution", "fps"):
+            value = request.args.get(key, None)
+            if value is not None:
+                params[key] = value
+        try:
+            resp = requests.get(
+                nao_actions.base_url.rstrip("/") + "/camera_snapshot",
+                params=params,
+                timeout=2.0,
+            )
+        except requests.RequestException as e:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "Py2 NAO API request failed",
+                    "details": str(e),
+                }
+            ), 502
+        if resp.status_code >= 400:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "camera snapshot failed",
+                    "details": resp.text,
+                }
+            ), resp.status_code
+        content_type = (resp.headers.get("Content-Type") or "").strip()
+        if not content_type.lower().startswith("image/"):
+            details = ""
+            try:
+                payload = resp.json()
+                if isinstance(payload, dict):
+                    details = (
+                        payload.get("error")
+                        or payload.get("details")
+                        or payload.get("status")
+                        or ""
+                    )
+            except Exception:
+                details = (resp.text or "").strip()
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "camera snapshot returned non-image payload",
+                    "details": details or content_type or "unknown upstream payload",
+                }
+            ), 502
+        out = app.response_class(
+            response=resp.content,
+            status=resp.status_code,
+            mimetype=resp.headers.get("Content-Type", "image/bmp"),
+        )
+        out.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return out
 
     return app
 

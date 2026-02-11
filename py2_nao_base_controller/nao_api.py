@@ -9,6 +9,7 @@ import unicodedata
 import threading
 import signal
 import time
+import struct
 from flask import Flask, request, jsonify
 
 # Py2 unicode-alias
@@ -21,6 +22,49 @@ DEFAULT_TTS_REPLACE_MAP = [
     (u"bias", u"beias"),
 ]
 TTS_REPLACE_MAP = list(DEFAULT_TTS_REPLACE_MAP)
+
+# People-detection runtime state for subscribe/unsubscribe based modules.
+_people_lock = threading.Lock()
+_people_subscribed = {}
+
+_PEOPLE_API_SPECS = [
+    {
+        "id": "people_perception",
+        "label": "People perception",
+        "module": "ALPeoplePerception",
+        "sample_methods": [
+            ("getMaximumDetectionRange", []),
+            ("getTimeBeforePersonDisappears", []),
+        ],
+        "memory_keys": [
+            "PeoplePerception/PeopleList",
+            "PeoplePerception/VisiblePeopleList",
+            "PeoplePerception/Population",
+        ],
+    },
+    {
+        "id": "gaze_analysis",
+        "label": "Gaze analysis",
+        "module": "ALGazeAnalysis",
+        "sample_methods": [
+            ("getTolerance", []),
+        ],
+        "memory_keys": [
+            "GazeAnalysis/PeopleLookingAtRobot",
+            "GazeAnalysis/PersonStartsLookingAtRobot",
+            "GazeAnalysis/PersonStopsLookingAtRobot",
+        ],
+    },
+    {
+        "id": "face_detection",
+        "label": "Face detection",
+        "module": "ALFaceDetection",
+        "sample_methods": [],
+        "memory_keys": [
+            "FaceDetected",
+        ],
+    },
+]
 
 def _setup_naoqi_paths():
     # Als PyInstaller draait: _MEIPASS, anders gewone dir
@@ -260,6 +304,60 @@ def ping():
     Healthcheck voor de web-API.
     """
     return make_response(data="pong")
+
+
+@app.route("/camera_snapshot", methods=["GET"])
+def camera_snapshot():
+    """
+    Return 1 camera frame as BMP.
+    Query params:
+      camera=0|1 (default 0)
+      resolution=0|1|2 (default 1)
+      fps=1..30 (default 8)
+    """
+    try:
+        camera = int(request.args.get("camera", 0))
+    except Exception:
+        camera = 0
+    try:
+        resolution = int(request.args.get("resolution", 1))
+    except Exception:
+        resolution = 1
+    try:
+        fps = int(request.args.get("fps", 8))
+    except Exception:
+        fps = 8
+
+    if camera not in (0, 1):
+        camera = 0
+    if resolution not in (0, 1, 2):
+        resolution = 1
+    fps = max(1, min(30, fps))
+
+    try:
+        width, height, rgb = _camera_capture_rgb(camera, resolution, 11, fps)
+        payload = _rgb24_to_bmp(rgb, width, height)
+        resp = app.response_class(payload, status=200, mimetype="image/bmp")
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resp
+    except Exception as e:
+        app.logger.error(traceback.format_exc())
+        err = (
+            "Camera snapshot mislukt voor camera=%s, resolution=%s, fps=%s. "
+            "Gebruik camera 0 (Top) of 1 (Bottom). "
+            "Resolution: 0=QQVGA, 1=QVGA, 2=VGA. Fout: %s"
+        ) % (camera, resolution, fps, repr(e))
+        return make_response(
+            status="error",
+            error=err,
+            data={
+                "camera": camera,
+                "resolution": resolution,
+                "fps": fps,
+                "allowed_camera_ids": [0, 1],
+                "allowed_resolutions": [0, 1, 2],
+            },
+        ), 500
 
 
 @app.route("/is_awake", methods=["GET"])
@@ -533,6 +631,207 @@ def _apply_custom_life_state(state):
         pass
 
 
+def _people_method_list(proxy):
+    try:
+        methods = proxy.getMethodList()
+        if isinstance(methods, list):
+            return set([str(m) for m in methods])
+    except Exception:
+        pass
+    return set()
+
+
+def _people_call(proxy, methods, method_name, args=None):
+    if args is None:
+        args = []
+    if method_name not in methods:
+        raise AttributeError("Method not available: %s" % method_name)
+    fn = getattr(proxy, method_name)
+    return fn(*args)
+
+
+def _people_read_memory(keys):
+    out = {}
+    try:
+        memory = get_proxy("ALMemory")
+    except Exception:
+        return out
+    for key in keys:
+        try:
+            out[key] = memory.getData(key)
+        except Exception:
+            out[key] = None
+    return out
+
+
+def _people_toggle_supported(methods):
+    if ("setEnabled" in methods) and ("isEnabled" in methods or "getEnabled" in methods):
+        return True
+    if ("startAwareness" in methods) and ("stopAwareness" in methods):
+        return True
+    if ("subscribe" in methods) and ("unsubscribe" in methods):
+        return True
+    return False
+
+
+def _people_enabled_value(module_name, proxy, methods):
+    # Some modules expose isRunning(task_id) which is not an enabled flag.
+    # We only use explicit no-arg "enabled/running" style methods.
+    for method_name in ("isEnabled", "getEnabled", "isAwarenessRunning"):
+        if method_name in methods:
+            try:
+                return bool(_people_call(proxy, methods, method_name))
+            except TypeError:
+                pass
+            except Exception:
+                pass
+    if ("subscribe" in methods) and ("unsubscribe" in methods):
+        with _people_lock:
+            return bool(_people_subscribed.get(module_name))
+    return None
+
+
+def _people_subscribe(proxy, methods, sub_name):
+    if "unsubscribe" in methods:
+        try:
+            _people_call(proxy, methods, "unsubscribe", [sub_name])
+        except Exception:
+            pass
+    errors = []
+    for args in ([sub_name], [sub_name, 500], [sub_name, 500, 0.0]):
+        try:
+            handle = _people_call(proxy, methods, "subscribe", args)
+            if handle is None:
+                handle = sub_name
+            return handle
+        except Exception as e:
+            errors.append(repr(e))
+    raise RuntimeError("subscribe failed: " + " | ".join(errors[-2:]))
+
+
+def _people_set_enabled(module_name, proxy, methods, enabled):
+    enabled = bool(enabled)
+    if ("setEnabled" in methods) and ("isEnabled" in methods or "getEnabled" in methods):
+        _people_call(proxy, methods, "setEnabled", [enabled])
+        return
+    if ("startAwareness" in methods) and ("stopAwareness" in methods):
+        if enabled:
+            _people_call(proxy, methods, "startAwareness")
+        else:
+            _people_call(proxy, methods, "stopAwareness")
+        return
+    if ("subscribe" in methods) and ("unsubscribe" in methods):
+        sub_name = "nao_api_%s" % module_name.lower()
+        if enabled:
+            handle = _people_subscribe(proxy, methods, sub_name)
+            with _people_lock:
+                _people_subscribed[module_name] = handle
+        else:
+            with _people_lock:
+                handle = _people_subscribed.get(module_name)
+            candidates = []
+            if handle:
+                candidates.append(handle)
+            if sub_name not in candidates:
+                candidates.append(sub_name)
+            try:
+                for candidate in candidates:
+                    try:
+                        _people_call(proxy, methods, "unsubscribe", [candidate])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            with _people_lock:
+                _people_subscribed.pop(module_name, None)
+        return
+    raise RuntimeError("No supported toggle methods on %s" % module_name)
+
+
+def _people_detection_state():
+    state = {"modules": []}
+    for spec in _PEOPLE_API_SPECS:
+        module_name = spec["module"]
+        item = {
+            "id": spec["id"],
+            "label": spec["label"],
+            "module": module_name,
+            "available": False,
+            "toggle_supported": False,
+            "enabled": None,
+            "samples": {},
+            "memory": {},
+            "errors": [],
+        }
+        try:
+            proxy = get_proxy(module_name)
+            methods = _people_method_list(proxy)
+            item["available"] = True
+            item["toggle_supported"] = _people_toggle_supported(methods)
+            try:
+                item["enabled"] = _people_enabled_value(module_name, proxy, methods)
+            except Exception as e:
+                item["errors"].append("enabled: %s" % repr(e))
+
+            for method_name, args in spec.get("sample_methods", []):
+                if method_name not in methods:
+                    continue
+                try:
+                    item["samples"][method_name] = _people_call(proxy, methods, method_name, args)
+                except Exception as e:
+                    item["samples"][method_name] = "error: %s" % repr(e)
+
+            item["memory"] = _people_read_memory(spec.get("memory_keys", []))
+            if ("subscribe" in methods) and ("unsubscribe" in methods):
+                item["toggle_mode"] = "subscribe"
+            elif ("setEnabled" in methods):
+                item["toggle_mode"] = "setEnabled"
+            else:
+                item["toggle_mode"] = "none"
+        except Exception as e:
+            item["error"] = repr(e)
+        state["modules"].append(item)
+    return state
+
+
+@app.route("/people_detection_state", methods=["GET"])
+def people_detection_state():
+    try:
+        _touch_activity()
+        return make_response(data=_people_detection_state())
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
+@app.route("/people_detection_set", methods=["POST"])
+def people_detection_set():
+    try:
+        _touch_activity()
+        payload = request.get_json(force=True, silent=True) or {}
+        api_id = (payload.get("api") or "").strip()
+        enabled = payload.get("enabled", None)
+        if not api_id:
+            return make_response(status="error", error="Missing 'api'")
+        if enabled is None:
+            return make_response(status="error", error="Missing 'enabled'")
+
+        spec = None
+        for it in _PEOPLE_API_SPECS:
+            if it["id"] == api_id:
+                spec = it
+                break
+        if spec is None:
+            return make_response(status="error", error="Unknown api: %s" % api_id)
+
+        proxy = get_proxy(spec["module"])
+        methods = _people_method_list(proxy)
+        _people_set_enabled(spec["module"], proxy, methods, _as_bool(enabled))
+        state = _people_detection_state()
+        return make_response(data={"api": api_id, "enabled": _as_bool(enabled), "state": state})
+    except Exception as e:
+        return make_response(status="error", error=repr(e))
+
+
 @app.route("/custom_life_apply", methods=["POST"])
 def custom_life_apply():
     try:
@@ -551,6 +850,87 @@ def custom_life_apply():
         return make_response(data={"prev_state": prev_state, "applied": settings})
     except Exception as e:
         return make_response(status="error", error=repr(e))
+
+
+def _camera_capture_rgb(camera_id, resolution, color_space, fps):
+    """
+    Capture 1 frame via ALVideoDevice and return (width, height, rgb_bytes).
+    color_space=11 verwacht RGB 24-bit.
+    """
+    video = get_proxy("ALVideoDevice")
+    sub_name = "nao_api_cam_%d" % int(time.time() * 1000)
+    handle = None
+    try:
+        if hasattr(video, "subscribeCamera"):
+            handle = video.subscribeCamera(
+                sub_name, int(camera_id), int(resolution), int(color_space), int(fps)
+            )
+        else:
+            handle = video.subscribe(sub_name, int(resolution), int(color_space), int(fps))
+        image = video.getImageRemote(handle)
+    finally:
+        try:
+            if handle:
+                video.unsubscribe(handle)
+        except Exception:
+            pass
+
+    if not image or len(image) < 7:
+        raise RuntimeError("ALVideoDevice returned no image data.")
+
+    width = int(image[0])
+    height = int(image[1])
+    data = image[6]
+    if isinstance(data, list):
+        data = "".join([chr(int(v) & 0xFF) for v in data])
+    elif not isinstance(data, str):
+        data = str(data)
+
+    expected = width * height * 3
+    if len(data) < expected:
+        raise RuntimeError("Unexpected frame size: %s < %s" % (len(data), expected))
+    if len(data) > expected:
+        data = data[:expected]
+    return width, height, data
+
+
+def _rgb24_to_bmp(rgb_bytes, width, height):
+    """
+    Convert RGB24 bytes to a BMP payload (24-bit, uncompressed).
+    """
+    row_raw = int(width) * 3
+    row_pad = (4 - (row_raw % 4)) % 4
+    pixel_data = bytearray()
+
+    for y in range(int(height) - 1, -1, -1):
+        row = rgb_bytes[y * row_raw : (y + 1) * row_raw]
+        for x in range(0, row_raw, 3):
+            r = ord(row[x])
+            g = ord(row[x + 1])
+            b = ord(row[x + 2])
+            pixel_data.extend([b, g, r])  # BMP expects BGR order
+        if row_pad:
+            pixel_data.extend("\x00" * row_pad)
+
+    pixel_size = len(pixel_data)
+    file_size = 54 + pixel_size
+    file_header = struct.pack("<2sIHHI", "BM", file_size, 0, 0, 54)
+    dib_header = struct.pack(
+        "<IIIHHIIIIII",
+        40,         # DIB header size
+        int(width),
+        int(height),
+        1,          # color planes
+        24,         # bits per pixel
+        0,          # compression (BI_RGB)
+        pixel_size,
+        2835,       # X ppm
+        2835,       # Y ppm
+        0,          # colors in palette
+        0,          # important colors
+    )
+    # Py2 bytearray has no .tostring(); convert to raw bytes explicitly.
+    return file_header + dib_header + "".join(chr(v) for v in pixel_data)
 
 
 @app.route("/custom_life_restore", methods=["POST"])

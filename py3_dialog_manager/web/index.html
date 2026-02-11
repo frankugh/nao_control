@@ -18,6 +18,7 @@
       body.al-only #tabPrompt,
       body.al-only #tabRuntime,
       body.al-only #tabCommands,
+      body.al-only #tabCamera,
       body.al-only #tabLogs { display: none; }
       body:not(.al-mode) #tabReview,
       body:not(.al-mode) #tabRetrain,
@@ -107,6 +108,10 @@
       .review-actions select, .review-actions input[type="text"] { padding: 6px; font-size: 14px; }
       .review-actions button { padding: 6px 10px; font-size: 13px; }
       .review-empty { font-size: 12px; color: #666; padding: 6px 0; }
+      .camera-view { width: 100%; min-height: 260px; object-fit: contain; background: #111; border: 1px solid #333; border-radius: 10px; }
+      .people-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+      .people-lines { margin-top: 6px; font-size: 12px; color: #444; }
+      .people-line { white-space: pre-wrap; margin: 2px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     </style>
   </head>
   <body>
@@ -149,6 +154,7 @@
           <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
           <button id="tabRuntime" class="tab" type="button">Agent config</button>
           <button id="tabCommands" class="tab" type="button">Commands</button>
+          <button id="tabCamera" class="tab" type="button">Camera</button>
           <button id="tabReview" class="tab" type="button">Data review</button>
           <button id="tabRetrain" class="tab" type="button">Model trainen</button>
           <button id="tabLogs" class="tab" type="button">Logs</button>
@@ -203,6 +209,35 @@
               <button id="btnSetEyeColor" type="button">Set</button>
               <span id="eyeColorStatus" class="small"></span>
             </div>
+          </div>
+        </div>
+        <div id="tab-camera" class="tabpane hidden">
+          <div class="small" style="margin-bottom:8px">NAO camera snapshot stream. Streaming draait alleen als dit tabblad open is en je op start drukt.</div>
+          <div class="row" style="margin-bottom:8px">
+            <label style="margin:0">Camera</label>
+            <select id="cameraSource" style="max-width:140px">
+              <option value="0">Top (0)</option>
+              <option value="1">Bottom (1)</option>
+            </select>
+            <label style="margin:0">Resolutie</label>
+            <select id="cameraResolution" style="max-width:170px">
+              <option value="0">QQVGA 160x120</option>
+              <option value="1" selected>QVGA 320x240</option>
+              <option value="2">VGA 640x480</option>
+            </select>
+            <label style="margin:0">FPS</label>
+            <input id="cameraFps" type="number" min="1" max="30" step="1" value="8" style="max-width:90px" />
+            <button id="btnCameraToggle" type="button">Start stream</button>
+            <span id="cameraStatus" class="small"></span>
+          </div>
+          <img id="cameraView" class="camera-view" alt="NAO camera view" />
+          <div class="card" style="margin-top:10px">
+            <div class="row" style="margin-bottom:6px">
+              <label style="margin:0">People detectie APIs (AL)</label>
+              <button id="btnPeopleRefresh" type="button">Verversen</button>
+              <span id="peopleStatus" class="small"></span>
+            </div>
+            <div id="peopleApiList" class="review-list"></div>
           </div>
         </div>
         <div id="tab-review" class="tabpane hidden">
@@ -627,15 +662,26 @@
       const tabPrompt = document.getElementById('tabPrompt');
       const tabRuntime = document.getElementById('tabRuntime');
       const tabCommands = document.getElementById('tabCommands');
+      const tabCamera = document.getElementById('tabCamera');
       const tabReview = document.getElementById('tabReview');
       const tabRetrain = document.getElementById('tabRetrain');
       const tabLogs = document.getElementById('tabLogs');
       const tabPromptPane = document.getElementById('tab-prompt');
       const tabRuntimePane = document.getElementById('tab-runtime');
       const tabCommandsPane = document.getElementById('tab-commands');
+      const tabCameraPane = document.getElementById('tab-camera');
       const tabReviewPane = document.getElementById('tab-review');
       const tabRetrainPane = document.getElementById('tab-retrain');
       const tabLogsPane = document.getElementById('tab-logs');
+      const cameraSource = document.getElementById('cameraSource');
+      const cameraResolution = document.getElementById('cameraResolution');
+      const cameraFps = document.getElementById('cameraFps');
+      const btnCameraToggle = document.getElementById('btnCameraToggle');
+      const cameraStatus = document.getElementById('cameraStatus');
+      const cameraView = document.getElementById('cameraView');
+      const btnPeopleRefresh = document.getElementById('btnPeopleRefresh');
+      const peopleStatus = document.getElementById('peopleStatus');
+      const peopleApiList = document.getElementById('peopleApiList');
       const cfgTabNao = document.getElementById('cfgTabNao');
       const cfgTabAudio = document.getElementById('cfgTabAudio');
       const cfgTabOutput = document.getElementById('cfgTabOutput');
@@ -891,6 +937,13 @@
       let reviewAutoSortMode = 'confidence';
       let retrainPoll = null;
       let lastPiperModelValue = '';
+      let cameraStreamEnabled = false;
+      let cameraPollTimer = null;
+      let cameraObjectUrl = '';
+      let cameraFetchBusy = false;
+      let peoplePollTimer = null;
+      let peopleBusy = false;
+      let peopleStatusHoldUntil = 0;
 
       function disableConfirmCard(card, label) {
         const buttons = card.querySelectorAll('button');
@@ -1035,6 +1088,258 @@
         } else if (listenModeNote && listenMode === 'ptt') {
           listenModeNote.textContent = '';
         }
+      }
+
+      function setCameraStatus(text) {
+        if (cameraStatus) cameraStatus.textContent = text || '';
+      }
+
+      function buildCameraSnapshotUrl() {
+        const camera = cameraSource ? (cameraSource.value || '0') : '0';
+        const resolution = cameraResolution ? (cameraResolution.value || '1') : '1';
+        const fps = cameraFps ? (cameraFps.value || '8') : '8';
+        return `/api/nao_camera_snapshot?camera=${encodeURIComponent(camera)}&resolution=${encodeURIComponent(resolution)}&fps=${encodeURIComponent(fps)}&_=${Date.now()}`;
+      }
+
+      function stopCameraStream() {
+        cameraStreamEnabled = false;
+        if (cameraPollTimer) {
+          clearInterval(cameraPollTimer);
+          cameraPollTimer = null;
+        }
+        if (cameraObjectUrl) {
+          URL.revokeObjectURL(cameraObjectUrl);
+          cameraObjectUrl = '';
+        }
+        if (cameraView) {
+          cameraView.removeAttribute('src');
+        }
+        if (btnCameraToggle) btnCameraToggle.textContent = 'Start stream';
+        setCameraStatus('uit');
+      }
+
+      async function fetchCameraFrame() {
+        if (!cameraStreamEnabled || cameraFetchBusy) return;
+        if (!tabCameraPane || tabCameraPane.classList.contains('hidden')) return;
+        cameraFetchBusy = true;
+        try {
+          const r = await fetch(buildCameraSnapshotUrl(), { cache: 'no-store' });
+          if (!r.ok) {
+            const ct = (r.headers.get('content-type') || '').toLowerCase();
+            let msg = `snapshot failed (${r.status})`;
+            if (ct.includes('application/json')) {
+              try {
+                const j = await r.json();
+                msg = j.error || j.details || msg;
+              } catch (_) {}
+            } else {
+              try {
+                const t = (await r.text() || '').trim();
+                if (t) msg = `${msg}: ${t.slice(0, 220)}`;
+              } catch (_) {}
+            }
+            throw new Error(msg);
+          }
+          const blob = await r.blob();
+          const nextUrl = URL.createObjectURL(blob);
+          if (cameraObjectUrl) URL.revokeObjectURL(cameraObjectUrl);
+          cameraObjectUrl = nextUrl;
+          if (cameraView) cameraView.src = nextUrl;
+          setCameraStatus('streaming');
+        } catch (e) {
+          setCameraStatus(e?.message || 'snapshot fout');
+        } finally {
+          cameraFetchBusy = false;
+        }
+      }
+
+      function startCameraStream() {
+        if (cameraStreamEnabled) return;
+        cameraStreamEnabled = true;
+        if (btnCameraToggle) btnCameraToggle.textContent = 'Stop stream';
+        setCameraStatus('starten...');
+        fetchCameraFrame().catch(() => {});
+        cameraPollTimer = setInterval(() => {
+          fetchCameraFrame().catch(() => {});
+        }, 350);
+      }
+
+      function toggleCameraStream() {
+        if (cameraStreamEnabled) {
+          stopCameraStream();
+        } else {
+          startCameraStream();
+        }
+      }
+
+      function setPeopleStatus(text, opts = {}) {
+        const force = !!opts.force;
+        if (!force && Date.now() < peopleStatusHoldUntil) return;
+        if (peopleStatus) peopleStatus.textContent = text || '';
+      }
+
+      function holdPeopleError(text, ms = 8000) {
+        peopleStatusHoldUntil = Date.now() + Math.max(500, ms);
+        setPeopleStatus(text || 'mislukt', { force: true });
+      }
+
+      function formatPeopleValue(value) {
+        if (value === null || value === undefined) return 'null';
+        if (typeof value === 'string') return value;
+        try {
+          const raw = JSON.stringify(value);
+          if (raw.length > 180) return `${raw.slice(0, 180)}...`;
+          return raw;
+        } catch (_) {
+          return String(value);
+        }
+      }
+
+      function renderPeopleDetection(state) {
+        if (!peopleApiList) return;
+        peopleApiList.innerHTML = '';
+        const modules = (state && Array.isArray(state.modules)) ? state.modules : [];
+        if (!modules.length) {
+          const empty = document.createElement('div');
+          empty.className = 'review-empty';
+          empty.textContent = 'Geen detectie-info beschikbaar.';
+          peopleApiList.appendChild(empty);
+          return;
+        }
+        modules.forEach(mod => {
+          const item = document.createElement('div');
+          item.className = 'review-item';
+
+          const head = document.createElement('div');
+          head.className = 'people-head';
+
+          const titleWrap = document.createElement('div');
+          const title = document.createElement('div');
+          title.textContent = mod.label || mod.id || 'unknown';
+          const meta = document.createElement('div');
+          meta.className = 'review-meta';
+          const enabledLabel = (mod.enabled === null || mod.enabled === undefined) ? 'n.v.t.' : (mod.enabled ? 'aan' : 'uit');
+          meta.textContent = `module: ${mod.module || '-'} | available: ${mod.available ? 'ja' : 'nee'} | enabled: ${enabledLabel}`;
+          titleWrap.appendChild(title);
+          titleWrap.appendChild(meta);
+          head.appendChild(titleWrap);
+
+          const toggleBtn = document.createElement('button');
+          toggleBtn.type = 'button';
+          const canToggle = !!(mod.available && mod.toggle_supported);
+          toggleBtn.disabled = !canToggle;
+          if (canToggle) {
+            toggleBtn.textContent = mod.enabled ? 'Inactief' : 'Actief';
+            toggleBtn.addEventListener('click', () => setPeopleDetectionEnabled(mod.id, !mod.enabled).catch(() => {}));
+          } else {
+            toggleBtn.textContent = 'Niet beschikbaar';
+          }
+          head.appendChild(toggleBtn);
+          item.appendChild(head);
+
+          const lines = document.createElement('div');
+          lines.className = 'people-lines';
+          const samples = (mod.samples && typeof mod.samples === 'object') ? mod.samples : {};
+          Object.keys(samples).forEach(key => {
+            const row = document.createElement('div');
+            row.className = 'people-line';
+            row.textContent = `${key}: ${formatPeopleValue(samples[key])}`;
+            lines.appendChild(row);
+          });
+          const memory = (mod.memory && typeof mod.memory === 'object') ? mod.memory : {};
+          Object.keys(memory).forEach(key => {
+            const row = document.createElement('div');
+            row.className = 'people-line';
+            row.textContent = `${key}: ${formatPeopleValue(memory[key])}`;
+            lines.appendChild(row);
+          });
+          if (Array.isArray(mod.errors)) {
+            mod.errors.forEach(err => {
+              const row = document.createElement('div');
+              row.className = 'people-line';
+              row.textContent = `error: ${err}`;
+              lines.appendChild(row);
+            });
+          }
+          if (mod.error) {
+            const row = document.createElement('div');
+            row.className = 'people-line';
+            row.textContent = `error: ${mod.error}`;
+            lines.appendChild(row);
+          }
+          if (!lines.childNodes.length) {
+            const row = document.createElement('div');
+            row.className = 'people-line';
+            row.textContent = 'Geen extra data.';
+            lines.appendChild(row);
+          }
+          item.appendChild(lines);
+          peopleApiList.appendChild(item);
+        });
+      }
+
+      async function refreshPeopleDetectionState(force = false) {
+        if (peopleBusy) return;
+        if (!force && Date.now() < peopleStatusHoldUntil) return;
+        peopleBusy = true;
+        try {
+          setPeopleStatus('laden...', { force: !!force });
+          const r = await fetch(`/api/nao_people_detection_state?_=${Date.now()}`, { cache: 'no-store' });
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || `status ${r.status}`);
+          renderPeopleDetection(j.state || {});
+          peopleStatusHoldUntil = 0;
+          setPeopleStatus('ok', { force: true });
+        } catch (e) {
+          holdPeopleError(e?.message || 'mislukt');
+        } finally {
+          peopleBusy = false;
+        }
+      }
+
+      async function setPeopleDetectionEnabled(apiName, enabled) {
+        stopPeoplePoll();
+        peopleStatusHoldUntil = 0;
+        setPeopleStatus('toepassen...', { force: true });
+        peopleBusy = true;
+        try {
+          const r = await fetch('/api/nao_people_detection_set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api: apiName, enabled: !!enabled }),
+          });
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || `status ${r.status}`);
+          if (j.state && typeof j.state === 'object') {
+            renderPeopleDetection(j.state);
+          } else {
+            await refreshPeopleDetectionState(true);
+          }
+          peopleStatusHoldUntil = 0;
+          setPeopleStatus('toegepast', { force: true });
+        } catch (e) {
+          holdPeopleError(e?.message || 'mislukt');
+        } finally {
+          peopleBusy = false;
+          if (tabCameraPane && !tabCameraPane.classList.contains('hidden')) {
+            startPeoplePoll();
+          }
+        }
+      }
+
+      function startPeoplePoll() {
+        if (peoplePollTimer) return;
+        refreshPeopleDetectionState().catch(() => {});
+        peoplePollTimer = setInterval(() => {
+          if (!tabCameraPane || tabCameraPane.classList.contains('hidden')) return;
+          refreshPeopleDetectionState().catch(() => {});
+        }, 2000);
+      }
+
+      function stopPeoplePoll() {
+        if (!peoplePollTimer) return;
+        clearInterval(peoplePollTimer);
+        peoplePollTimer = null;
       }
 
       function updateRecButton() {
@@ -2484,21 +2789,27 @@
       function setTab(which) {
         const isRuntime = which === 'runtime';
         const isCommands = which === 'commands';
+        const isCamera = which === 'camera';
         const isReview = which === 'review';
         const isRetrain = which === 'retrain';
         const isLogs = which === 'logs';
         tabRuntime.classList.toggle('active', isRuntime);
-        tabPrompt.classList.toggle('active', !isRuntime && !isLogs && !isCommands && !isReview && !isRetrain);
+        tabPrompt.classList.toggle('active', !isRuntime && !isLogs && !isCommands && !isCamera && !isReview && !isRetrain);
         tabCommands.classList.toggle('active', isCommands);
+        if (tabCamera) tabCamera.classList.toggle('active', isCamera);
         if (tabReview) tabReview.classList.toggle('active', isReview);
         if (tabRetrain) tabRetrain.classList.toggle('active', isRetrain);
         tabLogs.classList.toggle('active', isLogs);
         tabRuntimePane.classList.toggle('hidden', !isRuntime);
-        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs || isCommands || isReview || isRetrain);
+        tabPromptPane.classList.toggle('hidden', isRuntime || isLogs || isCommands || isCamera || isReview || isRetrain);
         tabCommandsPane.classList.toggle('hidden', !isCommands);
+        if (tabCameraPane) tabCameraPane.classList.toggle('hidden', !isCamera);
         if (tabReviewPane) tabReviewPane.classList.toggle('hidden', !isReview);
         if (tabRetrainPane) tabRetrainPane.classList.toggle('hidden', !isRetrain);
         tabLogsPane.classList.toggle('hidden', !isLogs);
+        if (!isCamera) stopCameraStream();
+        if (!isCamera) stopPeoplePoll();
+        if (isCamera) startPeoplePoll();
         if (isCommands) {
           refreshCommands().catch(() => {});
           refreshDances().catch(() => {});
@@ -3936,9 +4247,25 @@
       tabPrompt.addEventListener('click', () => setTab('prompt'));
       tabRuntime.addEventListener('click', () => setTab('runtime'));
       tabCommands.addEventListener('click', () => setTab('commands'));
+      if (tabCamera) tabCamera.addEventListener('click', () => setTab('camera'));
       if (tabReview) tabReview.addEventListener('click', () => setTab('review'));
       if (tabRetrain) tabRetrain.addEventListener('click', () => setTab('retrain'));
       tabLogs.addEventListener('click', () => setTab('logs'));
+      if (btnCameraToggle) btnCameraToggle.addEventListener('click', () => toggleCameraStream());
+      if (cameraSource) cameraSource.addEventListener('change', () => {
+        if (cameraStreamEnabled) fetchCameraFrame().catch(() => {});
+      });
+      if (cameraResolution) cameraResolution.addEventListener('change', () => {
+        if (cameraStreamEnabled) fetchCameraFrame().catch(() => {});
+      });
+      if (cameraFps) cameraFps.addEventListener('change', () => {
+        if (cameraStreamEnabled) fetchCameraFrame().catch(() => {});
+      });
+      if (btnPeopleRefresh) btnPeopleRefresh.addEventListener('click', () => refreshPeopleDetectionState(true).catch(() => {}));
+      window.addEventListener('beforeunload', () => {
+        stopCameraStream();
+        stopPeoplePoll();
+      });
       if (cfgTabNao) cfgTabNao.addEventListener('click', () => setConfigTab('nao'));
       if (cfgTabAudio) cfgTabAudio.addEventListener('click', () => setConfigTab('audio'));
       if (cfgTabOutput) cfgTabOutput.addEventListener('click', () => setConfigTab('output'));

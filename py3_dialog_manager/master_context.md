@@ -116,3 +116,6 @@ TYPISCHE VOLGENDE STAPPEN (VOORBEELDEN)
 - vosk backend toegevoegd
 - NAO-specific output tuning (korte TTS, interruption, status cues)
 - UX: “listening/transcribing/thinking/speaking” cues
+
+NAOQI DOCS (2.1 / v5)
+- Zie `py2_nao_base_controller/NAOQI_2_1_REFERENCE.md` voor vaste links (PeoplePerception, BasicAwareness, GazeAnalysis, FaceDetection, Tracker) en runtime-check voorbeelden.

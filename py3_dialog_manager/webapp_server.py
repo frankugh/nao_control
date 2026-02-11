@@ -34,7 +34,7 @@ from pathlib import Path
 import signal
 from typing import Any, Dict, List, Optional, Tuple
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 import requests
 import numpy as np
 
@@ -3744,6 +3744,124 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if isinstance(data, dict) and data.get("status") not in (None, "ok"):
             return jsonify({"ok": False, "error": data.get("error") or "set_eye_color failed"}), 400
         return jsonify({"ok": True})
+
+    @app.get("/api/nao_camera_snapshot")
+    def api_nao_camera_snapshot():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+
+        params = {}
+        for key in ("camera", "resolution", "fps"):
+            value = request.args.get(key, None)
+            if value is not None:
+                params[key] = value
+
+        candidates: List[str] = []
+        if behavior_enabled and behavior_url:
+            candidates.append(behavior_url.rstrip("/") + "/nao/camera_snapshot")
+        if base_enabled and base_url:
+            candidates.append(base_url.rstrip("/") + "/camera_snapshot")
+        if not candidates:
+            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+
+        def _extract_upstream_error(resp_obj):
+            body = ""
+            try:
+                payload = resp_obj.json()
+                if isinstance(payload, dict):
+                    body = (
+                        payload.get("error")
+                        or payload.get("details")
+                        or payload.get("status")
+                        or ""
+                    )
+            except Exception:
+                body = (resp_obj.text or "").strip()
+            if len(body) > 240:
+                body = body[:240] + "..."
+            return body
+
+        last_error = "camera snapshot failed"
+        for url in candidates:
+            try:
+                resp = requests.get(url, params=params, timeout=2.5)
+            except Exception as exc:
+                last_error = "upstream request failed (%s): %s" % (url, str(exc))
+                continue
+            if resp.status_code >= 400:
+                body = _extract_upstream_error(resp)
+                last_error = "upstream status %s (%s): %s" % (
+                    resp.status_code,
+                    url,
+                    (body or "camera snapshot failed"),
+                )
+                continue
+            content_type = (resp.headers.get("Content-Type") or "image/bmp").strip()
+            if not content_type.lower().startswith("image/"):
+                body = _extract_upstream_error(resp)
+                last_error = "upstream returned non-image (%s): %s" % (
+                    url,
+                    (body or content_type),
+                )
+                continue
+            out = Response(resp.content, status=200, mimetype=content_type)
+            out.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return out
+        return jsonify({"ok": False, "error": last_error}), 502
+
+    @app.get("/api/nao_people_detection_state")
+    def api_nao_people_detection_state():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO audio endpoint ontbreekt."}), 400
+        try:
+            url = base_url + "/nao/people_detection_state" if mode == "behavior" else base_url + "/people_detection_state"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "invalid response"}), 502
+        if payload.get("status") not in ("ok", None):
+            return jsonify({"ok": False, "error": payload.get("error") or "people_detection_state failed"}), 502
+        state = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        return jsonify({"ok": True, "state": state})
+
+    @app.post("/api/nao_people_detection_set")
+    def api_nao_people_detection_set():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return jsonify({"ok": False, "error": "NAO audio endpoint ontbreekt."}), 400
+        payload = request.get_json(force=True, silent=True) or {}
+        api_name = (payload.get("api") or "").strip()
+        enabled = payload.get("enabled", None)
+        if not api_name:
+            return jsonify({"ok": False, "error": "Missing 'api'."}), 400
+        if enabled is None:
+            return jsonify({"ok": False, "error": "Missing 'enabled'."}), 400
+
+        try:
+            url = base_url + "/nao/people_detection_set" if mode == "behavior" else base_url + "/people_detection_set"
+            resp = requests.post(url, json={"api": api_name, "enabled": bool(enabled)}, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+
+        if not isinstance(data, dict):
+            return jsonify({"ok": False, "error": "invalid response"}), 502
+        if data.get("status") not in ("ok", None):
+            return jsonify({"ok": False, "error": data.get("error") or "people_detection_set failed"}), 502
+        out = data.get("data") if isinstance(data.get("data"), dict) else {}
+        state = out.get("state") if isinstance(out.get("state"), dict) else None
+        return jsonify({"ok": True, "state": state, "applied": {"api": api_name, "enabled": bool(enabled)}})
 
     @app.get("/api/nao_autonomous_life_state")
     def api_nao_autonomous_life_state():
