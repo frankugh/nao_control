@@ -201,6 +201,10 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
         threading.Thread(target=_say, daemon=True).start()
         return jsonify({"status": "ok", "data": {"text": text}})
 
+    @app.route("/nao/stop_audio", methods=["POST"])
+    def nao_stop_audio():
+        return _wrap_py2_call(nao_actions.stop_audio)
+
     @app.route("/nao/tts_speed", methods=["POST"])
     def nao_tts_speed():
         data = request.get_json(force=True, silent=True) or {}

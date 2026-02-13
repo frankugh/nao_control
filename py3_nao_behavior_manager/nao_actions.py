@@ -159,6 +159,13 @@ class NaoActions(object):
         resp.raise_for_status()
         return resp.json()
 
+
+    def stop_audio(self, timeout=None):
+        """Stop lopende TTS/audio via /stop_audio."""
+        resp = self._post_json("/stop_audio", {}, timeout=timeout or self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     def list_behaviors(self, timeout=None):
         """Vraag alle geïnstalleerde behaviors op (/list_behaviors)."""
         resp = self._get("/list_behaviors", timeout=timeout or self.timeout)
@@ -321,3 +328,4 @@ class NaoActions(object):
         )
         resp.raise_for_status()
         return resp.json()
+

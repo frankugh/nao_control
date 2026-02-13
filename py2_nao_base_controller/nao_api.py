@@ -1040,6 +1040,66 @@ def tts_say():
         return make_response(status="error", error=repr(e))
 
 
+@app.route("/stop_audio", methods=["POST"])
+def stop_audio():
+    """
+    Best effort stop van lopende spraak/audio:
+    - ALTextToSpeech.stopAll (indien beschikbaar)
+    - ALAudioPlayer.stopAll (indien beschikbaar)
+    - kill van actieve stream-playback (`aplay`) via SSH
+    """
+    _touch_activity()
+    actions = {
+        "tts_stop_called": False,
+        "audio_player_stop_called": False,
+        "stream_stop_issued": False,
+        "stream_killed": False,
+    }
+    errors = {}
+
+    try:
+        tts = get_proxy("ALTextToSpeech")
+        if hasattr(tts, "stopAll"):
+            tts.stopAll()
+            actions["tts_stop_called"] = True
+        elif hasattr(tts, "stop"):
+            tts.stop()
+            actions["tts_stop_called"] = True
+    except Exception as e:
+        errors["tts"] = repr(e)
+
+    try:
+        audio = get_proxy("ALAudioPlayer")
+        if hasattr(audio, "stopAll"):
+            audio.stopAll()
+            actions["audio_player_stop_called"] = True
+        elif hasattr(audio, "stop"):
+            audio.stop()
+            actions["audio_player_stop_called"] = True
+    except Exception as e:
+        errors["audio_player"] = repr(e)
+
+    try:
+        utils = _utils()
+        stream_res = utils.stop_stream_playback()
+        if isinstance(stream_res, dict):
+            actions["stream_stop_issued"] = bool(stream_res.get("issued"))
+            actions["stream_killed"] = bool(stream_res.get("killed"))
+    except Exception as e:
+        errors["stream"] = repr(e)
+
+    any_action = any([
+        actions.get("tts_stop_called"),
+        actions.get("audio_player_stop_called"),
+        actions.get("stream_stop_issued"),
+    ])
+    if errors and not any_action:
+        return make_response(status="error", error="stop_audio failed", data={"actions": actions, "errors": errors})
+    if errors:
+        return make_response(status="warning", data={"actions": actions, "errors": errors})
+    return make_response(data={"actions": actions})
+
+
 @app.route("/list_behaviors", methods=["GET"])
 def list_behaviors_ep():
     """

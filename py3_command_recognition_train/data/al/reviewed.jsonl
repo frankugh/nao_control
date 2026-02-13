@@ -58,3 +58,34 @@
 {"text": "Ik vroeg, hoe kunnen we die fouten voorkomen?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Sta rechtop.", "label": "STAND\\_UP", "source": "al_reviewed"}
 {"text": "Wie ben je, kun je ons wat over jezelf vertellen en waar je vandaan komt?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens waar kom je vandaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ga je eens naar ons?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Waar kom je vandaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "vertel eens iets leuks", "label": "NONE", "source": "al_reviewed"}
+{"text": "cool", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ai.", "label": "NONE", "source": "al_reviewed"}
+{"text": "klinkt leuk die verhalen", "label": "NONE", "source": "al_reviewed"}
+{"text": "wat leuk", "label": "NONE", "source": "al_reviewed"}
+{"text": "Spannend, wat gebeurde er dan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou, vertel maar wat er allemaal gebeurde dat jullie moesten ontsnappen.", "label": "NONE", "source": "al_reviewed"}
+{"text": "dan kan ik dat maar misschien beter niet nemen", "label": "NONE", "source": "al_reviewed"}
+{"text": "Kun je me goed verstaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Wat zijn dan slimme en veilige ai toepassingen?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Met welke andere?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Dat zijn bijzondere namen hebben ze die zelf bedacht.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Wat is er dan gebeurd dat je moest ontsnappen?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Hoe kan ik verstandig met AI omgaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Kun je wat vertellen over jezelf?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou, Ik vind programmeren wel heel complex klinken. Wat je aangeeft kun je ook gewoon wat richtlijnen geven voor hoe ik dat verstandig doe.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Sta eens op.", "label": "STAND\\_UP", "source": "al_reviewed"}
+{"text": "OK zet je motoren maar weer uit.", "label": "REST", "source": "al_reviewed"}
+{"text": "Geef eens een boks dan?", "label": "BOX", "source": "al_reviewed"}
+{"text": "ehm, kun je iets vertellen over draken?", "label": "NONE", "source": "al_reviewed"}
+{"text": "ga maar uit", "label": "REST", "source": "al_reviewed"}
+{"text": "Zet je motoren uit.", "label": "REST", "source": "al_reviewed"}
+{"text": "loop mee", "label": "WALK_WITH_ME", "source": "al_reviewed"}
+{"text": "dans", "label": "DANCE", "source": "al_reviewed"}
+{"text": "sta eens op", "label": "STAND\\_UP", "source": "al_reviewed"}
+{"text": "zit", "label": "SITDOWN", "source": "al_reviewed"}
+{"text": "ga maar zitten", "label": "SITDOWN", "source": "al_reviewed"}
+{"text": "oké zet je motoren maar uit", "label": "REST", "source": "al_reviewed"}

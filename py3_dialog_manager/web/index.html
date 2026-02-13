@@ -135,7 +135,7 @@
           <div id="listenModeNote" class="small" style="margin-top:6px"></div>
           <div class="row" style="margin-top:10px">
             <button id="btnRec">🎙️ Opnemen</button>
-            <button id="btnSend" disabled>📨 Send</button>
+            <button id="btnSend" disabled>Send</button>
             <button id="btnReset">🧹 Reset</button>
             <span id="recState" class="pill">idle</span>
           </div>
@@ -910,6 +910,12 @@
       let uiPrefsSyncTimer = null;
       let uiPrefsSyncInFlight = false;
       let pendingUiPrefs = null;
+      let sendBusyPhase = '';
+      let sendStopInFlight = false;
+      let activeActionController = null;
+      let sendSpeakingTimer = null;
+      let commandStopAvailable = false;
+      let commandStopLabel = null;
       let lastTranscript = null;
       let lastAudioFetchAt = 0;
       let autoStartInProgress = false;
@@ -969,6 +975,155 @@
           recState.classList.toggle('phase-thinking', p === 'thinking');
           recState.classList.toggle('phase-transcribing', p === 'transcribing');
           recState.classList.toggle('phase-listening', p === 'listening');
+        }
+      }
+
+      function isAbortError(err) {
+        return !!(err && (err.name === 'AbortError' || String(err).includes('AbortError')));
+      }
+
+      function updateSendButton() {
+        if (!btnSend) return;
+        const busy = sendStopInFlight || !!sendBusyPhase || !!activeActionController || !!commandStopAvailable;
+        if (busy) {
+          btnSend.textContent = sendStopInFlight ? 'Stopping...' : 'Stop';
+          btnSend.disabled = !!sendStopInFlight;
+          return;
+        }
+        if (recording || serverPttActive) {
+          btnSend.textContent = 'Send';
+          btnSend.disabled = true;
+          return;
+        }
+        btnSend.textContent = 'Send';
+        btnSend.disabled = !txt.value.trim();
+      }
+
+      function setSendBusyPhase(phase) {
+        sendBusyPhase = (phase || '').toString();
+        updateSendButton();
+      }
+
+      function createActionController() {
+        const controller = new AbortController();
+        activeActionController = controller;
+        updateSendButton();
+        return controller;
+      }
+
+      function clearActionController(controller) {
+        if (!controller || activeActionController === controller) {
+          activeActionController = null;
+          updateSendButton();
+        }
+      }
+
+      function syncStopAvailability(payload) {
+        const wasStopAvailable = !!commandStopAvailable;
+        commandStopAvailable = !!(payload && payload.command_stop_available);
+        commandStopLabel = commandStopAvailable ? (payload.command_stop_label || null) : null;
+        if (wasStopAvailable && !commandStopAvailable) {
+          if (sendBusyPhase === 'command') {
+            setSendBusyPhase('');
+            return;
+          }
+          clearSpeakingWindow();
+          updateSendButton();
+          return;
+        }
+        if (!commandStopAvailable && sendBusyPhase === 'command') {
+          setSendBusyPhase('');
+          return;
+        }
+        updateSendButton();
+      }
+
+      function clearSpeakingWindow() {
+        if (sendSpeakingTimer) {
+          clearTimeout(sendSpeakingTimer);
+          sendSpeakingTimer = null;
+        }
+        if (sendBusyPhase === 'speaking') {
+          setSendBusyPhase('');
+        }
+      }
+
+      function estimateSpeakingWindowMs(text) {
+        const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
+        if (!words) return 0;
+        return Math.max(3000, Math.min(45000, words * 380));
+      }
+
+      function startSpeakingWindow(text) {
+        const ms = estimateSpeakingWindowMs(text);
+        if (ms <= 0) return false;
+        clearSpeakingWindow();
+        setSendBusyPhase('speaking');
+        setRecState('praten', 'thinking');
+        sendSpeakingTimer = setTimeout(() => {
+          sendSpeakingTimer = null;
+          if (sendBusyPhase === 'speaking') {
+            setSendBusyPhase('');
+            setRecState('idle');
+          }
+        }, ms);
+        return true;
+      }
+
+      async function requestNaoAudioStop() {
+        try {
+          await fetch('/api/nao_stop_audio', { method: 'POST' });
+        } catch (_) {}
+      }
+
+      async function requestCommandStop() {
+        try {
+          const r = await fetch('/api/command_execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: 'STOP' })
+          });
+          const j = await r.json();
+          syncStopAvailability(j);
+          return !!j.ok;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function stopCurrentAction() {
+        if (sendStopInFlight) return;
+        sendStopInFlight = true;
+        updateSendButton();
+        try {
+          const shouldSendStopCmd = !!commandStopAvailable || sendBusyPhase === 'command';
+          let commandStopOk = true;
+          const controller = activeActionController;
+          if (controller) {
+            try { controller.abort(); } catch (_) {}
+          }
+          clearSpeakingWindow();
+          activeActionController = null;
+          if (shouldSendStopCmd) {
+            commandStopOk = await requestCommandStop();
+            if (!commandStopOk) {
+              setStatus('Stop-commando kon niet bevestigd worden, audio stop wordt alsnog geprobeerd.');
+            }
+          }
+          await requestNaoAudioStop();
+          if (commandStopOk) {
+            commandStopAvailable = false;
+            commandStopLabel = null;
+            setStatus('Gestopt.');
+          }
+          setRecState('idle');
+          if (!commandStopOk) {
+            setStatus('Stop deels uitgevoerd (audio stop wel verstuurd).');
+          }
+        } finally {
+          sendBusyPhase = '';
+          sendStopInFlight = false;
+          updateSendButton();
         }
       }
 
@@ -1688,6 +1843,9 @@
         const label = cmdList && cmdList.value;
         if (!label) return;
         cmdStatus.textContent = 'starten...';
+        setSendBusyPhase('command');
+        setRecState('uitvoeren', 'thinking');
+        const controller = createActionController();
         try {
           let resolved = null;
           if (label.toUpperCase() === 'DANCE' && danceList && danceList.value) {
@@ -1700,13 +1858,24 @@
           const r = await fetch('/api/command_execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label, resolved })
+            body: JSON.stringify({ label, resolved }),
+            signal: controller.signal
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'command failed');
+          syncStopAvailability(j);
           cmdStatus.textContent = 'ok';
         } catch (e) {
-          cmdStatus.textContent = 'mislukt';
+          if (isAbortError(e)) {
+            cmdStatus.textContent = 'gestopt';
+          } else {
+            cmdStatus.textContent = 'mislukt';
+          }
+        } finally {
+          clearActionController(controller);
+          setSendBusyPhase('');
+          setRecState('idle');
+          updateSendButton();
         }
       }
 
@@ -1781,6 +1950,7 @@
           const r = await fetch('/api/continuous_state');
           const j = await r.json();
           if (!j.ok) return;
+          syncStopAvailability(j);
           const err = (j.error || '').trim();
           const phase = (j.phase || '').toLowerCase();
           if (phase === 'listening') {
@@ -3938,6 +4108,7 @@
           const r = await fetch('/api/state');
           const j = await r.json();
           if (j.ok) {
+            syncStopAvailability(j);
             renderHistory(j.history || []);
             renderPrompt(j.system_prompt || '');
             const preserveInput = (document.activeElement === txt) || !!(txt.value && txt.value.trim());
@@ -3945,6 +4116,7 @@
               lastTranscript = null;
               txt.value = '';
             }
+            updateSendButton();
           }
         }
 
@@ -4024,7 +4196,7 @@
         setStatus('Opnemen (luistert nu).');
         setRecState('luisteren');
         btnRec.textContent = '⏹️ Stop';
-        btnSend.disabled = true;
+        updateSendButton();
         startRecording._inRate = inRate;
       }
 
@@ -4034,6 +4206,7 @@
         btnRec.disabled = true;
         setStatus('Uploaden + transcriberen...');
         setRecState('uploaden');
+        setSendBusyPhase('transcribing');
 
         try {
           if (processor) processor.disconnect();
@@ -4056,35 +4229,56 @@
         const form = new FormData();
         form.append('audio', wavBlob, 'audio.wav');
 
-        const r = await fetch('/api/transcribe', { method: 'POST', body: form });
-        const j = await r.json();
-        if (!j.ok) throw new Error(j.error || 'transcribe failed');
+        const controller = createActionController();
+        try {
+          const r = await fetch('/api/transcribe', { method: 'POST', body: form, signal: controller.signal });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'transcribe failed');
 
-        txt.value = (j.transcript || '').trim();
-        lastTranscript = txt.value ? txt.value : null;
-        btnSend.disabled = !txt.value.trim();
-        const confLabel = formatConfidence(j.confidence);
-        setStatus(confLabel ? `✅ Transcript klaar (${confLabel}). Edit en druk op Send.` : '✅ Transcript klaar. Edit en druk op Send.');
-        setRecState('idle');
+          txt.value = (j.transcript || '').trim();
+          lastTranscript = txt.value ? txt.value : null;
+          const confLabel = formatConfidence(j.confidence);
+          setStatus(confLabel ? `Transcript klaar (${confLabel}). Edit en druk op Send.` : 'Transcript klaar. Edit en druk op Send.');
+          setRecState('idle');
+        } catch (e) {
+          if (isAbortError(e)) {
+            setStatus('Transcriberen gestopt.');
+            setRecState('idle');
+            return;
+          }
+          throw e;
+        } finally {
+          clearActionController(controller);
+          setSendBusyPhase('');
+          updateSendButton();
+        }
       }
 
       async function transcribeViaConfiguredMic() {
         btnRec.disabled = true;
-        btnSend.disabled = true;
+        setSendBusyPhase('transcribing');
         setStatus(useNaoMic() ? 'Luisteren via NAO mic...' : 'Luisteren via server mic...');
         setRecState('luisteren');
+        const controller = createActionController();
         try {
-          const r = await fetch('/api/transcribe_mic', { method: 'POST' });
+          const r = await fetch('/api/transcribe_mic', { method: 'POST', signal: controller.signal });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'transcribe failed');
           txt.value = (j.transcript || '').trim();
           lastTranscript = txt.value ? txt.value : null;
-          btnSend.disabled = !txt.value.trim();
           const confLabel = formatConfidence(j.confidence);
           setStatus(confLabel ? `Transcript klaar (${confLabel}). Edit en druk op Send.` : 'Transcript klaar. Edit en druk op Send.');
+        } catch (e) {
+          if (!isAbortError(e)) {
+            throw e;
+          }
+          setStatus('Transcriberen gestopt.');
         } finally {
+          clearActionController(controller);
+          setSendBusyPhase('');
           setRecState('idle');
           updateRecButton();
+          updateSendButton();
           btnRec.disabled = false;
         }
       }
@@ -4099,34 +4293,44 @@
           if (!j.ok) throw new Error(j.error || 'ptt start failed');
           serverPttActive = true;
           updateRecButton();
+          updateSendButton();
         } catch (e) {
           setStatus('Fout: ' + (e?.message || e));
           setRecState('idle');
+          updateSendButton();
         } finally {
           btnRec.disabled = false;
+          updateSendButton();
         }
       }
 
       async function stopServerPtt() {
         btnRec.disabled = true;
-        btnSend.disabled = true;
+        setSendBusyPhase('transcribing');
         setStatus('Transcriberen...');
         setRecState('transcriberen');
+        const controller = createActionController();
         try {
-          const r = await fetch('/api/ptt_stop', { method: 'POST' });
+          const r = await fetch('/api/ptt_stop', { method: 'POST', signal: controller.signal });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'ptt stop failed');
           txt.value = (j.transcript || '').trim();
           lastTranscript = txt.value ? txt.value : null;
-          btnSend.disabled = !txt.value.trim();
           const confLabel = formatConfidence(j.confidence);
           setStatus(confLabel ? `Transcript klaar (${confLabel}). Edit en druk op Send.` : 'Transcript klaar. Edit en druk op Send.');
         } catch (e) {
-          setStatus('Fout: ' + (e?.message || e));
+          if (!isAbortError(e)) {
+            setStatus('Fout: ' + (e?.message || e));
+          } else {
+            setStatus('Transcriberen gestopt.');
+          }
         } finally {
+          clearActionController(controller);
+          setSendBusyPhase('');
           serverPttActive = false;
           setRecState('idle');
           updateRecButton();
+          updateSendButton();
           btnRec.disabled = false;
         }
       }
@@ -4187,7 +4391,7 @@
         }
       });
 
-        txt.addEventListener('input', () => { btnSend.disabled = !txt.value.trim(); });
+        txt.addEventListener('input', () => { updateSendButton(); });
         if (btnVolDown && btnVolUp && cfgNaoVol) {
           btnVolDown.addEventListener('click', () => {
             const cur = parseInt(cfgNaoVol.value || '0', 10);
@@ -4226,37 +4430,63 @@
           btnSend.click();
         }
       });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && (sendBusyPhase || activeActionController)) {
+          e.preventDefault();
+          stopCurrentAction().catch(() => {});
+        }
+      });
 
       btnSend.addEventListener('click', async () => {
+        if (sendStopInFlight || sendBusyPhase || activeActionController) {
+          await stopCurrentAction();
+          return;
+        }
+        clearSpeakingWindow();
         const text = txt.value.trim();
         if (!text) return;
         const sttUsed = !!lastTranscript;
         const sttEdited = sttUsed && text !== lastTranscript;
         const input_meta = { stt_used: sttUsed, stt_edited: sttEdited };
-        btnSend.disabled = true;
-        setStatus('🤖 LLM + output...');
+        setSendBusyPhase('thinking');
+        setStatus('LLM + output...');
         setRecState('thinking');
+        const controller = createActionController();
+        let speakingWindowStarted = false;
         try {
           const r = await fetch('/api/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, input_meta })
+            body: JSON.stringify({ text, input_meta }),
+            signal: controller.signal
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'send failed');
+          syncStopAvailability(j);
 
           renderHistory(j.history || [], j.debug || null);
           renderPrompt(j.system_prompt || '');
           txt.value = '';
           txt.focus();
           lastTranscript = null;
-          setStatus('✅ Klaar. Je kunt opnieuw opnemen.');
+          setStatus('Klaar. Je kunt opnieuw opnemen.');
+          if (j.emit_used === 'pipeline' && (j.reply || '').trim()) {
+            speakingWindowStarted = startSpeakingWindow(j.reply || '');
+          }
         } catch (e) {
-          console.error(e);
-          setStatus('❌ Fout: ' + (e?.message || e));
+          if (isAbortError(e)) {
+            setStatus('Verzoek gestopt.');
+          } else {
+            console.error(e);
+            setStatus('Fout: ' + (e?.message || e));
+          }
         } finally {
-          setRecState('idle');
-          btnSend.disabled = !txt.value.trim();
+          clearActionController(controller);
+          if (!speakingWindowStarted) {
+            setSendBusyPhase('');
+            setRecState('idle');
+          }
+          updateSendButton();
         }
       });
 
@@ -4284,6 +4514,7 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'confirm failed');
+          syncStopAvailability(j);
           resolvedConfirms.add(confirmId);
           renderHistory(j.history || []);
           renderPrompt(j.system_prompt || '');
@@ -4304,6 +4535,7 @@
         try {
           const r = await fetch('/api/reset', { method: 'POST' });
           const j = await r.json();
+          syncStopAvailability(j);
           renderHistory(j.history || []);
           renderPrompt(j.system_prompt || '');
           setStatus('🧹 History gereset.');
@@ -4709,6 +4941,7 @@
 
       // init
       applyActiveLearningMode();
+      updateSendButton();
       refreshState().catch(() => setStatus('Kan server niet bereiken.'));
       loadDevices().catch(() => {});
       loadOutputDevices().catch(() => {});
@@ -4771,9 +5004,3 @@
     </script>
   </body>
 </html>
-
-
-
-
-
-

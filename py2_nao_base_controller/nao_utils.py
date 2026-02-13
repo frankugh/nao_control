@@ -196,6 +196,53 @@ class NaoUtils(object):
                 pass
         return {"played": True, "sample_rate": int(sample_rate)}
 
+    def stop_stream_playback(self):
+        """
+        Probeer actieve `aplay` stream-playback op de robot te stoppen.
+        Best effort: gebruikt pkill, valt terug op killall.
+        """
+        client = self._connect_ssh()
+        try:
+            cmd = (
+                "sh -lc '"
+                "pkill -f \"aplay -q -t raw\" >/dev/null 2>&1 && echo killed "
+                "|| (killall aplay >/dev/null 2>&1 && echo killed || echo none)"
+                "'"
+            )
+            stdin, stdout, stderr = client.exec_command(cmd)
+            try:
+                out = stdout.read()
+            except Exception:
+                out = ""
+            try:
+                err = stderr.read()
+            except Exception:
+                err = ""
+
+            if isinstance(out, bytes):
+                try:
+                    out_txt = out.decode("utf-8", "ignore")
+                except Exception:
+                    out_txt = str(out)
+            else:
+                out_txt = out
+            if isinstance(err, bytes):
+                try:
+                    err_txt = err.decode("utf-8", "ignore")
+                except Exception:
+                    err_txt = str(err)
+            else:
+                err_txt = err
+
+            out_txt = (out_txt or "").strip().lower()
+            killed = "killed" in out_txt
+            return {"issued": True, "killed": bool(killed), "stdout": out_txt, "stderr": (err_txt or "").strip()}
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
 
 # === Kleurhelpers ===
 def _rgb_tuple_to_int(rgb):

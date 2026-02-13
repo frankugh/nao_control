@@ -190,6 +190,7 @@ def test_walk_with_me_stays_locked_until_stop(monkeypatch):
     assert calls == [
         "http://behavior.local/nao/custom_life_pause",
         "http://behavior.local/nao/custom_life_apply",
+        "http://behavior.local/nao/stop_audio",
     ]
     assert executor.labels == ["WALK_WITH_ME", "STOP", "STAND_UP"]
 

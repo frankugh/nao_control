@@ -734,6 +734,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 "custom_life_pause_state": None,
                 "custom_life_pause_base_url": None,
                 "custom_life_pause_mode": None,
+                "command_stop_available": False,
+                "command_stop_label": None,
             },
         )
         if "custom_life_lock_mode" not in state:
@@ -746,6 +748,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             state["custom_life_pause_base_url"] = None
         if "custom_life_pause_mode" not in state:
             state["custom_life_pause_mode"] = None
+        if "command_stop_available" not in state:
+            state["command_stop_available"] = False
+        if "command_stop_label" not in state:
+            state["command_stop_label"] = None
         return state
 
     def _get_continuous_state(sid: str) -> Dict[str, Any]:
@@ -761,6 +767,27 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     def _set_last_action(sid: str, summary: Optional[str]) -> None:
         _get_runtime_state(sid)["last_action"] = summary
+
+    def _set_command_stop_available(sid: str, label: Optional[str]) -> None:
+        state = _get_runtime_state(sid)
+        state["command_stop_available"] = True
+        state["command_stop_label"] = str(label or "").strip() or None
+
+    def _clear_command_stop_available(sid: str) -> None:
+        state = _get_runtime_state(sid)
+        state["command_stop_available"] = False
+        state["command_stop_label"] = None
+
+    def _command_stop_payload(sid: str) -> Dict[str, Any]:
+        state = _get_runtime_state(sid)
+        return {
+            "command_stop_available": bool(state.get("command_stop_available")),
+            "command_stop_label": state.get("command_stop_label"),
+        }
+
+    def _attach_command_stop_payload(sid: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload.update(_command_stop_payload(sid))
+        return payload
 
     def _normalize_command_label(label: Optional[str]) -> str:
         return str(label or "").upper().strip().replace("\\_", "_")
@@ -970,6 +997,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         state = _get_runtime_state(sid)
         if state.get("custom_life_lock_mode") == _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN:
             _release_custom_life_lock(sid, runtime_cfg_local)
+            _clear_command_stop_available(sid)
 
     # runtime pipeline helpers
     def _get_runtime_cfg(sid: str) -> JsonLike:
@@ -1245,6 +1273,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     runtime_cfg_local=runtime_cfg,
                 )
             _release_custom_life_lock(sid, runtime_cfg)
+            _clear_command_stop_available(sid)
+            _stop_nao_audio_best_effort(runtime_cfg)
             _touch_activity()
             state["mode"] = "DIALOG"
             state["active_behavior"] = None
@@ -1335,6 +1365,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         _touch_activity()
         state["mode"] = "PERFORMING"
         state["active_behavior"] = cmd.label
+        if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+            _set_command_stop_available(sid, cmd.label)
+        else:
+            _clear_command_stop_available(sid)
         _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
         _append_assistant(history, f"OK. Uitgevoerd: {cmd.label}")
         _al_append(
@@ -1948,7 +1982,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def api_state():
         sid = _get_sid()
         history = _get_history(sid)
-        resp = jsonify({"ok": True, "history": history, "system_prompt": _system_prompt_for_sid(sid)})
+        payload = {
+            "ok": True,
+            "history": history,
+            "system_prompt": _system_prompt_for_sid(sid),
+        }
+        _attach_command_stop_payload(sid, payload)
+        resp = jsonify(payload)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -2101,6 +2141,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if reset:
             sessions[sid] = []
             _set_last_action(sid, None)
+            _clear_command_stop_available(sid)
 
         history = _get_history(sid)
         _expire_pending_if_needed(sid, history)
@@ -2123,6 +2164,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                         runtime_cfg_local=runtime_cfg,
                     )
                 _release_custom_life_lock(sid, runtime_cfg)
+                _clear_command_stop_available(sid)
+                _stop_nao_audio_best_effort(runtime_cfg)
                 state["mode"] = "DIALOG"
                 state["active_behavior"] = None
                 _set_last_action(
@@ -2422,6 +2465,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             reset=payload.get("reset") is True,
             input_meta=payload.get("input_meta"),
         )
+        _attach_command_stop_payload(sid, result)
         resp = jsonify(result)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
@@ -2812,19 +2856,19 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         sid = _get_sid()
         state = _get_continuous_state(sid)
         _ensure_continuous_phase_meta(state)
-        resp = jsonify(
-            {
-                "ok": True,
-                "running": bool(state.get("running")),
-                "error": state.get("last_error"),
-                "phase": state.get("phase"),
-                "phase_reason": state.get("phase_reason"),
-                "phase_seq": int(state.get("phase_seq", 0)),
-                "phase_changed_at": float(state.get("phase_changed_at") or 0.0),
-                "phase_log": list(state.get("phase_log") or []),
-                "last_wake_text": state.get("last_wake_text", ""),
-            }
-        )
+        out = {
+            "ok": True,
+            "running": bool(state.get("running")),
+            "error": state.get("last_error"),
+            "phase": state.get("phase"),
+            "phase_reason": state.get("phase_reason"),
+            "phase_seq": int(state.get("phase_seq", 0)),
+            "phase_changed_at": float(state.get("phase_changed_at") or 0.0),
+            "phase_log": list(state.get("phase_log") or []),
+            "last_wake_text": state.get("last_wake_text", ""),
+        }
+        _attach_command_stop_payload(sid, out)
+        resp = jsonify(out)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -3498,6 +3542,12 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                     )
             if _normalize_command_label(cmd.label) == "STOP":
                 _release_custom_life_lock(sid, runtime_cfg)
+                _clear_command_stop_available(sid)
+                _stop_nao_audio_best_effort(runtime_cfg)
+            elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                _set_command_stop_available(sid, cmd.label)
+            else:
+                _clear_command_stop_available(sid)
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
             _append_assistant(history, f"✅ Uitgevoerd: {cmd.label}")
             summary = _format_action_summary("Behavior", cmd.label, cmd.resolved)
@@ -3522,6 +3572,8 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 ),
             )
         else:
+            if _normalize_command_label(cmd.label) == "STOP":
+                _clear_command_stop_available(sid)
             _set_last_action(sid, _format_action_summary("Geannuleerd", cmd.label, cmd.resolved))
             _append_assistant(history, "❌ Geannuleerd")
             _al_append(
@@ -3542,13 +3594,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 ),
             )
 
-        resp = jsonify(
-            {
-                "ok": True,
-                "history": history,
-                "system_prompt": _system_prompt_for_sid(sid),
-            }
-        )
+        out = {
+            "ok": True,
+            "history": history,
+            "system_prompt": _system_prompt_for_sid(sid),
+        }
+        _attach_command_stop_payload(sid, out)
+        resp = jsonify(out)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -3557,7 +3609,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         sid = _get_sid()
         sessions[sid] = []
         _set_last_action(sid, None)
-        resp = jsonify({"ok": True, "history": [], "system_prompt": _system_prompt_for_sid(sid)})
+        _clear_command_stop_available(sid)
+        payload = {"ok": True, "history": [], "system_prompt": _system_prompt_for_sid(sid)}
+        _attach_command_stop_payload(sid, payload)
+        resp = jsonify(payload)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -4023,6 +4078,25 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return base_url, "base"
         return None, "none"
 
+    def _stop_nao_audio_best_effort(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "mode": mode, "error": "NAO audio endpoint ontbreekt."}
+        try:
+            url = base_url + "/nao/stop_audio" if mode == "behavior" else base_url + "/stop_audio"
+            resp = requests.post(url, json={}, timeout=3.0)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            return {"ok": False, "mode": mode, "error": str(exc)}
+
+        if isinstance(data, dict):
+            status = (data.get("status") or "").strip().lower()
+            if status == "error":
+                return {"ok": False, "mode": mode, "error": data.get("error") or "stop_audio failed"}
+            payload = data.get("data") if isinstance(data.get("data"), dict) else {}
+            return {"ok": True, "mode": mode, "status": status or "ok", "details": payload}
+        return {"ok": True, "mode": mode}
+
     def _apply_custom_life(sid: str, runtime_cfg: JsonLike) -> None:
         enabled = bool(runtime_cfg.get("custom_life_enabled", False))
         settings = runtime_cfg.get("custom_life_settings") or {}
@@ -4304,6 +4378,15 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
         return jsonify({"ok": True, "speed": (data.get("data") or {}).get("speed", speed)})
 
+    @app.post("/api/nao_stop_audio")
+    def api_nao_stop_audio():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        result = _stop_nao_audio_best_effort(runtime_cfg)
+        if not result.get("ok"):
+            code = 400 if "ontbreekt" in str(result.get("error") or "").lower() else 502
+            return jsonify({"ok": False, "error": result.get("error"), "mode": result.get("mode")}), code
+        return jsonify({"ok": True, "mode": result.get("mode"), "status": result.get("status", "ok"), "details": result.get("details") or {}})
+
     @app.post("/api/nao_set_eye_color")
     def api_nao_set_eye_color():
         payload = request.get_json(force=True, silent=True) or {}
@@ -4570,8 +4653,16 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 runtime_cfg_local=runtime_cfg,
             )
             _release_custom_life_lock(sid, runtime_cfg)
+            _clear_command_stop_available(sid)
+            _stop_nao_audio_best_effort(runtime_cfg)
+        elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+            _set_command_stop_available(sid, cmd.label)
+        else:
+            _clear_command_stop_available(sid)
         _touch_activity()
-        resp = jsonify({"ok": True})
+        out = {"ok": True}
+        _attach_command_stop_payload(sid, out)
+        resp = jsonify(out)
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
