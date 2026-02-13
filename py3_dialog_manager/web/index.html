@@ -9,10 +9,15 @@
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; min-height: 100vh; }
       h2 { margin: 0 0 10px 0; }
 
-      .layout { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 14px; min-height: calc(100vh - 90px); }
-      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+      .layout { --left-pane-width: 65%; display: grid; grid-template-columns: minmax(380px, var(--left-pane-width)) 10px minmax(320px, 1fr); gap: 8px; min-height: calc(100vh - 90px); }
+      .layout-splitter { width: 10px; border-radius: 999px; background: #e4e4e4; border: 1px solid #d0d0d0; cursor: col-resize; align-self: stretch; position: relative; }
+      .layout-splitter::after { content: ''; position: absolute; left: 50%; top: 16%; width: 2px; height: 68%; transform: translateX(-50%); background: #b0b0b0; border-radius: 99px; }
+      .layout.dragging, .layout.dragging * { cursor: col-resize !important; user-select: none; }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 14px; } }
+      @media (max-width: 900px) { .layout-splitter { display: none; } }
       @media (max-width: 900px) { .chatcard { height: calc(100vh - 140px); } }
-      body.al-only .layout { grid-template-columns: 1fr; }
+      body.al-only .layout { grid-template-columns: 1fr; gap: 14px; }
+      body.al-only .layout-splitter { display: none; }
       body.al-only .chatcard { display: none; }
       body.al-only #tabPrompt,
       body.al-only #tabRuntime,
@@ -146,6 +151,8 @@
           <div id="status" class="status"></div>
         </div>
       </div>
+
+      <div id="layoutSplitter" class="layout-splitter" role="separator" aria-orientation="vertical" aria-label="Panel breedte" tabindex="0"></div>
 
       <!-- RIGHT: master prompt / runtime config -->
       <div class="card">
@@ -693,6 +700,8 @@
       const appTitle = document.getElementById('appTitle');
       const navToActiveLearning = document.getElementById('navToActiveLearning');
       const navToMain = document.getElementById('navToMain');
+      const layoutEl = document.querySelector('.layout');
+      const layoutSplitter = document.getElementById('layoutSplitter');
       const tabPrompt = document.getElementById('tabPrompt');
       const tabRuntime = document.getElementById('tabRuntime');
       const tabCommands = document.getElementById('tabCommands');
@@ -892,6 +901,7 @@
       const healthBehavior = document.getElementById('healthBehavior');
       const healthNao = document.getElementById('healthNao');
       const LOCAL_CFG_KEY = 'nao_runtime_config_v1';
+      const LAYOUT_SPLIT_KEY = 'nao_layout_split_left_pct_v1';
       let runtimeCmdrecValue = null;
       let lastAppliedBaseUrl = '';
       let lastAppliedBehaviorUrl = '';
@@ -1389,6 +1399,86 @@
 
       function isServerUi() {
         return uiMode === 'server';
+      }
+
+      function clampLayoutSplitPct(raw) {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return 65;
+        return Math.max(30, Math.min(80, n));
+      }
+
+      function isLayoutSplitActive() {
+        if (!layoutEl || !layoutSplitter) return false;
+        if (document.body.classList.contains('al-only')) return false;
+        if (window.matchMedia) {
+          return window.matchMedia('(min-width: 901px)').matches;
+        }
+        return window.innerWidth > 900;
+      }
+
+      function getLayoutSplitPct() {
+        if (!layoutEl) return 65;
+        const raw = String(layoutEl.style.getPropertyValue('--left-pane-width') || '').trim();
+        const parsed = parseFloat(raw.replace('%', ''));
+        return clampLayoutSplitPct(Number.isFinite(parsed) ? parsed : 65);
+      }
+
+      function applyLayoutSplitPct(rawPct, persist) {
+        if (!layoutEl) return;
+        const pct = clampLayoutSplitPct(rawPct);
+        layoutEl.style.setProperty('--left-pane-width', `${pct.toFixed(2)}%`);
+        if (!persist) return;
+        try {
+          localStorage.setItem(LAYOUT_SPLIT_KEY, String(pct));
+        } catch (_) {}
+      }
+
+      function initLayoutSplitter() {
+        if (!layoutEl || !layoutSplitter) return;
+        try {
+          const stored = parseFloat(localStorage.getItem(LAYOUT_SPLIT_KEY) || '');
+          if (Number.isFinite(stored)) {
+            applyLayoutSplitPct(stored, false);
+          }
+        } catch (_) {}
+        let dragging = false;
+        const onMove = (ev) => {
+          if (!dragging || !isLayoutSplitActive()) return;
+          const rect = layoutEl.getBoundingClientRect();
+          if (!rect || rect.width <= 0) return;
+          const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+          applyLayoutSplitPct(pct, false);
+        };
+        const stopDrag = () => {
+          if (!dragging) return;
+          dragging = false;
+          layoutEl.classList.remove('dragging');
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', stopDrag);
+          window.removeEventListener('pointercancel', stopDrag);
+          applyLayoutSplitPct(getLayoutSplitPct(), true);
+        };
+        layoutSplitter.addEventListener('pointerdown', (ev) => {
+          if (!isLayoutSplitActive()) return;
+          ev.preventDefault();
+          dragging = true;
+          layoutEl.classList.add('dragging');
+          window.addEventListener('pointermove', onMove);
+          window.addEventListener('pointerup', stopDrag);
+          window.addEventListener('pointercancel', stopDrag);
+        });
+        layoutSplitter.addEventListener('keydown', (ev) => {
+          if (!isLayoutSplitActive()) return;
+          if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+          ev.preventDefault();
+          const step = ev.shiftKey ? 2.5 : 1;
+          const dir = ev.key === 'ArrowRight' ? 1 : -1;
+          applyLayoutSplitPct(getLayoutSplitPct() + (dir * step), true);
+        });
+        window.addEventListener('resize', () => {
+          if (!isLayoutSplitActive()) return;
+          applyLayoutSplitPct(getLayoutSplitPct(), false);
+        });
       }
 
       function loadClientAudioPrefs() {
@@ -5872,6 +5962,7 @@
 
       // init
       applyActiveLearningMode();
+      initLayoutSplitter();
       setCameraBlackPlaceholder();
       updateSendButton();
       refreshState().catch(() => setStatus('Kan server niet bereiken.'));
