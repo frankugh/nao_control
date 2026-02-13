@@ -396,10 +396,10 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "behavior_manager_url": behavior_manager_url,
         "nao_ip": nao_ip or "",
         "nao_ip_enabled": bool(cfg_src.get("nao_ip_enabled")) if "nao_ip_enabled" in cfg_src else bool(nao_ip),
-        "base_enabled": True,
-        "behavior_enabled": True,
-        "base_autostart": False,
-        "behavior_autostart": False,
+        "base_enabled": bool(cfg_src.get("base_enabled", True)),
+        "behavior_enabled": bool(cfg_src.get("behavior_enabled", True)),
+        "base_autostart": bool(cfg_src.get("base_autostart", False)),
+        "behavior_autostart": bool(cfg_src.get("behavior_autostart", False)),
         "input_device": input_device,
         "stt_type": (stt_cfg.get("type") or "vosk"),
         "mic_params_ptt": mic_ptt,
@@ -3616,15 +3616,63 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
+    _audio_probe_lock = threading.Lock()
+    _audio_probe_cache: Dict[str, Any] = {"ts": 0.0, "snapshot": None}
+
+    def _probe_audio_snapshot(timeout_s: float = 2.0) -> Optional[Dict[str, Any]]:
+        now = time.time()
+        with _audio_probe_lock:
+            cached = _audio_probe_cache.get("snapshot")
+            if cached is not None and (now - float(_audio_probe_cache.get("ts", 0.0))) < 0.75:
+                return cached
+        probe_code = (
+            "import json\n"
+            "import sounddevice as sd\n"
+            "raw = sd.query_devices()\n"
+            "default_device = list(sd.default.device) if sd.default.device else [None, None]\n"
+            "out = {'default_hostapi': sd.default.hostapi, 'default_device': default_device, 'devices': []}\n"
+            "for idx, d in enumerate(raw):\n"
+            "    out['devices'].append({"
+            "'index': idx, "
+            "'name': d.get('name', ''), "
+            "'hostapi': d.get('hostapi'), "
+            "'max_input_channels': d.get('max_input_channels', 0), "
+            "'max_output_channels': d.get('max_output_channels', 0)"
+            "})\n"
+            "print(json.dumps(out, ensure_ascii=False))\n"
+        )
+        try:
+            out = subprocess.check_output(
+                [sys.executable, "-c", probe_code],
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_s,
+                text=True,
+            )
+            snap = json.loads(out.strip())
+            if not isinstance(snap, dict):
+                return None
+            with _audio_probe_lock:
+                _audio_probe_cache["snapshot"] = snap
+                _audio_probe_cache["ts"] = time.time()
+            return snap
+        except Exception:
+            return None
+
     def _list_audio_devices() -> Dict[str, Any]:
         if sd is None:
             return {"devices": [], "default_input": None}
         devices = []
         try:
-            raw = sd.query_devices()
-            hostapis = sd.query_hostapis()
-            default_hostapi = sd.default.hostapi
-            default_in = sd.default.device[0] if sd.default.device else None
+            snap = _probe_audio_snapshot()
+            if snap:
+                raw = snap.get("devices", [])
+                default_hostapi = snap.get("default_hostapi")
+                default_device = snap.get("default_device") or [None, None]
+                default_in = default_device[0] if len(default_device) > 0 else None
+            else:
+                raw = sd.query_devices()
+                default_hostapi = sd.default.hostapi
+                default_in = sd.default.device[0] if sd.default.device else None
             for idx, d in enumerate(raw):
                 if d.get("max_input_channels", 0) <= 0:
                     continue
@@ -3651,9 +3699,16 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return {"devices": [], "default_output": None}
         devices = []
         try:
-            raw = sd.query_devices()
-            default_hostapi = sd.default.hostapi
-            default_out = sd.default.device[1] if sd.default.device else None
+            snap = _probe_audio_snapshot()
+            if snap:
+                raw = snap.get("devices", [])
+                default_hostapi = snap.get("default_hostapi")
+                default_device = snap.get("default_device") or [None, None]
+                default_out = default_device[1] if len(default_device) > 1 else None
+            else:
+                raw = sd.query_devices()
+                default_hostapi = sd.default.hostapi
+                default_out = sd.default.device[1] if sd.default.device else None
             for idx, d in enumerate(raw):
                 if d.get("max_output_channels", 0) <= 0:
                     continue
@@ -3993,6 +4048,12 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
+
+    @app.get("/api/runtime_defaults")
+    def api_runtime_defaults():
+        cfg_out = _extract_runtime_config(base_cfg)
+        merged = _apply_runtime_overrides(base_cfg, cfg_out)
+        return jsonify({"ok": True, "config": cfg_out, "effective_config": merged})
 
     @app.post("/api/runtime_config")
     def api_runtime_config_set():

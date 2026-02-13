@@ -7,7 +7,10 @@
   "cmdrec": "latest",
   "cmdrec_bundles_dir": "dist",
   "nao_ip": "192.168.0.101",
-  "nao_ip_enabled": false,
+  "nao_ip_enabled": true,
+  "base_enabled": true,
+  "base_autostart": true,
+  "behavior_enabled": false,
   "nao_auto_rest_after_s": 180,
   "nao_connection": {
     "primary": {
@@ -51,7 +54,7 @@
       "confirm_before_record": true,
       "confirm_before_send": true,
       "start_timeout_s": null,
-      "wake_mode": "never",
+      "wake_mode": "timeout",
       "wake_timeout_s": 20,
       "wake_words": ["NAO", "Alex"],
       "print_input": true,
@@ -62,8 +65,10 @@
     "type": "echo"
   },
   "output": {
-    "type": "nao_tts",
+    "type": "output_router",
     "params": {
+      "target": "nao",
+      "tts_engine": "piper",
       "timeout": 45.0
     }
   },
