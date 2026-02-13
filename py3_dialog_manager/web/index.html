@@ -6,17 +6,43 @@
     <title>NAO Studio</title>
     <link rel="icon" href="data:," />
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; min-height: 100vh; }
-      h2 { margin: 0 0 10px 0; }
+      :root {
+        --bg-page: #edf3f9;
+        --bg-overlay: #f8fbff;
+        --panel-bg: #ffffff;
+        --panel-soft: #f6f9fd;
+        --border-soft: #d6e1ec;
+        --border-strong: #bfcfe0;
+        --text-main: #122033;
+        --text-muted: #4a5a6f;
+        --accent: #2b6fcb;
+        --accent-soft: #e8f1ff;
+        --shadow-soft: 0 8px 24px rgba(17, 42, 74, 0.08);
+      }
+      body {
+        font-family: "Bahnschrift", "Trebuchet MS", "Segoe UI", sans-serif;
+        margin: 16px;
+        min-height: 100vh;
+        color: var(--text-main);
+        background:
+          radial-gradient(1200px 420px at -8% -10%, #dfeeff 0%, transparent 60%),
+          radial-gradient(1000px 360px at 110% -18%, #d4e8ff 0%, transparent 60%),
+          linear-gradient(180deg, var(--bg-overlay) 0%, var(--bg-page) 100%);
+      }
+      h2 { margin: 0; letter-spacing: 0.2px; }
+      a { color: var(--accent); }
 
-      .layout { --left-pane-width: 65%; display: grid; grid-template-columns: minmax(380px, var(--left-pane-width)) 10px minmax(320px, 1fr); gap: 8px; min-height: calc(100vh - 90px); }
-      .layout-splitter { width: 10px; border-radius: 999px; background: #e4e4e4; border: 1px solid #d0d0d0; cursor: col-resize; align-self: stretch; position: relative; }
-      .layout-splitter::after { content: ''; position: absolute; left: 50%; top: 16%; width: 2px; height: 68%; transform: translateX(-50%); background: #b0b0b0; border-radius: 99px; }
+      .layout { --left-pane-width: 65%; display: grid; grid-template-columns: minmax(380px, var(--left-pane-width)) 10px minmax(320px, 1fr); gap: 10px; min-height: calc(100vh - 100px); height: calc(100vh - 100px); align-items: stretch; }
+      .layout-splitter { width: 10px; border-radius: 999px; background: #d7e4f4; border: 1px solid var(--border-strong); cursor: col-resize; align-self: stretch; position: relative; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3); }
+      .layout-splitter::after { content: ''; position: absolute; left: 50%; top: 16%; width: 2px; height: 68%; transform: translateX(-50%); background: #89a8c8; border-radius: 99px; }
       .layout.dragging, .layout.dragging * { cursor: col-resize !important; user-select: none; }
-      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 14px; } }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 14px; min-height: 0; height: auto; } }
       @media (max-width: 900px) { .layout-splitter { display: none; } }
-      @media (max-width: 900px) { .chatcard { min-height: calc(100vh - 140px); } }
-      @media (max-width: 900px) { .rightpane { min-height: calc(100vh - 140px); } }
+      @media (max-width: 900px) { .chatcard { min-height: calc(100vh - 180px); height: auto; } }
+      @media (max-width: 900px) { .rightpane { min-height: calc(100vh - 180px); height: auto; } }
+      @media (max-width: 900px) { .app-header { flex-direction: column; align-items: flex-start; } }
+      @media (max-width: 900px) { .app-nav { flex-wrap: wrap; } }
+      @media (max-width: 900px) { .app-nav-badge { display: none; } }
       body.al-only .layout { grid-template-columns: 1fr; gap: 14px; }
       body.al-only .layout-splitter { display: none; }
       body.al-only .chatcard { display: none; }
@@ -31,30 +57,51 @@
       body:not(.al-mode) #tab-retrain { display: none; }
       body.al-mode #navToActiveLearning { display: none; }
       body:not(.al-mode) #navToMain { display: none; }
-      .app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      .app-header h2 { margin: 0; }
+      .app-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 10px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border-soft); background: linear-gradient(120deg, #ffffff 0%, #f4f8fe 100%); box-shadow: var(--shadow-soft); }
+      .app-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .app-brand-copy { min-width: 0; }
+      .app-brand-copy h2 { color: #0f223a; }
+      .app-tagline { margin: 2px 0 0 0; color: var(--text-muted); font-size: 12px; }
+      .app-brand-image { display: block; width: 56px; height: 56px; border-radius: 14px; object-fit: cover; object-position: center 16%; border: 1px solid var(--border-strong); background: #eef4fb; box-shadow: 0 4px 10px rgba(32, 63, 101, 0.18); cursor: zoom-in; }
+      .app-nav { display: flex; align-items: center; gap: 8px; }
+      .app-nav-badge { width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid var(--border-strong); opacity: 0.95; cursor: zoom-in; }
+      .app-nav .small { margin: 0; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border-soft); background: var(--panel-bg); text-decoration: none; font-size: 12px; color: var(--text-main); }
+      .app-nav .small:hover { background: var(--accent-soft); border-color: #bdd2ee; color: #0f2b55; }
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-      button { padding: 10px 14px; font-size: 16px; }
+      button { padding: 8px 12px; font-size: 14px; border-radius: 10px; border: 1px solid var(--border-strong); background: linear-gradient(180deg, #ffffff 0%, #f2f7fd 100%); color: var(--text-main); box-shadow: 0 1px 0 rgba(255,255,255,0.6), 0 2px 7px rgba(16, 42, 72, 0.08); transition: all 0.15s ease; }
+      button:hover { border-color: #9eb7d3; background: linear-gradient(180deg, #ffffff 0%, #eaf3ff 100%); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
       textarea { width: 100%; min-height: 110px; font-size: 16px; padding: 10px; box-sizing: border-box; }
+      input[type="text"], input[type="number"], input[type="url"], select, textarea {
+        border: 1px solid var(--border-soft);
+        border-radius: 10px;
+        background: #ffffff;
+        color: var(--text-main);
+      }
+      input[type="text"]:focus, input[type="number"]:focus, input[type="url"]:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: #7ea7da;
+        box-shadow: 0 0 0 3px rgba(43, 111, 203, 0.14);
+      }
       #txt { resize: vertical; }
 
-      .small { color: #444; font-size: 13px; margin-bottom: 10px; }
+      .small { color: var(--text-muted); font-size: 13px; margin-bottom: 10px; }
       .status { margin-top: 8px; font-size: 14px; white-space: pre-wrap; }
 
-      .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
-      .chatcard { display: flex; flex-direction: column; min-height: calc(100vh - 130px); }
-      .rightpane { display: flex; flex-direction: column; min-height: calc(100vh - 130px); }
-      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
+      .card { border: 1px solid var(--border-soft); border-radius: 14px; padding: 12px; background: rgba(255,255,255,0.88); backdrop-filter: blur(3px); box-shadow: var(--shadow-soft); }
+      .chatcard { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+      .rightpane { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: auto; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); font-size: 12px; background: #f7fbff; color: #23364d; }
 
-      .chat { flex: 0 0 auto; height: clamp(260px, 52vh, 640px); min-height: 180px; max-height: 80vh; resize: vertical; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 10px; }
+      .chat { flex: 0 0 auto; height: clamp(200px, 36vh, 460px); min-height: 170px; max-height: 62vh; resize: vertical; overflow: auto; padding: 10px; background: var(--panel-soft); border: 1px solid var(--border-soft); border-radius: 12px; }
       .composer { margin-top: 10px; }
       .msg { margin: 8px 0; display: flex; }
       .msg.user { justify-content: flex-end; }
-      .bubble { max-width: 100%; padding: 8px 10px; border-radius: 12px; border: 1px solid #e6e6e6; background: white; white-space: pre-wrap; overflow-wrap: anywhere; }
-      .user .bubble { background: #f1f7ff; border-color: #d8e8ff; }
-      .role { width: 100%; font-size: 12px; color: #666; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-      .timestamp { font-size: 11px; color: #888; white-space: nowrap; }
+      .bubble { max-width: 100%; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border-soft); background: #ffffff; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .user .bubble { background: #eaf3ff; border-color: #bfd8f9; }
+      .role { width: 100%; font-size: 12px; color: #5e7085; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+      .timestamp { font-size: 11px; color: #6f8196; white-space: nowrap; }
       .bubblewrap { display: inline-flex; flex-direction: column; width: fit-content; max-width: 75%; }
       .debug { margin-top: 6px; font-size: 12px; color: #333; background: #f4f4f4; border: 1px dashed #cfcfcf; padding: 6px 8px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       .confirm-card { margin: 8px 0; padding: 10px; border: 1px solid #d8d8d8; border-radius: 10px; background: #fffaf0; }
@@ -73,8 +120,8 @@
       .prompt-md blockquote { border-left: 3px solid #d5d5d5; padding-left: 10px; color: #444; }
       .muted { color: #aaa; }
       .tabbar { display: flex; gap: 8px; align-items: center; }
-      .tab { border: 1px solid #ddd; border-radius: 999px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
-      .tab.active { background: #111; color: #fff; border-color: #111; }
+      .tab { border: 1px solid var(--border-strong); border-radius: 999px; padding: 5px 11px; background: #f7fbff; cursor: pointer; font-size: 12px; color: #2c4159; box-shadow: none; }
+      .tab.active { background: linear-gradient(180deg, #2f74ce 0%, #235eb0 100%); color: #fff; border-color: #2159a8; }
       .tabpane.hidden { display: none; }
       .tabpane.prompt-pane:not(.hidden) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
       .tabpane.prompt-pane .prompt-editor,
@@ -82,8 +129,8 @@
       .subtabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .subtab-sep { color: #999; font-size: 12px; user-select: none; }
       .subtab-sep.flow { color: #666; font-weight: 600; }
-      .subtab { border: 1px solid #ddd; border-radius: 8px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
-      .subtab.active { background: #111; color: #fff; border-color: #111; }
+      .subtab { border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 10px; background: #f7fbff; cursor: pointer; font-size: 12px; color: #2c4159; box-shadow: none; }
+      .subtab.active { background: linear-gradient(180deg, #2f74ce 0%, #235eb0 100%); color: #fff; border-color: #2159a8; }
       .subtabpane.hidden { display: none; }
       .formgrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
       .collapsible summary { cursor: pointer; font-size: 12px; color: #555; }
@@ -106,10 +153,10 @@
       .inline-apply .input-apply-btn { padding: 4px 8px; font-size: 12px; line-height: 1; display: none; }
       .dirty-note { font-size: 12px; color: #b00020; }
 
-      .segmented { display: inline-flex; border: 1px solid #ddd; border-radius: 999px; overflow: hidden; }
-      .segmented button { border: 0; background: #fff; padding: 6px 10px; font-size: 12px; cursor: pointer; }
-      .segmented button + button { border-left: 1px solid #ddd; }
-      .segmented button.active { background: #111; color: #fff; }
+      .segmented { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 999px; overflow: hidden; background: #fff; }
+      .segmented button { border: 0; background: transparent; padding: 6px 10px; font-size: 12px; cursor: pointer; box-shadow: none; border-radius: 0; }
+      .segmented button + button { border-left: 1px solid var(--border-soft); }
+      .segmented button.active { background: linear-gradient(180deg, #2f74ce 0%, #235eb0 100%); color: #fff; }
 
       .phase-thinking { background: #efefef; border-color: #d0d0d0; color: #333; }
       .phase-transcribing { background: #fff2dd; border-color: #ffd0a3; color: #7a4a00; }
@@ -134,13 +181,33 @@
       .people-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
       .people-lines { margin-top: 6px; font-size: 12px; color: #444; }
       .people-line { white-space: pre-wrap; margin: 2px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .image-preview-modal { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: center; justify-content: center; background: rgba(10, 16, 26, 0.74); padding: 20px; }
+      .image-preview-modal.hidden { display: none; }
+      .image-preview-panel { position: relative; width: min(92vw, 920px); max-height: 90vh; border-radius: 16px; border: 1px solid var(--border-strong); background: #0f1724; box-shadow: 0 16px 50px rgba(0,0,0,0.45); padding: 12px; }
+      .image-preview-view { display: block; width: 100%; max-height: calc(90vh - 24px); object-fit: contain; border-radius: 10px; background: #08101b; }
+      .image-preview-close { position: absolute; top: 10px; right: 10px; width: 34px; height: 34px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); background: rgba(17, 28, 43, 0.92); color: #fff; font-size: 22px; line-height: 1; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
     </style>
   </head>
   <body>
     <div class="app-header">
-      <h2 id="appTitle">NAO Studio</h2>
-      <a id="navToActiveLearning" class="small" href="/active_learning">Active learning</a>
-      <a id="navToMain" class="small" href="/">Terug naar NAO Studio</a>
+      <div class="app-brand">
+        <img id="brandImagePreviewTrigger" class="app-brand-image" src="/assets/img/NAO1.jpeg" alt="NAO robot" role="button" tabindex="0" title="Klik voor groter beeld" />
+        <div class="app-brand-copy">
+          <h2 id="appTitle">NAO Studio</h2>
+          <div class="app-tagline">Robot dialog and control workspace</div>
+        </div>
+      </div>
+      <div class="app-nav">
+        <img id="navBadgePreviewTrigger" class="app-nav-badge" src="/assets/img/NAO2.jpeg" alt="NAO detail" role="button" tabindex="0" title="Klik voor groter beeld" />
+        <a id="navToActiveLearning" class="small" href="/active_learning">Active learning</a>
+        <a id="navToMain" class="small" href="/">Terug naar NAO Studio</a>
+      </div>
+    </div>
+    <div id="imagePreviewModal" class="image-preview-modal hidden" aria-hidden="true">
+      <div class="image-preview-panel" role="dialog" aria-modal="true" aria-label="Afbeelding preview">
+        <button id="btnImagePreviewClose" type="button" class="image-preview-close" aria-label="Sluiten">&times;</button>
+        <img id="imagePreviewView" class="image-preview-view" src="" alt="NAO afbeelding preview" />
+      </div>
     </div>
     <div class="layout">
       <!-- LEFT: chat + controls -->
@@ -742,6 +809,11 @@
       const appTitle = document.getElementById('appTitle');
       const navToActiveLearning = document.getElementById('navToActiveLearning');
       const navToMain = document.getElementById('navToMain');
+      const brandImagePreviewTrigger = document.getElementById('brandImagePreviewTrigger');
+      const navBadgePreviewTrigger = document.getElementById('navBadgePreviewTrigger');
+      const imagePreviewModal = document.getElementById('imagePreviewModal');
+      const imagePreviewView = document.getElementById('imagePreviewView');
+      const btnImagePreviewClose = document.getElementById('btnImagePreviewClose');
       const layoutEl = document.querySelector('.layout');
       const layoutSplitter = document.getElementById('layoutSplitter');
       const tabPrompt = document.getElementById('tabPrompt');
@@ -1060,6 +1132,8 @@
       let activeTab = 'prompt';
       let serverPttActive = false;
       let uiMode = 'client';
+      let imagePreviewBodyOverflow = '';
+      let imagePreviewReturnFocusEl = null;
       let continuousActive = false;
       let continuousPoll = null;
       let uiPrefsSyncTimer = null;
@@ -1527,6 +1601,52 @@
         window.addEventListener('resize', () => {
           if (!isLayoutSplitActive()) return;
           applyLayoutSplitPct(getLayoutSplitPct(), false);
+        });
+      }
+
+      function isImagePreviewOpen() {
+        return !!(imagePreviewModal && !imagePreviewModal.classList.contains('hidden'));
+      }
+
+      function openImagePreview(src, altText, returnFocusEl) {
+        if (!imagePreviewModal || !imagePreviewView || !src) return;
+        imagePreviewView.src = src;
+        imagePreviewView.alt = altText || 'NAO afbeelding preview';
+        imagePreviewReturnFocusEl = returnFocusEl || null;
+        imagePreviewModal.classList.remove('hidden');
+        imagePreviewModal.setAttribute('aria-hidden', 'false');
+        imagePreviewBodyOverflow = document.body.style.overflow || '';
+        document.body.style.overflow = 'hidden';
+        if (btnImagePreviewClose) btnImagePreviewClose.focus();
+      }
+
+      function closeImagePreview() {
+        if (!imagePreviewModal || !imagePreviewView) return;
+        imagePreviewModal.classList.add('hidden');
+        imagePreviewModal.setAttribute('aria-hidden', 'true');
+        imagePreviewView.src = '';
+        document.body.style.overflow = imagePreviewBodyOverflow;
+        const focusEl = imagePreviewReturnFocusEl;
+        imagePreviewReturnFocusEl = null;
+        if (focusEl && typeof focusEl.focus === 'function') {
+          focusEl.focus();
+        }
+      }
+
+      function bindImagePreviewTrigger(el, fallbackAlt) {
+        if (!el) return;
+        const open = () => {
+          openImagePreview(
+            el.getAttribute('src') || '',
+            el.getAttribute('alt') || fallbackAlt || 'NAO afbeelding preview',
+            el
+          );
+        };
+        el.addEventListener('click', open);
+        el.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          open();
         });
       }
 
@@ -5779,6 +5899,11 @@
         }
       });
       document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isImagePreviewOpen()) {
+          e.preventDefault();
+          closeImagePreview();
+          return;
+        }
         if (e.key === 'Escape' && (sendBusyPhase || activeActionController)) {
           e.preventDefault();
           stopCurrentAction().catch(() => {});
@@ -5913,6 +6038,19 @@
         if (cameraStreamEnabled) fetchCameraFrame().catch(() => {});
       });
       if (btnPeopleRefresh) btnPeopleRefresh.addEventListener('click', () => refreshPeopleDetectionState(true).catch(() => {}));
+      bindImagePreviewTrigger(brandImagePreviewTrigger, 'NAO robot');
+      bindImagePreviewTrigger(navBadgePreviewTrigger, 'NAO detail');
+      if (btnImagePreviewClose) {
+        btnImagePreviewClose.addEventListener('click', () => {
+          closeImagePreview();
+        });
+      }
+      if (imagePreviewModal) {
+        imagePreviewModal.addEventListener('click', (e) => {
+          if (e.target !== imagePreviewModal) return;
+          closeImagePreview();
+        });
+      }
       window.addEventListener('beforeunload', () => {
         if (cmdNaoDeferredRefreshTimer) {
           clearTimeout(cmdNaoDeferredRefreshTimer);
