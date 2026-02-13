@@ -110,24 +110,36 @@ class BehaviorExecutor(ICommandExecutor):
             raise ValueError(f"Geen behavior mapping voor label {cmd.label!r}.")
         payload = {"behavior": behavior}
         pause_state = self._pause_custom_life()
+        exec_error: Optional[Exception] = None
         try:
             if self.api_router is not None:
                 resp = self.api_router.post("/do_behavior", json=payload, timeout=self.timeout_s)
             else:
                 resp = requests.post(f"{self.base_url}/do_behavior", json=payload, timeout=self.timeout_s)
             resp.raise_for_status()
-            # Log non-ok responses from Py2 (it returns 200 with status=warning/error).
             try:
                 data = resp.json()
             except ValueError:
                 data = None
             if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-                print(f"[NAO] behavior not ok: {data} payload={payload}")
+                status = str(data.get("status") or "").strip().lower() or "error"
+                err = data.get("error")
+                if not err:
+                    payload_data = data.get("data")
+                    if isinstance(payload_data, dict):
+                        if payload_data.get("installed") is False:
+                            err = "Behavior niet geinstalleerd op deze robot."
+                        elif payload_data.get("ran") is False:
+                            err = "Behavior startte niet."
+                msg = str(err or f"behavior status={status}")
+                exec_error = RuntimeError(msg)
         except requests.RequestException as exc:
-            print(f"[NAO] behavior request failed: {exc}")
+            exec_error = RuntimeError(str(exc))
         finally:
             self._restore_custom_life(pause_state)
-        self._notify_finish(cmd)
+            self._notify_finish(cmd)
+        if exec_error is not None:
+            raise exec_error
 
     def _normalize_label(self, label: str) -> str:
         return label.upper().strip().replace("\\_", "_")
@@ -256,10 +268,17 @@ class ConsoleAndBehaviorExecutor(ICommandExecutor):
 
     def execute(self, cmd: CommandDecision) -> None:
         self._printer.execute(cmd)
-        if self._executor is not None:
-            self._executor.execute(cmd)
-        if self._on_finish is not None:
-            try:
-                self._on_finish(cmd)
-            except Exception as exc:
-                print(f"[NAO] on_finish callback failed: {exc}")
+        exec_error: Optional[Exception] = None
+        try:
+            if self._executor is not None:
+                self._executor.execute(cmd)
+        except Exception as exc:
+            exec_error = exc
+        finally:
+            if self._on_finish is not None:
+                try:
+                    self._on_finish(cmd)
+                except Exception as exc:
+                    print(f"[NAO] on_finish callback failed: {exc}")
+        if exec_error is not None:
+            raise exec_error

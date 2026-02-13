@@ -692,6 +692,13 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         "behavior": {"proc": None, "exit_code": None},
     }
     max_log_lines = 400
+    proc_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "process")
+    proc_log_paths: Dict[str, str] = {
+        "base": os.path.join(proc_log_dir, "base.log"),
+        "behavior": os.path.join(proc_log_dir, "behavior.log"),
+    }
+    proc_log_backup_suffix = ".1"
+    proc_log_max_bytes = 5 * 1024 * 1024
 
     # In-memory session histories for intranet testing
     sessions: Dict[str, History] = {}
@@ -1397,17 +1404,82 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             payload["debug"] = debug
         return payload
 
+    def _ensure_proc_log_dir() -> None:
+        try:
+            os.makedirs(proc_log_dir, exist_ok=True)
+        except OSError:
+            pass
+
+    def _proc_log_path(name: str) -> Optional[str]:
+        return proc_log_paths.get(name)
+
+    def _rotate_proc_log_if_needed(path: str) -> None:
+        if not path:
+            return
+        try:
+            if not os.path.exists(path):
+                return
+            if os.path.getsize(path) < proc_log_max_bytes:
+                return
+            backup = path + proc_log_backup_suffix
+            if os.path.exists(backup):
+                os.remove(backup)
+            os.replace(path, backup)
+        except OSError:
+            pass
+
+    def _append_proc_log_file(name: str, entry: str) -> None:
+        path = _proc_log_path(name)
+        if not path:
+            return
+        _ensure_proc_log_dir()
+        _rotate_proc_log_if_needed(path)
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(entry + "\n")
+        except OSError:
+            pass
+
+    def _load_proc_log_tail(name: str, limit: int) -> List[str]:
+        path = _proc_log_path(name)
+        if not path or not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                lines = [ln.rstrip("\r\n") for ln in fh if ln.rstrip("\r\n")]
+        except OSError:
+            return []
+        if limit <= 0:
+            return lines
+        return lines[-limit:]
+
+    def _clear_proc_log_files(name: str) -> None:
+        path = _proc_log_path(name)
+        if not path:
+            return
+        for candidate in (path, path + proc_log_backup_suffix):
+            try:
+                if os.path.exists(candidate):
+                    os.remove(candidate)
+            except OSError:
+                pass
+
     def _append_proc_log(name: str, line: str) -> None:
         line = line.rstrip("\r\n")
         if not line:
             return
-        ts = time.strftime("%H:%M:%S", time.localtime())
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         entry = f"[{ts}] {line}"
         with proc_lock:
             buf = proc_logs.setdefault(name, [])
             buf.append(entry)
             if len(buf) > max_log_lines:
                 del buf[: len(buf) - max_log_lines]
+            _append_proc_log_file(name, entry)
+
+    _ensure_proc_log_dir()
+    for _proc_name in list(proc_logs.keys()):
+        proc_logs[_proc_name] = _load_proc_log_tail(_proc_name, max_log_lines)
 
     def _stream_reader(name: str, stream, prefix: str) -> None:
         try:
@@ -1452,11 +1524,12 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 env=env,
             )
         except Exception as exc:
+            _append_proc_log(name, f"[err] start failed: {exc}")
             return {"ok": False, "error": str(exc)}
 
         with proc_lock:
             proc_state[name] = {"proc": proc, "exit_code": None}
-            proc_logs.setdefault(name, []).append("--- started ---")
+        _append_proc_log(name, "--- started ---")
 
         if proc.stdout:
             threading.Thread(target=_stream_reader, args=(name, proc.stdout, ""), daemon=True).start()
@@ -1481,7 +1554,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 pass
         with proc_lock:
             proc_state[name]["exit_code"] = proc.poll()
-            proc_logs.setdefault(name, []).append("--- stopped ---")
+        _append_proc_log(name, "--- stopped ---")
         return {"ok": True, "stopped": True}
 
     def _pick_shutdown_runtime_cfg() -> JsonLike:
@@ -4232,6 +4305,58 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             enabled = str(state).lower() != "disabled"
         return {"ok": True, "state": state, "enabled": enabled}
 
+    def _get_nao_awake_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "error": "NAO endpoint ontbreekt."}
+        try:
+            url = base_url + "/nao/is_awake" if mode == "behavior" else base_url + "/is_awake"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        if not isinstance(data, dict):
+            return {"ok": False, "error": "invalid response"}
+        status = str(data.get("status") or "").strip().lower()
+        if status and status != "ok":
+            return {"ok": False, "error": data.get("error") or "is_awake failed"}
+        payload = data.get("data") if isinstance(data.get("data"), dict) else data
+        if not isinstance(payload, dict) or "is_awake" not in payload:
+            return {"ok": False, "error": "missing is_awake"}
+        return {"ok": True, "is_awake": bool(payload.get("is_awake")), "mode": mode}
+
+    def _set_nao_awake_state(runtime_cfg: JsonLike, awake: bool) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "error": "NAO endpoint ontbreekt."}
+        action = "wake_up" if awake else "rest"
+        try:
+            url = base_url + ("/nao/" + action if mode == "behavior" else "/" + action)
+            resp = requests.post(url, json={}, timeout=8.0)
+            resp.raise_for_status()
+            data = resp.json() if resp.content else {}
+        except Exception as exc:
+            # Wake/rest kan op echte robot soms langer duren; behandel timeouts als "mogelijk nog bezig"
+            # zodat de UI niet direct een harde fout toont.
+            if isinstance(exc, requests.exceptions.Timeout):
+                return {"ok": True, "pending": True, "is_awake": None, "mode": mode}
+            msg = str(exc)
+            if "read timed out" in msg.lower():
+                return {"ok": True, "pending": True, "is_awake": None, "mode": mode}
+            return {"ok": False, "error": str(exc)}
+
+        if isinstance(data, dict):
+            status = str(data.get("status") or "").strip().lower()
+            if status and status != "ok":
+                return {"ok": False, "error": data.get("error") or ("%s failed" % action)}
+
+        state = _get_nao_awake_state(runtime_cfg)
+        if not state.get("ok"):
+            return {"ok": True, "is_awake": bool(awake), "mode": mode}
+        return {"ok": True, "is_awake": bool(state.get("is_awake")), "mode": mode}
+
     def _get_nao_custom_life_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
         base_url, mode = _resolve_nao_audio_url(runtime_cfg)
         if not base_url:
@@ -4248,6 +4373,23 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if not isinstance(payload, dict):
             return {"ok": False, "error": "invalid response"}
         return {"ok": True, "state": payload}
+
+    def _get_nao_custom_life_ui_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        enabled = bool(runtime_cfg.get("custom_life_enabled", False))
+        state_resp = _get_nao_custom_life_state(runtime_cfg)
+        if not state_resp.get("ok"):
+            return {"ok": False, "enabled": enabled, "error": state_resp.get("error")}
+        state = state_resp.get("state") if isinstance(state_resp.get("state"), dict) else {}
+        life_state = state.get("life_state")
+        modules = state.get("modules") if isinstance(state.get("modules"), dict) else {}
+        active_modules = any(bool(modules.get(key)) for key in ("basic_awareness", "background_movement", "breathing"))
+        return {
+            "ok": True,
+            "enabled": enabled,
+            "life_state": life_state,
+            "active_modules": active_modules,
+            "state": state,
+        }
 
     def _agent_presets_path() -> str:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -4599,10 +4741,84 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         runtime_cfg = _get_runtime_cfg(_get_sid())
         return jsonify(_get_nao_autonomous_life_state(runtime_cfg))
 
+    @app.get("/api/nao_awake_state")
+    def api_nao_awake_state():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        return jsonify(_get_nao_awake_state(runtime_cfg))
+
+    @app.post("/api/nao_wake_up")
+    def api_nao_wake_up():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        result = _set_nao_awake_state(runtime_cfg, True)
+        if not result.get("ok"):
+            return jsonify({"ok": False, "error": result.get("error")}), 400
+        out = {
+            "ok": True,
+            "is_awake": bool(result.get("is_awake")) if result.get("is_awake") is not None else None,
+            "mode": result.get("mode"),
+        }
+        if result.get("pending"):
+            out["pending"] = True
+        return jsonify(out)
+
+    @app.post("/api/nao_rest")
+    def api_nao_rest():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        result = _set_nao_awake_state(runtime_cfg, False)
+        if not result.get("ok"):
+            return jsonify({"ok": False, "error": result.get("error")}), 400
+        out = {
+            "ok": True,
+            "is_awake": bool(result.get("is_awake")) if result.get("is_awake") is not None else None,
+            "mode": result.get("mode"),
+        }
+        if result.get("pending"):
+            out["pending"] = True
+        return jsonify(out)
+
     @app.get("/api/nao_custom_life_state")
     def api_nao_custom_life_state():
         runtime_cfg = _get_runtime_cfg(_get_sid())
         return jsonify(_get_nao_custom_life_state(runtime_cfg))
+
+    @app.get("/api/nao_custom_life_ui_state")
+    def api_nao_custom_life_ui_state():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        return jsonify(_get_nao_custom_life_ui_state(runtime_cfg))
+
+    @app.post("/api/nao_custom_life_set")
+    def api_nao_custom_life_set():
+        payload = request.get_json(force=True, silent=True) or {}
+        enabled = payload.get("enabled", None)
+        if enabled is None:
+            return jsonify({"ok": False, "error": "Missing 'enabled'."}), 400
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        runtime_cfg["custom_life_enabled"] = bool(enabled)
+        runtime_cfg_by_sid[sid] = runtime_cfg
+        _apply_custom_life(sid, runtime_cfg)
+        if not runtime_cfg.get("custom_life_enabled", False):
+            _release_custom_life_lock(sid, runtime_cfg)
+        state = _get_nao_custom_life_ui_state(runtime_cfg)
+        if not state.get("ok"):
+            return jsonify(
+                {
+                    "ok": True,
+                    "enabled": bool(runtime_cfg.get("custom_life_enabled", False)),
+                    "life_state": None,
+                    "active_modules": False,
+                    "warning": state.get("error"),
+                }
+            )
+        return jsonify(
+            {
+                "ok": True,
+                "enabled": bool(state.get("enabled")),
+                "life_state": state.get("life_state"),
+                "active_modules": bool(state.get("active_modules")),
+                "state": state.get("state"),
+            }
+        )
 
     @app.post("/api/nao_autonomous_life_set")
     def api_nao_autonomous_life_set():
@@ -4635,7 +4851,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
         try:
             labels = cmdrec.get_labels() or []
-            exclude = {"LOCOMOTION_REQUEST", "WALK_WITH_ME"}
+            exclude = {"LOCOMOTION_REQUEST", "WALK_WITH_ME", "REST"}
             commands = []
             for label in sorted(labels):
                 label_upper = label.upper()
@@ -4900,6 +5116,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return jsonify({"ok": False, "error": "Unknown process name."}), 400
         with proc_lock:
             proc_logs[name] = []
+            _clear_proc_log_files(name)
         return jsonify({"ok": True, "name": name})
 
     @app.post("/api/process_start")

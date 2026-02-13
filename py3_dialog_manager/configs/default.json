@@ -11,6 +11,12 @@
   "base_enabled": true,
   "base_autostart": true,
   "behavior_enabled": false,
+  "custom_life_enabled": false,
+  "custom_life_settings": {
+    "basic_awareness": true,
+    "background_movement": true,
+    "breathing": true
+  },
   "nao_auto_rest_after_s": 180,
   "nao_connection": {
     "primary": {
