@@ -32,7 +32,7 @@ import sys
 import math
 from pathlib import Path
 import signal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 import requests
@@ -116,6 +116,21 @@ _CUSTOM_LIFE_LOCK_MODES = {
     _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN,
     _CUSTOM_LIFE_LOCK_UNTIL_STOP,
 }
+
+_SHUTDOWN_HOOK_LOCK = threading.Lock()
+_SHUTDOWN_HOOK_REGISTERED = False
+_LATEST_SHUTDOWN_HOOK: Optional[Callable[[], None]] = None
+
+
+def _run_latest_shutdown_hook() -> None:
+    hook: Optional[Callable[[], None]]
+    with _SHUTDOWN_HOOK_LOCK:
+        hook = _LATEST_SHUTDOWN_HOOK
+    if callable(hook):
+        try:
+            hook()
+        except Exception:
+            pass
 
 
 def _new_continuous_state(now_ts: Optional[float] = None) -> Dict[str, Any]:
@@ -416,6 +431,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "llm_type": llm_cfg.get("type", "echo"),
         "llm_model": llm_params.get("model", ""),
         "master_prompt_file": master_prompt_file,
+        "master_prompt_text": llm_params.get("system_prompt", None),
         "output_nao_tts": output_type in ("nao_tts", "nao_py2", "nao"),
         "output_target": output_target,
         "output_device": output_cfg.get("device", None) if output_cfg.get("device", None) is not None else output_params.get("output_device"),
@@ -531,8 +547,17 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
         model_value = runtime_cfg.get("llm_model")
         if model_value:
             llm_params["model"] = model_value
+        mp_text_present = "master_prompt_text" in runtime_cfg
+        mp_text = runtime_cfg.get("master_prompt_text", None)
+        if mp_text_present:
+            text_value = str(mp_text or "")
+            if text_value:
+                llm_params["system_prompt"] = text_value
+                llm_params.pop("system_prompt_file", None)
+            else:
+                llm_params.pop("system_prompt", None)
         mp_file = runtime_cfg.get("master_prompt_file", None)
-        if mp_file:
+        if mp_file and not llm_params.get("system_prompt"):
             llm_params["system_prompt_file"] = mp_file
         llm_cfg["params"] = llm_params
         cfg_out["llm"] = llm_cfg
@@ -1607,7 +1632,12 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         for name in ("behavior", "base"):
             _stop_process(name)
 
-    atexit.register(_stop_all_processes)
+    global _SHUTDOWN_HOOK_REGISTERED, _LATEST_SHUTDOWN_HOOK
+    with _SHUTDOWN_HOOK_LOCK:
+        _LATEST_SHUTDOWN_HOOK = _stop_all_processes
+        if not _SHUTDOWN_HOOK_REGISTERED:
+            atexit.register(_run_latest_shutdown_hook)
+            _SHUTDOWN_HOOK_REGISTERED = True
 
     def _shutdown_rest() -> None:
         _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="signal")
@@ -4012,6 +4042,85 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         except OSError:
             pass
         return jsonify({"ok": True, "prompts": items})
+
+    def _master_prompts_dir() -> str:
+        override = str(os.environ.get("DM_MASTER_PROMPTS_DIR", "") or "").strip()
+        if override:
+            return os.path.abspath(override)
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(repo_root, "py3_dialog_manager", "configs", "master_prompts")
+
+    def _normalize_master_prompt_name(raw: Any) -> Optional[str]:
+        name = str(raw or "").strip().replace("\\", "/")
+        if not name:
+            return None
+        if name.startswith("master_prompts/"):
+            name = name[len("master_prompts/") :]
+        name = os.path.basename(name).strip()
+        if not name or name in (".", "..") or "/" in name or "\\" in name:
+            return None
+        if not name.lower().endswith(".txt"):
+            name = f"{name}.txt"
+        return f"master_prompts/{name}"
+
+    def _master_prompt_abs_path(display_name: str) -> str:
+        rel = display_name[len("master_prompts/") :]
+        return os.path.join(_master_prompts_dir(), rel)
+
+    @app.get("/api/master_prompt_content")
+    def api_master_prompt_content():
+        display_name = _normalize_master_prompt_name(request.args.get("name"))
+        if not display_name:
+            return jsonify({"ok": False, "error": "prompt naam ontbreekt of ongeldig"}), 400
+        abs_path = _master_prompt_abs_path(display_name)
+        if not os.path.exists(abs_path):
+            return jsonify({"ok": False, "error": "prompt bestaat niet"}), 404
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                content = fh.read()
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "name": display_name, "content": content})
+
+    @app.post("/api/master_prompt_save")
+    def api_master_prompt_save():
+        payload = request.get_json(force=True, silent=True) or {}
+        content_raw = payload.get("content")
+        if content_raw is None:
+            return jsonify({"ok": False, "error": "content ontbreekt"}), 400
+        content = str(content_raw)
+        current_name = _normalize_master_prompt_name(payload.get("name"))
+        save_as_name = _normalize_master_prompt_name(payload.get("save_as"))
+        target_name = save_as_name or current_name
+        if not target_name:
+            return jsonify({"ok": False, "error": "prompt naam ontbreekt"}), 400
+
+        prompts_dir = _master_prompts_dir()
+        try:
+            os.makedirs(prompts_dir, exist_ok=True)
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+        target_path = os.path.abspath(_master_prompt_abs_path(target_name))
+        prompts_root = os.path.normcase(os.path.abspath(prompts_dir))
+        target_norm = os.path.normcase(target_path)
+        if not target_norm.startswith(prompts_root + os.sep):
+            return jsonify({"ok": False, "error": "ongeldige prompt locatie"}), 400
+        try:
+            with open(target_path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+        items: List[str] = []
+        try:
+            for name in sorted(os.listdir(prompts_dir)):
+                if name.startswith(".") or not name.lower().endswith(".txt"):
+                    continue
+                items.append("master_prompts/" + name)
+        except OSError:
+            pass
+        return jsonify({"ok": True, "name": target_name, "prompts": items})
 
     @app.get("/api/agent_presets")
     def api_agent_presets():

@@ -15,7 +15,8 @@
       .layout.dragging, .layout.dragging * { cursor: col-resize !important; user-select: none; }
       @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 14px; } }
       @media (max-width: 900px) { .layout-splitter { display: none; } }
-      @media (max-width: 900px) { .chatcard { height: calc(100vh - 140px); } }
+      @media (max-width: 900px) { .chatcard { min-height: calc(100vh - 140px); } }
+      @media (max-width: 900px) { .rightpane { min-height: calc(100vh - 140px); } }
       body.al-only .layout { grid-template-columns: 1fr; gap: 14px; }
       body.al-only .layout-splitter { display: none; }
       body.al-only .chatcard { display: none; }
@@ -36,23 +37,25 @@
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       button { padding: 10px 14px; font-size: 16px; }
       textarea { width: 100%; min-height: 110px; font-size: 16px; padding: 10px; box-sizing: border-box; }
+      #txt { resize: vertical; }
 
       .small { color: #444; font-size: 13px; margin-bottom: 10px; }
       .status { margin-top: 8px; font-size: 14px; white-space: pre-wrap; }
 
       .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
-      .chatcard { display: flex; flex-direction: column; height: calc(100vh - 130px); }
+      .chatcard { display: flex; flex-direction: column; min-height: calc(100vh - 130px); }
+      .rightpane { display: flex; flex-direction: column; min-height: calc(100vh - 130px); }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
 
-      .chat { flex: 1; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 10px; }
+      .chat { flex: 0 0 auto; height: clamp(260px, 52vh, 640px); min-height: 180px; max-height: 80vh; resize: vertical; overflow: auto; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 10px; }
       .composer { margin-top: 10px; }
       .msg { margin: 8px 0; display: flex; }
       .msg.user { justify-content: flex-end; }
-      .bubble { max-width: 75%; padding: 8px 10px; border-radius: 12px; border: 1px solid #e6e6e6; background: white; white-space: pre-wrap; }
+      .bubble { max-width: 100%; padding: 8px 10px; border-radius: 12px; border: 1px solid #e6e6e6; background: white; white-space: pre-wrap; overflow-wrap: anywhere; }
       .user .bubble { background: #f1f7ff; border-color: #d8e8ff; }
-      .role { font-size: 12px; color: #666; margin-bottom: 3px; display: flex; justify-content: space-between; gap: 8px; }
+      .role { width: 100%; font-size: 12px; color: #666; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
       .timestamp { font-size: 11px; color: #888; white-space: nowrap; }
-      .bubblewrap { display: flex; flex-direction: column; }
+      .bubblewrap { display: inline-flex; flex-direction: column; width: fit-content; max-width: 75%; }
       .debug { margin-top: 6px; font-size: 12px; color: #333; background: #f4f4f4; border: 1px dashed #cfcfcf; padding: 6px 8px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       .confirm-card { margin: 8px 0; padding: 10px; border: 1px solid #d8d8d8; border-radius: 10px; background: #fffaf0; }
       .confirm-title { font-weight: 600; margin-bottom: 4px; }
@@ -60,11 +63,22 @@
       .confirm-actions { display: flex; gap: 8px; }
 
       .prompt { height: 520px; overflow: auto; background: #0b0b0b; color: #e8e8e8; border-radius: 12px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; white-space: pre-wrap; }
+      .prompt-editor { width: 100%; min-height: 300px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.35; border: 1px solid #d6d6d6; border-radius: 10px; background: #fff; }
+      .prompt-editor.dirty { border-color: #d5b97a !important; background: #fffdf7; }
+      .prompt-editor.apply-dirty { box-shadow: inset 0 0 0 1px #b8c9ea; }
+      .prompt-md { min-height: 300px; border: 1px solid #d6d6d6; border-radius: 10px; background: #fcfcfc; padding: 12px; overflow: auto; }
+      .prompt-md p, .prompt-md ul, .prompt-md ol, .prompt-md pre, .prompt-md blockquote, .prompt-md h1, .prompt-md h2, .prompt-md h3, .prompt-md h4, .prompt-md h5, .prompt-md h6 { margin: 0 0 10px 0; }
+      .prompt-md pre { padding: 10px; border-radius: 8px; background: #111; color: #eee; overflow: auto; }
+      .prompt-md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .prompt-md blockquote { border-left: 3px solid #d5d5d5; padding-left: 10px; color: #444; }
       .muted { color: #aaa; }
       .tabbar { display: flex; gap: 8px; align-items: center; }
       .tab { border: 1px solid #ddd; border-radius: 999px; padding: 4px 10px; background: #fff; cursor: pointer; font-size: 12px; }
       .tab.active { background: #111; color: #fff; border-color: #111; }
       .tabpane.hidden { display: none; }
+      .tabpane.prompt-pane:not(.hidden) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+      .tabpane.prompt-pane .prompt-editor,
+      .tabpane.prompt-pane .prompt-md { flex: 1 1 auto; min-height: 220px; }
       .subtabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .subtab-sep { color: #999; font-size: 12px; user-select: none; }
       .subtab-sep.flow { color: #666; font-weight: 600; }
@@ -155,7 +169,7 @@
       <div id="layoutSplitter" class="layout-splitter" role="separator" aria-orientation="vertical" aria-label="Panel breedte" tabindex="0"></div>
 
       <!-- RIGHT: master prompt / runtime config -->
-      <div class="card">
+      <div class="card rightpane">
         <div class="row tabbar" style="margin-bottom:8px">
           <button id="tabPrompt" class="tab active" type="button">Master prompt</button>
           <button id="tabRuntime" class="tab" type="button">Agent config</button>
@@ -165,11 +179,28 @@
           <button id="tabRetrain" class="tab" type="button">Model trainen</button>
           <button id="tabLogs" class="tab" type="button">Logs</button>
         </div>
-        <div id="tab-prompt" class="tabpane">
+        <div id="tab-prompt" class="tabpane prompt-pane">
           <div class="row" style="margin-bottom:8px">
-            <span class="pill">system</span>
+            <label style="margin:0">Master prompt</label>
+            <select id="promptFileSelect" style="min-width:260px"></select>
+            <span id="promptState" class="small" style="margin:0"></span>
           </div>
-          <div id="prompt" class="prompt"><span class="muted">laden...</span></div>
+          <div class="row" style="margin-bottom:8px">
+            <span id="btnPromptApplyWrap"><button id="btnPromptApply" type="button">Toepassen</button></span>
+            <button id="btnPromptNew" type="button">Nieuw</button>
+            <button id="btnPromptSave" type="button">Opslaan</button>
+            <button id="btnPromptSaveAs" type="button">Opslaan als...</button>
+            <span id="promptEditStatus" class="small"></span>
+          </div>
+          <div class="row" style="margin-bottom:8px">
+            <span class="small" style="margin:0">Weergave</span>
+            <div id="promptViewMode" class="segmented">
+              <button type="button" data-view="plain" class="active">Tekst</button>
+              <button type="button" data-view="markdown">Markdown</button>
+            </div>
+          </div>
+          <textarea id="promptEditor" class="prompt-editor" placeholder="Bewerk hier de master prompt..."></textarea>
+          <div id="promptPreviewMd" class="prompt-md" style="display:none"></div>
         </div>
 
           <div id="tab-logs" class="tabpane hidden">
@@ -692,6 +723,17 @@
       const statusEl = document.getElementById('status');
       const chatEl = document.getElementById('chat');
       const promptEl = document.getElementById('prompt');
+      const promptFileSelect = document.getElementById('promptFileSelect');
+      const promptState = document.getElementById('promptState');
+      const promptEditor = document.getElementById('promptEditor');
+      const promptPreviewMd = document.getElementById('promptPreviewMd');
+      const promptViewMode = document.getElementById('promptViewMode');
+      const promptEditStatus = document.getElementById('promptEditStatus');
+      const btnPromptApplyWrap = document.getElementById('btnPromptApplyWrap');
+      const btnPromptApply = document.getElementById('btnPromptApply');
+      const btnPromptNew = document.getElementById('btnPromptNew');
+      const btnPromptSave = document.getElementById('btnPromptSave');
+      const btnPromptSaveAs = document.getElementById('btnPromptSaveAs');
       const recState = document.getElementById('recState');
       const listenModeEl = document.getElementById('listenMode');
       const listenModeNote = document.getElementById('listenModeNote');
@@ -1033,6 +1075,13 @@
       let clientOutputMode = 'server';
       let clientSpeechUtterance = null;
       let clientAudioPrefsLoaded = false;
+      let promptEditorLoadedName = '';
+      let promptEditorLoadedContent = '';
+      let promptEditorDirty = false;
+      let promptAppliedName = '';
+      let promptAppliedContent = '';
+      let promptApplyDirty = false;
+      let promptView = 'plain';
       let lastTranscript = null;
       let lastAudioFetchAt = 0;
       let autoStartInProgress = false;
@@ -1526,6 +1575,7 @@
           'cfgClientOutputMode'
         ]);
         const controls = document.querySelectorAll(
+          '#tab-prompt input, #tab-prompt select, #tab-prompt textarea, #tab-prompt button,' +
           '#cfgTabNaoPane input, #cfgTabNaoPane select, #cfgTabNaoPane textarea, #cfgTabNaoPane button,' +
           '#cfgTabAudioPane input, #cfgTabAudioPane select, #cfgTabAudioPane textarea, #cfgTabAudioPane button,' +
           '#cfgTabOutputPane input, #cfgTabOutputPane select, #cfgTabOutputPane textarea, #cfgTabOutputPane button,' +
@@ -3762,8 +3812,277 @@
       }
 
       function renderPrompt(p) {
+        if (!promptEl) return;
         const text = (p || '').trim();
         promptEl.textContent = text ? text : '(geen system prompt ingesteld)';
+      }
+
+      function setPromptEditStatus(text, isError) {
+        if (!promptEditStatus) return;
+        promptEditStatus.textContent = text || '';
+        promptEditStatus.style.color = isError ? '#b00020' : '';
+      }
+
+      function updatePromptStateUi() {
+        if (!promptState) return;
+        const echoMode = !!(cfgMasterPrompt && cfgMasterPrompt.disabled);
+        if (echoMode) {
+          promptState.textContent = '';
+          return;
+        }
+        if (promptEditorDirty && promptApplyDirty) {
+          promptState.textContent = 'Niet opgeslagen, niet toegepast';
+        } else if (promptEditorDirty && !promptApplyDirty) {
+          promptState.textContent = 'Toegepast, nog niet opgeslagen';
+        } else if (!promptEditorDirty && promptApplyDirty) {
+          promptState.textContent = 'Niet toegepast';
+        } else {
+          promptState.textContent = 'Opgeslagen en toegepast';
+        }
+      }
+
+      function normalizePromptDisplayName(raw) {
+        let name = String(raw || '').trim().replace(/\\/g, '/');
+        if (!name) return '';
+        if (name.startsWith('master_prompts/')) return name;
+        if (name.includes('/')) {
+          const parts = name.split('/');
+          name = parts[parts.length - 1] || '';
+        }
+        if (!name) return '';
+        if (!name.toLowerCase().endsWith('.txt')) name += '.txt';
+        return `master_prompts/${name}`;
+      }
+
+      function escapeHtml(text) {
+        return String(text || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function renderPromptInlineMd(text) {
+        let out = String(text || '');
+        out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+        out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+        out = out.replace(
+          /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+          '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+        );
+        return out;
+      }
+
+      function renderPromptMarkdownPreview(sourceText) {
+        if (!promptPreviewMd) return;
+        const src = String(sourceText || '').replace(/\r\n/g, '\n');
+        const codeBlocks = [];
+        const tokenized = src.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+          const idx = codeBlocks.length;
+          codeBlocks.push({ lang: String(lang || ''), code: String(code || '') });
+          return `@@CODEBLOCK${idx}@@`;
+        });
+        const lines = tokenized.split('\n');
+        const html = [];
+        let listType = '';
+        let listItems = [];
+        const flushList = () => {
+          if (!listType) return;
+          html.push(`<${listType}>`);
+          listItems.forEach((item) => {
+            html.push(`<li>${renderPromptInlineMd(escapeHtml(item))}</li>`);
+          });
+          html.push(`</${listType}>`);
+          listType = '';
+          listItems = [];
+        };
+
+        lines.forEach((rawLine) => {
+          const line = String(rawLine || '');
+          const trimmed = line.trim();
+          if (/^@@CODEBLOCK\d+@@$/.test(trimmed)) {
+            flushList();
+            html.push(trimmed);
+            return;
+          }
+          if (!trimmed) {
+            flushList();
+            html.push('<p></p>');
+            return;
+          }
+          const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+          if (heading) {
+            flushList();
+            const level = heading[1].length;
+            html.push(`<h${level}>${renderPromptInlineMd(escapeHtml(heading[2]))}</h${level}>`);
+            return;
+          }
+          const quote = trimmed.match(/^>\s?(.*)$/);
+          if (quote) {
+            flushList();
+            html.push(`<blockquote>${renderPromptInlineMd(escapeHtml(quote[1]))}</blockquote>`);
+            return;
+          }
+          const ul = trimmed.match(/^[-*+]\s+(.*)$/);
+          if (ul) {
+            if (listType && listType !== 'ul') flushList();
+            listType = 'ul';
+            listItems.push(ul[1]);
+            return;
+          }
+          const ol = trimmed.match(/^\d+\.\s+(.*)$/);
+          if (ol) {
+            if (listType && listType !== 'ol') flushList();
+            listType = 'ol';
+            listItems.push(ol[1]);
+            return;
+          }
+          flushList();
+          html.push(`<p>${renderPromptInlineMd(escapeHtml(trimmed))}</p>`);
+        });
+        flushList();
+
+        const body = html.join('\n').replace(/@@CODEBLOCK(\d+)@@/g, (_m, idxRaw) => {
+          const idx = Number(idxRaw);
+          const block = codeBlocks[idx] || { lang: '', code: '' };
+          const langClass = block.lang ? ` class="language-${escapeHtml(block.lang)}"` : '';
+          return `<pre><code${langClass}>${escapeHtml(block.code)}</code></pre>`;
+        });
+        promptPreviewMd.innerHTML = body;
+      }
+
+      function setPromptView(mode, persist = true) {
+        promptView = (mode === 'markdown') ? 'markdown' : 'plain';
+        if (promptViewMode) {
+          const buttons = promptViewMode.querySelectorAll('button');
+          buttons.forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.view === promptView);
+          });
+        }
+        if (promptEditor) {
+          promptEditor.style.display = promptView === 'plain' ? '' : 'none';
+        }
+        if (promptPreviewMd) {
+          promptPreviewMd.style.display = promptView === 'markdown' ? '' : 'none';
+        }
+        if (promptView === 'markdown') {
+          renderPromptMarkdownPreview(promptEditor ? promptEditor.value : '');
+        }
+        if (persist) {
+          try {
+            localStorage.setItem('prompt_view_mode_v1', promptView);
+          } catch (_) {}
+        }
+      }
+
+      function ensurePromptOption(selectEl, displayName) {
+        if (!selectEl || !displayName) return;
+        if ([...selectEl.options].some(o => o.value === displayName)) return;
+        const opt = document.createElement('option');
+        opt.value = displayName;
+        opt.textContent = displayName;
+        selectEl.appendChild(opt);
+      }
+
+      function setPromptSelection(displayName) {
+        const target = normalizePromptDisplayName(displayName);
+        [cfgMasterPrompt, promptFileSelect].forEach((sel) => {
+          if (!sel) return;
+          if (target) ensurePromptOption(sel, target);
+          sel.value = target || '';
+        });
+      }
+
+      function refreshPromptEditorDirtyState() {
+        if (!promptEditor) return;
+        const currentText = String(promptEditor.value || '');
+        const currentName = normalizePromptDisplayName(
+          promptFileSelect ? promptFileSelect.value : (cfgMasterPrompt ? cfgMasterPrompt.value : '')
+        );
+        promptEditorDirty = currentText !== promptEditorLoadedContent;
+        promptApplyDirty = currentText !== promptAppliedContent || currentName !== promptAppliedName;
+        promptEditor.classList.toggle('dirty', promptEditorDirty);
+        promptEditor.classList.toggle('apply-dirty', promptApplyDirty);
+        const echoMode = !!(cfgMasterPrompt && cfgMasterPrompt.disabled);
+        if (btnPromptApply) {
+          btnPromptApply.textContent = promptApplyDirty ? 'Toepassen *' : 'Toepassen';
+          btnPromptApply.disabled = echoMode || !promptApplyDirty;
+        }
+        if (btnPromptApplyWrap) {
+          btnPromptApplyWrap.title = echoMode
+            ? 'Toepassen master prompt niet beschikbaar in echo modus. Zet reasoning op LLM om master prompts te gebruiken.'
+            : '';
+        }
+        if (btnPromptSave) {
+          btnPromptSave.textContent = promptEditorDirty ? 'Opslaan *' : 'Opslaan';
+          btnPromptSave.disabled = false;
+        }
+        if (btnPromptSaveAs) {
+          btnPromptSaveAs.disabled = false;
+        }
+        if (btnPromptNew) {
+          btnPromptNew.disabled = false;
+        }
+        if (promptView === 'markdown') {
+          renderPromptMarkdownPreview(currentText);
+        }
+        updatePromptStateUi();
+      }
+
+      async function loadMasterPromptEditorContent(displayName, opts = {}) {
+        const silent = !!opts.silent;
+        const force = !!opts.force;
+        const markApplied = !!opts.markApplied;
+        const hasOverrideText = Object.prototype.hasOwnProperty.call(opts, 'overrideText');
+        const overrideText = hasOverrideText ? String(opts.overrideText || '') : null;
+        const normalized = normalizePromptDisplayName(displayName);
+        if (!promptEditor) return true;
+        if (!normalized) {
+          if (!force && promptEditorDirty) {
+            const ok = window.confirm('Niet-opgeslagen promptwijzigingen verwerpen?');
+            if (!ok) return false;
+          }
+          promptEditor.value = '';
+          promptEditorLoadedName = '';
+          promptEditorLoadedContent = '';
+          if (markApplied) {
+            promptAppliedName = '';
+            promptAppliedContent = '';
+          }
+          refreshPromptEditorDirtyState();
+          if (!silent) setPromptEditStatus('Nieuwe prompt (nog niet opgeslagen).', false);
+          return true;
+        }
+        if (!force && promptEditorDirty && normalized !== promptEditorLoadedName) {
+          const ok = window.confirm('Niet-opgeslagen promptwijzigingen verwerpen?');
+          if (!ok) return false;
+        }
+        try {
+          if (!silent) setPromptEditStatus('Prompt laden...', false);
+          const r = await fetch(`/api/master_prompt_content?name=${encodeURIComponent(normalized)}`);
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'prompt laden mislukt');
+          const loadedName = normalizePromptDisplayName(j.name || normalized);
+          const loadedContent = String(j.content || '');
+          const editorContent = hasOverrideText ? overrideText : loadedContent;
+          promptEditor.value = editorContent;
+          promptEditorLoadedName = loadedName;
+          promptEditorLoadedContent = loadedContent;
+          if (markApplied) {
+            promptAppliedName = loadedName;
+            promptAppliedContent = editorContent;
+          }
+          setPromptSelection(loadedName);
+          refreshPromptEditorDirtyState();
+          if (!silent) setPromptEditStatus(`Prompt geladen: ${loadedName}`, false);
+          return true;
+        } catch (e) {
+          if (!silent) setPromptEditStatus(`Laden mislukt: ${e?.message || e}`, true);
+          return false;
+        }
       }
 
       function setTab(which, opts = {}) {
@@ -4100,10 +4419,24 @@
         cfgLlmModel.value = cfg.llm_model || '';
         cfgLlmModel.classList.toggle('dirty', false);
         cfgMasterPrompt.disabled = cfgLlmType.value === 'echo';
-        if (cfgMasterPrompt.disabled) {
-          cfgMasterPrompt.value = '';
-        } else if (cfg.master_prompt_file) {
-          cfgMasterPrompt.value = cfg.master_prompt_file;
+        if (promptEditor) promptEditor.disabled = false;
+        const promptName = normalizePromptDisplayName(
+          cfg.master_prompt_file || (promptFileSelect ? promptFileSelect.value : '')
+        );
+        const promptRuntimeText = (typeof cfg.master_prompt_text === 'string') ? String(cfg.master_prompt_text) : null;
+        setPromptSelection(promptName);
+        const shouldReloadEditor = !promptEditorDirty || promptName === promptEditorLoadedName;
+        if (shouldReloadEditor) {
+          loadMasterPromptEditorContent(promptName, {
+            force: true,
+            silent: true,
+            markApplied: true,
+            ...(promptRuntimeText != null ? { overrideText: promptRuntimeText } : {}),
+          }).catch(() => {});
+        } else if (promptRuntimeText != null) {
+          promptAppliedName = promptName;
+          promptAppliedContent = promptRuntimeText;
+          refreshPromptEditorDirtyState();
         }
         const autoRestValue = Number(cfg.nao_auto_rest_after_s || 0);
         cfgNaoAutoRestEnabled.checked = autoRestValue > 0;
@@ -4571,20 +4904,119 @@
         }
       }
 
-      async function loadMasterPrompts() {
+      async function loadMasterPrompts(preferredName) {
         const r = await fetch('/api/master_prompts');
         const j = await r.json();
         if (!j.ok) return;
-        const current = cfgMasterPrompt.value;
-        cfgMasterPrompt.innerHTML = '';
-        (j.prompts || []).forEach(name => {
-          const opt = document.createElement('option');
-          opt.value = name;
-          opt.textContent = name;
-          cfgMasterPrompt.appendChild(opt);
+        const currentCfg = normalizePromptDisplayName(cfgMasterPrompt ? cfgMasterPrompt.value : '');
+        const currentPrompt = normalizePromptDisplayName(promptFileSelect ? promptFileSelect.value : '');
+        const desired = normalizePromptDisplayName(preferredName) || currentPrompt || currentCfg;
+        [cfgMasterPrompt, promptFileSelect].forEach((sel) => {
+          if (!sel) return;
+          sel.innerHTML = '';
+          const noneOpt = document.createElement('option');
+          noneOpt.value = '';
+          noneOpt.textContent = '(geen)';
+          sel.appendChild(noneOpt);
+          (j.prompts || []).forEach((name) => {
+            const normalized = normalizePromptDisplayName(name);
+            if (!normalized) return;
+            const opt = document.createElement('option');
+            opt.value = normalized;
+            opt.textContent = normalized;
+            sel.appendChild(opt);
+          });
         });
-        if (current) {
-          cfgMasterPrompt.value = current;
+        setPromptSelection(desired || '');
+        refreshPromptEditorDirtyState();
+      }
+
+      async function applyMasterPromptFromEditor(opts = {}) {
+        const silent = !!opts.silent;
+        const selectedName = normalizePromptDisplayName(
+          promptFileSelect ? promptFileSelect.value : (cfgMasterPrompt ? cfgMasterPrompt.value : '')
+        );
+        const editorText = promptEditor ? String(promptEditor.value || '') : '';
+        if (cfgMasterPrompt && cfgMasterPrompt.disabled) {
+          if (!silent) setPromptEditStatus('Echo modus: toepassen is niet beschikbaar.', true);
+          refreshPromptEditorDirtyState();
+          return false;
+        }
+        if (cfgMasterPrompt && !cfgMasterPrompt.disabled) {
+          const cfg = getConfigFromForm();
+          cfg.master_prompt_file = selectedName || null;
+          const useTempText = !selectedName || selectedName !== promptEditorLoadedName || editorText !== promptEditorLoadedContent;
+          cfg.master_prompt_text = useTempText ? editorText : null;
+          if (!silent) setPromptEditStatus('Prompt toepassen...', false);
+          const ok = await applyRuntimeConfig(cfg, false, false);
+          if (!ok) {
+            if (!silent) setPromptEditStatus('Toepassen mislukt.', true);
+            return false;
+          }
+        }
+        promptAppliedName = selectedName;
+        promptAppliedContent = editorText;
+        refreshPromptEditorDirtyState();
+        if (!silent) {
+          if (promptEditorDirty) {
+            setPromptEditStatus('Prompt toegepast (nog niet opgeslagen).', false);
+          } else {
+            setPromptEditStatus('Prompt toegepast.', false);
+          }
+        }
+        return true;
+      }
+
+      async function saveMasterPromptAndApply(opts = {}) {
+        const saveAsOnly = !!opts.saveAs;
+        const currentName = normalizePromptDisplayName(promptFileSelect ? promptFileSelect.value : (cfgMasterPrompt ? cfgMasterPrompt.value : ''));
+        let saveAsName = '';
+        if (saveAsOnly || !currentName) {
+          const defaultName = currentName ? currentName.replace(/^master_prompts\//, '') : 'nieuw_prompt.txt';
+          const entered = window.prompt('Bestandsnaam (.txt):', defaultName);
+          if (entered == null) return false;
+          const normalized = normalizePromptDisplayName(entered);
+          if (!normalized) {
+            setPromptEditStatus('Ongeldige bestandsnaam.', true);
+            return false;
+          }
+          saveAsName = normalized;
+        }
+        try {
+          setPromptEditStatus('Prompt opslaan...', false);
+          const payload = {
+            name: currentName || null,
+            save_as: saveAsName || null,
+            content: promptEditor ? promptEditor.value : '',
+          };
+          const r = await fetch('/api/master_prompt_save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'opslaan mislukt');
+          const savedName = normalizePromptDisplayName(j.name || saveAsName || currentName);
+          await loadMasterPrompts(savedName);
+          setPromptSelection(savedName);
+          promptEditorLoadedName = savedName;
+          promptEditorLoadedContent = promptEditor ? String(promptEditor.value || '') : '';
+          if (cfgMasterPrompt && cfgMasterPrompt.disabled) {
+            refreshPromptEditorDirtyState();
+            setPromptEditStatus(`Prompt opgeslagen: ${savedName}. Echo modus: niet toegepast.`, false);
+            return true;
+          }
+          const applied = await applyMasterPromptFromEditor({ silent: true });
+          if (!applied) {
+            setPromptEditStatus(`Prompt opgeslagen (${savedName}), toepassen mislukt.`, true);
+            refreshPromptEditorDirtyState();
+            return false;
+          }
+          setPromptEditStatus(`Prompt opgeslagen en toegepast: ${savedName}`, false);
+          return true;
+        } catch (e) {
+          setPromptEditStatus(`Opslaan mislukt: ${e?.message || e}`, true);
+          return false;
         }
       }
 
@@ -5706,8 +6138,88 @@
         closeReviewMenu();
       });
 
+      if (promptEditor) {
+        promptEditor.addEventListener('input', () => {
+          refreshPromptEditorDirtyState();
+          if (promptEditorDirty && promptApplyDirty) {
+            setPromptEditStatus('Niet-opgeslagen en niet-toegepaste wijzigingen.', false);
+          } else if (promptEditorDirty && !promptApplyDirty) {
+            setPromptEditStatus('Wijzigingen zijn toegepast maar nog niet opgeslagen.', false);
+          } else if (!promptEditorDirty && promptApplyDirty) {
+            setPromptEditStatus('Klaar om toe te passen.', false);
+          } else {
+            setPromptEditStatus('', false);
+          }
+        });
+        promptEditor.addEventListener('keydown', async (e) => {
+          if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 's') {
+            e.preventDefault();
+            await saveMasterPromptAndApply({ saveAs: false });
+          }
+        });
+      }
+
+      if (promptViewMode) {
+        promptViewMode.addEventListener('click', (e) => {
+          const btn = e.target;
+          if (!btn || btn.tagName !== 'BUTTON') return;
+          setPromptView(btn.dataset.view || 'plain', true);
+        });
+      }
+
+      if (promptFileSelect) {
+        promptFileSelect.addEventListener('change', async () => {
+          const nextName = normalizePromptDisplayName(promptFileSelect.value);
+          const ok = await loadMasterPromptEditorContent(nextName);
+          if (!ok) {
+            setPromptSelection(promptEditorLoadedName || cfgMasterPrompt.value || '');
+            return;
+          }
+          setPromptSelection(nextName);
+          setPromptEditStatus('Prompt geladen. Klik "Toepassen" of "Opslaan".', false);
+        });
+      }
+
+      if (btnPromptNew) {
+        btnPromptNew.addEventListener('click', async () => {
+          const ok = await loadMasterPromptEditorContent('', { force: false, silent: false });
+          if (!ok) return;
+          setPromptSelection('');
+          setPromptEditStatus('Nieuwe prompt. Gebruik "Toepassen" of "Opslaan als...".', false);
+          if (promptEditor) promptEditor.focus();
+        });
+      }
+
+      if (btnPromptApply) {
+        btnPromptApply.addEventListener('click', async () => {
+          await applyMasterPromptFromEditor({ silent: false });
+        });
+      }
+
+      if (btnPromptSave) {
+        btnPromptSave.addEventListener('click', async () => {
+          await saveMasterPromptAndApply({ saveAs: false });
+        });
+      }
+
+      if (btnPromptSaveAs) {
+        btnPromptSaveAs.addEventListener('click', async () => {
+          await saveMasterPromptAndApply({ saveAs: true });
+        });
+      }
+
       cfgMasterPrompt.addEventListener('change', async () => {
-        await applyRuntimeConfig(getConfigFromForm(), false, false);
+        const nextName = normalizePromptDisplayName(cfgMasterPrompt.value);
+        const ok = await loadMasterPromptEditorContent(nextName);
+        if (!ok) {
+          setPromptSelection(promptEditorLoadedName || '');
+          return;
+        }
+        setPromptSelection(nextName);
+        if (!cfgMasterPrompt.disabled) {
+          await applyMasterPromptFromEditor({ silent: true });
+          setPromptEditStatus('Prompt toegepast.', false);
+        }
       });
 
       cfgBaseEnabled.addEventListener('change', () => {
@@ -5963,6 +6475,12 @@
       // init
       applyActiveLearningMode();
       initLayoutSplitter();
+      try {
+        const storedPromptView = localStorage.getItem('prompt_view_mode_v1') || 'plain';
+        setPromptView(storedPromptView, false);
+      } catch (_) {
+        setPromptView('plain', false);
+      }
       setCameraBlackPlaceholder();
       updateSendButton();
       refreshState().catch(() => setStatus('Kan server niet bereiken.'));
