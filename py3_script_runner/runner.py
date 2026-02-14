@@ -1,17 +1,25 @@
-from __future__ import annotations
+﻿from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
+import sys
 import time
 
 from .client import DMClient
+from .ppt_controller import ComPptController, PPTControllerError, PptControllerProtocol
 
 
 ClientFactory = Callable[[str, float], DMClient]
 InputFunc = Callable[[str], str]
 SleepFunc = Callable[[float], None]
+
+
+class _RunAbortRequested(RuntimeError):
+    pass
 
 
 @dataclass
@@ -31,17 +39,26 @@ class ScriptRunner:
         input_func: Optional[InputFunc] = None,
         sleep_func: Optional[SleepFunc] = None,
         log_dir: Optional[Path] = None,
+        ppt_controller: Optional[PptControllerProtocol] = None,
     ) -> None:
         self.script = script
         self.client_factory = client_factory or (lambda url, timeout_s: DMClient(url, timeout_s=timeout_s))
         self.input_func = input_func or input
         self.sleep_func = sleep_func or time.sleep
         self.defaults = dict(script.get("defaults") or {})
+        self.ppt_cfg = dict(script.get("ppt") or {})
+        self.ppt_enabled = bool(self.ppt_cfg.get("enabled", False))
+        self._ppt_controller = ppt_controller
+        self._ppt_prepared = False
+        self._capture_on = True
+        self._last_script_ppt_position: Optional[Dict[str, int]] = None
+
         self.log_dir = Path(log_dir) if log_dir is not None else (Path(__file__).resolve().parent / "logs")
         self.log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_path = self.log_dir / f"run_{stamp}.log"
         self._log_handle = self.log_path.open("a", encoding="utf-8")
+
         self.clients: Dict[str, DMClient] = {}
         self.robot_cfgs: Dict[str, Dict[str, Any]] = {}
         self._runtime_cfg_applied: Dict[str, bool] = {}
@@ -78,6 +95,16 @@ class ScriptRunner:
         if parsed < 0:
             return float(default)
         return float(parsed)
+
+    @staticmethod
+    def _normalize_position(raw: Dict[str, Any]) -> Dict[str, int]:
+        slide = max(1, int(raw.get("slide", 1)))
+        build = max(0, int(raw.get("build", 0)))
+        return {"slide": slide, "build": build}
+
+    @staticmethod
+    def _format_position(pos: Dict[str, int]) -> str:
+        return f"slide={int(pos.get('slide', 0))} build={int(pos.get('build', 0))}"
 
     def _build_clients(self) -> None:
         timeout_s = float(self.defaults.get("request_timeout_s", 12))
@@ -240,6 +267,159 @@ class ScriptRunner:
                 )
             self.sleep_func(self.readiness_poll_interval_s)
 
+    def _get_ppt_controller(self) -> PptControllerProtocol:
+        if not self.ppt_enabled:
+            raise RuntimeError("PPT is not enabled for this script.")
+        if self._ppt_controller is None:
+            self._ppt_controller = ComPptController()
+        return self._ppt_controller
+
+    def _get_ppt_position(self) -> Dict[str, int]:
+        controller = self._get_ppt_controller()
+        try:
+            raw = controller.get_position()
+        except PPTControllerError as exc:
+            raise RuntimeError(str(exc)) from exc
+        return self._normalize_position(raw)
+
+    def _prepare_ppt_if_needed(self) -> None:
+        if not self.ppt_enabled or self._ppt_prepared:
+            return
+        if sys.platform != "win32":
+            raise RuntimeError("PPT feature requires Windows + PowerPoint COM")
+
+        ppt_file = str(self.ppt_cfg.get("file") or "").strip()
+        if not ppt_file:
+            raise RuntimeError("ppt.enabled=true requires ppt.file")
+
+        fullscreen_required = bool(self.ppt_cfg.get("fullscreen_required", True))
+        self._log(f"[PPT] opening slideshow: {ppt_file}")
+
+        controller = self._get_ppt_controller()
+        try:
+            controller.open_and_start_slideshow(ppt_file, fullscreen_required=fullscreen_required)
+        except PPTControllerError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        if fullscreen_required and not controller.is_fullscreen_slideshow():
+            raise RuntimeError("PowerPoint slideshow is not fullscreen.")
+
+        pos = self._get_ppt_position()
+        self._last_script_ppt_position = dict(pos)
+        self._log(f"[PPT] {self._format_position(pos)}")
+
+        self._capture_on = bool(self.ppt_cfg.get("start_capture_on_run", True))
+        self._log("[CAPTURE] ON" if self._capture_on else "[CAPTURE] OFF")
+        self._ppt_prepared = True
+
+    def _operator_next_build(self) -> None:
+        controller = self._get_ppt_controller()
+        try:
+            controller.next_build()
+        except PPTControllerError as exc:
+            raise RuntimeError(str(exc)) from exc
+        pos = self._get_ppt_position()
+        self._log(f"[PPT] operator next -> {self._format_position(pos)}")
+
+    def _operator_prev_build(self) -> None:
+        controller = self._get_ppt_controller()
+        try:
+            controller.prev_build()
+        except PPTControllerError as exc:
+            raise RuntimeError(str(exc)) from exc
+        pos = self._get_ppt_position()
+        self._log(f"[PPT] operator prev -> {self._format_position(pos)}")
+
+    def _snapback_to_script_anchor(self) -> None:
+        if not self.ppt_enabled:
+            return
+        if not self._last_script_ppt_position:
+            self._log("[PPT] snapback skipped: no script anchor yet")
+            return
+
+        target = dict(self._last_script_ppt_position)
+        controller = self._get_ppt_controller()
+        self._log(f"[PPT] snapback to {self._format_position(target)}")
+        try:
+            controller.goto(target["slide"], target.get("build"))
+        except PPTControllerError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        pos = self._get_ppt_position()
+        self._last_script_ppt_position = dict(pos)
+        self._log(f"[PPT] {self._format_position(pos)}")
+
+    def _read_control_input(self, prompt: str = "") -> str:
+        try:
+            return str(self.input_func(prompt) or "").strip().lower()
+        except EOFError as exc:
+            raise RuntimeError("manual step requires interactive stdin (capture/manual controls)") from exc
+
+    def _ask_quit_action(self) -> str:
+        while True:
+            choice = self._read_control_input("Quit run? [a]bort / [c]ontinue: ")
+            if choice in {"a", "abort"}:
+                return "abort"
+            if choice in {"c", "continue", "", "n", "no"}:
+                return "continue"
+
+    def _toggle_capture(self) -> None:
+        if not self.ppt_enabled:
+            self._log("[CAPTURE] toggle ignored: PPT not enabled")
+            return
+
+        if self._capture_on:
+            self._capture_on = False
+            self._log("[CAPTURE] OFF")
+            return
+
+        self._capture_on = True
+        self._log("[CAPTURE] ON")
+        self._snapback_to_script_anchor()
+
+    def _pause_while_capture_off(self) -> None:
+        if not self.ppt_enabled:
+            return
+
+        while not self._capture_on:
+            self._log("[CAPTURE] paused (ENTER=next_build, p=prev_build, c=capture ON, q=quit)")
+            choice = self._read_control_input("")
+            if choice == "":
+                self._operator_next_build()
+                continue
+            if choice in {"p", "prev", "previous"}:
+                self._operator_prev_build()
+                continue
+            if choice in {"c", "capture"}:
+                self._capture_on = True
+                self._log("[CAPTURE] ON")
+                self._snapback_to_script_anchor()
+                continue
+            if choice in {"q", "quit"}:
+                if self._ask_quit_action() == "abort":
+                    raise _RunAbortRequested("Abort requested while capture was paused.")
+                continue
+            self._log("[CAPTURE] unknown key. Use ENTER, p, c, or q.")
+
+    def _check_capture_sync(self) -> None:
+        if not self.ppt_enabled or not self._capture_on or not self._last_script_ppt_position:
+            return
+
+        current = self._get_ppt_position()
+        expected = dict(self._last_script_ppt_position)
+        if current == expected:
+            return
+
+        self._log(
+            "[SYNC] mismatch detected -> hard pause (expected {exp}, got {got})".format(
+                exp=self._format_position(expected),
+                got=self._format_position(current),
+            )
+        )
+        self._capture_on = False
+        self._log("[CAPTURE] OFF")
+        self._pause_while_capture_off()
+
     def preflight(self) -> None:
         self._log("Preflight: checking robot DM capabilities...")
         ready_info = self._wait_for_readiness()
@@ -257,27 +437,41 @@ class ScriptRunner:
                     tts=runtime.get("tts_engine"),
                 )
             )
+
+        self._prepare_ppt_if_needed()
         self._log("Preflight complete.")
 
     def _wait_for_step_start(self, step: Dict[str, Any], index: int, total: int) -> None:
         start = step.get("start") or {}
         mode = str(start.get("mode") or "").strip().lower()
         step_id = step.get("id", f"step_{index+1}")
+
         if mode == "manual":
             self._log(f"[{index + 1}/{total}] {step_id}: waiting for ENTER (manual start)")
-            try:
-                self.input_func("")
-            except EOFError as exc:
-                raise RuntimeError(
-                    f"[{index + 1}/{total}] {step_id}: manual step requires interactive stdin (ENTER)"
-                ) from exc
+            while True:
+                choice = self._read_control_input("")
+                if choice == "":
+                    return
+                if choice in {"c", "capture"}:
+                    self._toggle_capture()
+                    self._pause_while_capture_off()
+                    continue
+                if choice in {"q", "quit"}:
+                    if self._ask_quit_action() == "abort":
+                        raise _RunAbortRequested(f"[{index + 1}/{total}] {step_id}: abort requested")
+                    continue
+                self._log(f"[{index + 1}/{total}] {step_id}: unknown key '{choice}' (use ENTER/c/q)")
+
+        if mode == "with_prev":
             return
+
         if mode == "after_prev":
             delay_s = float(start.get("delay_s", 0))
             if delay_s > 0:
                 self._log(f"[{index + 1}/{total}] {step_id}: waiting {delay_s:.2f}s before execution")
                 self.sleep_func(delay_s)
             return
+
         raise RuntimeError(f"unsupported start mode: {mode}")
 
     def _execute_step_action(self, step: Dict[str, Any]) -> Dict[str, Any]:
@@ -291,6 +485,37 @@ class ScriptRunner:
             if seconds > 0:
                 self.sleep_func(seconds)
             return {"ok": True, "status": "accepted", "action": "pause"}
+
+        if action_type == "ppt":
+            if not self.ppt_enabled:
+                raise RuntimeError("ppt action requires top-level ppt.enabled=true")
+
+            controller = self._get_ppt_controller()
+            ppt_mode = str(action.get("mode") or "").strip().lower()
+            try:
+                if ppt_mode == "next_build":
+                    controller.next_build()
+                elif ppt_mode == "prev_build":
+                    controller.prev_build()
+                elif ppt_mode == "goto":
+                    slide = int(action.get("slide"))
+                    build = action.get("build")
+                    controller.goto(slide, int(build) if build is not None else None)
+                else:
+                    raise RuntimeError(f"unsupported ppt mode: {ppt_mode}")
+            except PPTControllerError as exc:
+                raise RuntimeError(str(exc)) from exc
+
+            pos = self._get_ppt_position()
+            self._last_script_ppt_position = dict(pos)
+            self._log(f"[PPT] {self._format_position(pos)}")
+            return {
+                "ok": True,
+                "status": "accepted",
+                "action": "ppt",
+                "mode": ppt_mode,
+                "position": dict(pos),
+            }
 
         robot_id = str(step.get("robot_id") or "").strip()
         if robot_id not in self.clients:
@@ -339,41 +564,133 @@ class ScriptRunner:
             return "next"
         return self._ask_error_action()
 
+    @staticmethod
+    def _step_start_mode(step: Dict[str, Any]) -> str:
+        start = step.get("start") or {}
+        return str(start.get("mode") or "").strip().lower()
+
+    def _execute_step_with_policy(self, step: Dict[str, Any], index: int, total: int) -> str:
+        step_id = step.get("id", f"step_{index+1}")
+        while True:
+            try:
+                self._pause_while_capture_off()
+                self._check_capture_sync()
+                self._log(f"[{index + 1}/{total}] {step_id}: executing")
+                response = self._execute_step_action(step)
+                self._log(f"[{index + 1}/{total}] {step_id}: OK -> {response}")
+                return "completed"
+            except _RunAbortRequested:
+                raise
+            except Exception as exc:
+                self._log(f"[{index + 1}/{total}] {step_id}: ERROR -> {exc}")
+                action = self._on_error_action(step)
+                if action == "retry":
+                    self._log(f"[{index + 1}/{total}] {step_id}: retry")
+                    continue
+                if action == "next":
+                    self._log(f"[{index + 1}/{total}] {step_id}: skip to next")
+                    return "skipped"
+                self._log(f"[{index + 1}/{total}] {step_id}: abort requested")
+                raise _RunAbortRequested(f"[{index + 1}/{total}] {step_id}: abort requested")
+
+    def _execute_parallel_group_once(
+        self,
+        group: list[tuple[int, Dict[str, Any]]],
+        total: int,
+    ) -> tuple[int, list[tuple[int, Dict[str, Any], Exception]]]:
+        completed = 0
+        failures: list[tuple[int, Dict[str, Any], Exception]] = []
+        max_workers = max(1, len(group))
+        future_map: Dict[Any, tuple[int, Dict[str, Any], str]] = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for step_index, step in group:
+                step_id = step.get("id", f"step_{step_index+1}")
+                self._log(f"[{step_index + 1}/{total}] {step_id}: executing (with_prev)")
+                future = executor.submit(self._execute_step_action, step)
+                future_map[future] = (step_index, step, step_id)
+
+            for future in as_completed(future_map):
+                step_index, step, step_id = future_map[future]
+                try:
+                    response = future.result()
+                except Exception as exc:
+                    failures.append((step_index, step, exc))
+                    continue
+                self._log(f"[{step_index + 1}/{total}] {step_id}: OK -> {response}")
+                completed += 1
+
+        failures.sort(key=lambda item: item[0])
+        return completed, failures
+
+    def _resolve_failed_step(
+        self,
+        step: Dict[str, Any],
+        index: int,
+        total: int,
+        exc: Exception,
+    ) -> str:
+        step_id = step.get("id", f"step_{index+1}")
+        self._log(f"[{index + 1}/{total}] {step_id}: ERROR -> {exc}")
+        while True:
+            action = self._on_error_action(step)
+            if action == "retry":
+                self._log(f"[{index + 1}/{total}] {step_id}: retry")
+                return self._execute_step_with_policy(step, index, total)
+            if action == "next":
+                self._log(f"[{index + 1}/{total}] {step_id}: skip to next")
+                return "skipped"
+            self._log(f"[{index + 1}/{total}] {step_id}: abort requested")
+            raise _RunAbortRequested(f"[{index + 1}/{total}] {step_id}: abort requested")
+
     def run(self) -> RunResult:
         steps = list(self.script.get("steps") or [])
         completed = 0
         total = len(steps)
         aborted = False
         try:
-            for index, step in enumerate(steps):
-                step_id = step.get("id", f"step_{index+1}")
+            self._prepare_ppt_if_needed()
+            index = 0
+            while index < total:
+                step = steps[index]
+                self._pause_while_capture_off()
+                self._check_capture_sync()
                 self._wait_for_step_start(step, index, total)
-                while True:
-                    try:
-                        self._log(f"[{index + 1}/{total}] {step_id}: executing")
-                        response = self._execute_step_action(step)
-                        self._log(f"[{index + 1}/{total}] {step_id}: OK -> {response}")
+                self._pause_while_capture_off()
+                self._check_capture_sync()
+
+                group: list[tuple[int, Dict[str, Any]]] = [(index, step)]
+                next_index = index + 1
+                while next_index < total and self._step_start_mode(steps[next_index]) == "with_prev":
+                    group.append((next_index, steps[next_index]))
+                    next_index += 1
+
+                if len(group) == 1:
+                    status = self._execute_step_with_policy(step, index, total)
+                    if status == "completed":
                         completed += 1
-                        break
-                    except Exception as exc:
-                        self._log(f"[{index + 1}/{total}] {step_id}: ERROR -> {exc}")
-                        action = self._on_error_action(step)
-                        if action == "retry":
-                            self._log(f"[{index + 1}/{total}] {step_id}: retry")
-                            continue
-                        if action == "next":
-                            self._log(f"[{index + 1}/{total}] {step_id}: skip to next")
-                            break
-                        aborted = True
-                        self._log(f"[{index + 1}/{total}] {step_id}: abort requested")
-                        return RunResult(
-                            completed_steps=completed,
-                            total_steps=total,
-                            aborted=aborted,
-                            log_path=self.log_path,
-                        )
+                    index = next_index
+                    continue
+
+                group_completed, failures = self._execute_parallel_group_once(group, total)
+                completed += group_completed
+                for failed_index, failed_step, failed_exc in failures:
+                    status = self._resolve_failed_step(
+                        failed_step,
+                        failed_index,
+                        total,
+                        failed_exc,
+                    )
+                    if status == "completed":
+                        completed += 1
+
+                index = next_index
+        except _RunAbortRequested as exc:
+            aborted = True
+            self._log(str(exc))
         finally:
             self._log_handle.close()
+
         return RunResult(
             completed_steps=completed,
             total_steps=total,

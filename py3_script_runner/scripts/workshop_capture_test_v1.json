@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "robots": {
+    "alex": {
+      "dm_url": "http://127.0.0.1:5301"
+    },
+    "renee": {
+      "dm_url": "http://127.0.0.1:5302"
+    }
+  },
+  "ppt": {
+    "enabled": true,
+    "file": "C:/NAOqi_fundamentals/NAO_Controller_WebAPI/py3_script_runner/assets/presentations/workshop_capture_test_v1.pptx",
+    "fullscreen_required": false,
+    "start_capture_on_run": true
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "slide_1_open",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "goto",
+        "slide": 1
+      }
+    },
+    {
+      "id": "slide_2_open",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "goto",
+        "slide": 2
+      }
+    },
+    {
+      "id": "slide_2_alex_standup",
+      "robot_id": "alex",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "STAND_UP"
+      }
+    },
+    {
+      "id": "slide_2_renee_standup",
+      "robot_id": "renee",
+      "start": {
+        "mode": "with_prev"
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "STAND_UP"
+      }
+    },
+    {
+      "id": "slide_2_alex_intro",
+      "robot_id": "alex",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 1
+      },
+      "action": {
+        "type": "say",
+        "text": "Hoi, ik ben Alex."
+      }
+    },
+    {
+      "id": "slide_2_alex_wave",
+      "robot_id": "alex",
+      "start": {
+        "mode": "with_prev"
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "WAVE"
+      }
+    },
+    {
+      "id": "slide_2_renee_intro",
+      "robot_id": "renee",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 3
+      },
+      "action": {
+        "type": "say",
+        "text": "En ik ben Renee."
+      }
+    },
+    {
+      "id": "slide_3_open",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "goto",
+        "slide": 3
+      }
+    },
+    {
+      "id": "slide_3_alex_ai",
+      "robot_id": "alex",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 1
+      },
+      "action": {
+        "type": "say",
+        "text": "AI en robotica zijn echt heel leuk, vind je niet?"
+      }
+    },
+    {
+      "id": "slide_4_open",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "goto",
+        "slide": 4
+      }
+    },
+    {
+      "id": "slide_4_alex_bye",
+      "robot_id": "alex",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 1
+      },
+      "action": {
+        "type": "say",
+        "text": "Doei."
+      }
+    },
+    {
+      "id": "slide_4_renee_bye",
+      "robot_id": "renee",
+      "start": {
+        "mode": "with_prev"
+      },
+      "action": {
+        "type": "say",
+        "text": "Doei."
+      }
+    },
+    {
+      "id": "slide_4_alex_rest",
+      "robot_id": "alex",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 1
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "REST"
+      }
+    },
+    {
+      "id": "slide_4_renee_rest",
+      "robot_id": "renee",
+      "start": {
+        "mode": "with_prev"
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "REST"
+      }
+    }
+  ]
+}

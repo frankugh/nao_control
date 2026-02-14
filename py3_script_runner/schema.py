@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
-ALLOWED_START_MODES = {"manual", "after_prev"}
-ALLOWED_ACTION_TYPES = {"say", "do", "pause"}
+ALLOWED_START_MODES = {"manual", "after_prev", "with_prev"}
+ALLOWED_ACTION_TYPES = {"say", "do", "pause", "ppt"}
 ALLOWED_DO_MODES = {"command", "behavior_start", "behavior_stop", "dance"}
+ALLOWED_PPT_MODES = {"next_build", "prev_build", "goto"}
 ALLOWED_ON_ERROR = {"prompt", "abort", "continue"}
 
 
@@ -58,6 +59,26 @@ def _as_positive_float(value: Any, field: str) -> float:
     return number
 
 
+def _as_positive_int(value: Any, field: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        _fail(f"{field} must be an integer > 0")
+    if number <= 0:
+        _fail(f"{field} must be > 0")
+    return number
+
+
+def _as_nonnegative_int(value: Any, field: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        _fail(f"{field} must be an integer >= 0")
+    if number < 0:
+        _fail(f"{field} must be >= 0")
+    return number
+
+
 def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         _fail("script root must be an object")
@@ -102,6 +123,21 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
     if on_error not in ALLOWED_ON_ERROR:
         _fail("defaults.on_error must be one of: prompt, abort, continue")
 
+    ppt_raw = raw.get("ppt") or {}
+    ppt_in = _as_dict(ppt_raw, "ppt")
+    ppt_enabled = bool(ppt_in.get("enabled", False))
+    ppt_fullscreen_required = bool(ppt_in.get("fullscreen_required", True))
+    ppt_start_capture_on_run = bool(ppt_in.get("start_capture_on_run", True))
+    ppt_cfg: Dict[str, Any] = {
+        "enabled": ppt_enabled,
+        "fullscreen_required": ppt_fullscreen_required,
+        "start_capture_on_run": ppt_start_capture_on_run,
+    }
+    if "file" in ppt_in:
+        ppt_cfg["file"] = _as_nonempty_str(ppt_in.get("file"), "ppt.file")
+    if ppt_enabled and not str(ppt_cfg.get("file") or "").strip():
+        _fail("ppt.file must be a non-empty string when ppt.enabled=true")
+
     steps_in = _as_list(raw.get("steps"), "steps")
     if not steps_in:
         _fail("steps must contain at least one step")
@@ -118,7 +154,7 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
         start = _as_dict(step.get("start"), f"steps[{idx}].start")
         start_mode = str(start.get("mode") or "").strip().lower()
         if start_mode not in ALLOWED_START_MODES:
-            _fail(f"steps[{idx}].start.mode must be 'manual' or 'after_prev'")
+            _fail(f"steps[{idx}].start.mode must be one of: manual, after_prev, with_prev")
         delay_s = 0.0
         if start_mode == "after_prev":
             delay_s = _as_nonnegative_float(start.get("delay_s", 0), f"steps[{idx}].start.delay_s")
@@ -126,7 +162,7 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
         action = _as_dict(step.get("action"), f"steps[{idx}].action")
         action_type = str(action.get("type") or "").strip().lower()
         if action_type not in ALLOWED_ACTION_TYPES:
-            _fail(f"steps[{idx}].action.type must be one of: say, do, pause")
+            _fail(f"steps[{idx}].action.type must be one of: say, do, pause, ppt")
 
         step_on_error = action.get("on_error", step.get("on_error", on_error))
         step_on_error = str(step_on_error or "").strip().lower()
@@ -157,7 +193,7 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
         elif action_type == "pause":
             seconds = _as_nonnegative_float(action.get("seconds"), f"steps[{idx}].action.seconds")
             normalized_step["action"]["seconds"] = seconds
-        else:
+        elif action_type == "do":
             do_mode = str(action.get("mode") or "").strip().lower()
             if do_mode not in ALLOWED_DO_MODES:
                 _fail(
@@ -180,12 +216,25 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
                 normalized_step["action"]["behavior"] = _as_nonempty_str(
                     action.get("behavior"), f"steps[{idx}].action.behavior"
                 )
+        else:
+            ppt_mode = str(action.get("mode") or "").strip().lower()
+            if ppt_mode not in ALLOWED_PPT_MODES:
+                _fail(f"steps[{idx}].action.mode must be one of: next_build, prev_build, goto")
+            normalized_step["action"]["mode"] = ppt_mode
+            if ppt_mode == "goto":
+                normalized_step["action"]["slide"] = _as_positive_int(action.get("slide"), f"steps[{idx}].action.slide")
+                if "build" in action and action.get("build") is not None:
+                    normalized_step["action"]["build"] = _as_nonnegative_int(
+                        action.get("build"),
+                        f"steps[{idx}].action.build",
+                    )
 
         steps.append(normalized_step)
 
     return {
         "version": 1,
         "robots": robots,
+        "ppt": ppt_cfg,
         "defaults": {
             "request_timeout_s": request_timeout_s,
             "readiness_poll_interval_s": readiness_poll_interval_s,

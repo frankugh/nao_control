@@ -29,6 +29,9 @@ def test_validate_script_ok():
     validated = validate_script(script)
     assert validated["version"] == 1
     assert validated["steps"][0]["action"]["type"] == "say"
+    assert validated["ppt"]["enabled"] is False
+    assert validated["ppt"]["fullscreen_required"] is True
+    assert validated["ppt"]["start_capture_on_run"] is True
     assert validated["defaults"]["readiness_poll_interval_s"] == 3.0
     assert validated["defaults"]["readiness_request_timeout_s"] == 3.0
     assert validated["defaults"]["readiness_timeout_s"] == 0.0
@@ -114,3 +117,55 @@ def test_validate_script_accepts_readiness_defaults():
     assert defaults["readiness_poll_interval_s"] == 1.5
     assert defaults["readiness_request_timeout_s"] == 4.0
     assert defaults["readiness_timeout_s"] == 120.0
+
+
+def test_validate_script_accepts_with_prev_and_ppt_step():
+    script = _base_script()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/workshop.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": False,
+    }
+    script["steps"][0] = {
+        "id": "s1",
+        "start": {"mode": "with_prev"},
+        "action": {"type": "ppt", "mode": "next_build"},
+    }
+    validated = validate_script(script)
+    assert validated["ppt"]["enabled"] is True
+    assert validated["ppt"]["file"] == "C:/slides/workshop.pptx"
+    assert validated["steps"][0]["start"]["mode"] == "with_prev"
+    assert validated["steps"][0]["start"]["delay_s"] == 0.0
+    assert validated["steps"][0]["action"]["type"] == "ppt"
+    assert validated["steps"][0]["action"]["mode"] == "next_build"
+
+
+def test_validate_script_rejects_ppt_goto_without_slide():
+    script = _base_script()
+    script["ppt"] = {"enabled": True, "file": "C:/slides/workshop.pptx"}
+    script["steps"][0] = {
+        "id": "s1",
+        "start": {"mode": "manual"},
+        "action": {"type": "ppt", "mode": "goto"},
+    }
+    with pytest.raises(ScriptSchemaError, match="action.slide"):
+        validate_script(script)
+
+
+def test_validate_script_rejects_invalid_ppt_mode():
+    script = _base_script()
+    script["steps"][0] = {
+        "id": "s1",
+        "start": {"mode": "manual"},
+        "action": {"type": "ppt", "mode": "jump"},
+    }
+    with pytest.raises(ScriptSchemaError, match="action.mode must be one of: next_build, prev_build, goto"):
+        validate_script(script)
+
+
+def test_validate_script_rejects_enabled_ppt_without_file():
+    script = _base_script()
+    script["ppt"] = {"enabled": True}
+    with pytest.raises(ScriptSchemaError, match="ppt.file must be a non-empty string"):
+        validate_script(script)

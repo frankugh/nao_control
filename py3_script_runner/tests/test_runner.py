@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
+import pytest
+
 from py3_script_runner.client import DMClientError
 from py3_script_runner.runner import ScriptRunner
 
@@ -611,3 +613,320 @@ def test_multi_robot_steps_route_to_correct_dm_urls(tmp_path):
     assert calls[1][1] == "http://dm-nao2:5302"
     assert calls[1][2]["mode"] == "dance"
     assert calls[1][2]["dance_key"] == "happy"
+
+
+def test_with_prev_mode_executes_without_sleep(tmp_path):
+    sleep_calls: List[float] = []
+    say_calls: List[str] = []
+    did_overlap: List[bool] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            say_calls.append(text)
+            # If with_prev is truly parallel, do_called should be set while say is waiting.
+            did_overlap.append(do_called.wait(timeout=0.2))
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            do_called.set()
+            return {"ok": True}
+
+    import threading
+
+    do_called = threading.Event()
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "with_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "command", "label": "WAVE"},
+        }
+    ]
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda s: sleep_calls.append(float(s)),
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 2
+    assert say_calls == ["hello"]
+    assert sleep_calls == []
+    assert did_overlap == [True]
+
+
+def test_capture_off_pauses_execution_and_snaps_back_on_resume(tmp_path):
+    say_calls: List[str] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            say_calls.append(text)
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    class FakePpt:
+        def __init__(self) -> None:
+            self.position = {"slide": 1, "build": 0}
+            self.next_calls = 0
+            self.prev_calls = 0
+            self.goto_calls: List[Tuple[int, int | None]] = []
+
+        def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
+            return None
+
+        def next_build(self) -> None:
+            self.next_calls += 1
+            self.position["build"] += 1
+
+        def prev_build(self) -> None:
+            self.prev_calls += 1
+            self.position["build"] = max(0, self.position["build"] - 1)
+
+        def goto(self, slide: int, build=None) -> None:
+            self.goto_calls.append((int(slide), int(build) if build is not None else None))
+            self.position["slide"] = int(slide)
+            self.position["build"] = int(build) if build is not None else 0
+
+        def get_position(self):
+            return dict(self.position)
+
+        def is_fullscreen_slideshow(self) -> bool:
+            return True
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": False,
+    }
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "manual", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        }
+    ]
+
+    answers = iter(["", "c", ""])
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: next(answers),
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        ppt_controller=FakePpt(),
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert say_calls == ["hello"]
+
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert "[CAPTURE] OFF" in log_text
+    assert "[CAPTURE] ON" in log_text
+    assert "[PPT] snapback to slide=1 build=0" in log_text
+    assert "[PPT] operator next -> slide=1 build=1" in log_text
+
+
+def test_ppt_actions_call_controller_methods(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    class FakePpt:
+        def __init__(self) -> None:
+            self.position = {"slide": 1, "build": 0}
+            self.calls: List[Tuple[str, int, int | None]] = []
+
+        def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
+            return None
+
+        def next_build(self) -> None:
+            self.calls.append(("next_build", self.position["slide"], self.position["build"]))
+            self.position["build"] += 1
+
+        def prev_build(self) -> None:
+            self.calls.append(("prev_build", self.position["slide"], self.position["build"]))
+            self.position["build"] = max(0, self.position["build"] - 1)
+
+        def goto(self, slide: int, build=None) -> None:
+            self.calls.append(("goto", int(slide), int(build) if build is not None else None))
+            self.position["slide"] = int(slide)
+            self.position["build"] = int(build) if build is not None else 0
+
+        def get_position(self):
+            return dict(self.position)
+
+        def is_fullscreen_slideshow(self) -> bool:
+            return True
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": True,
+    }
+    script["steps"] = [
+        {"id": "p1", "start": {"mode": "after_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "next_build"}},
+        {"id": "p2", "start": {"mode": "with_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "prev_build"}},
+        {"id": "p3", "start": {"mode": "after_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "goto", "slide": 3, "build": 2}},
+    ]
+
+    fake_ppt = FakePpt()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        ppt_controller=fake_ppt,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 3
+    assert fake_ppt.calls[0][0] == "next_build"
+    assert fake_ppt.calls[1][0] == "prev_build"
+    assert fake_ppt.calls[2] == ("goto", 3, 2)
+
+
+def test_sync_mismatch_triggers_hard_pause_and_resume(tmp_path):
+    say_calls: List[str] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            say_calls.append(text)
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    class FakePpt:
+        def __init__(self) -> None:
+            self.position = {"slide": 1, "build": 0}
+            self._position_reads = 0
+
+        def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
+            return None
+
+        def next_build(self) -> None:
+            self.position["build"] += 1
+
+        def prev_build(self) -> None:
+            self.position["build"] = max(0, self.position["build"] - 1)
+
+        def goto(self, slide: int, build=None) -> None:
+            self.position["slide"] = int(slide)
+            self.position["build"] = int(build) if build is not None else 0
+
+        def get_position(self):
+            self._position_reads += 1
+            if self._position_reads == 2:
+                return {"slide": 2, "build": 0}
+            return dict(self.position)
+
+        def is_fullscreen_slideshow(self) -> bool:
+            return True
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": True,
+    }
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        }
+    ]
+
+    answers = iter(["c"])
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: next(answers),
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        ppt_controller=FakePpt(),
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert say_calls == ["hello"]
+
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert "[SYNC] mismatch detected -> hard pause" in log_text
+    assert "[PPT] snapback to slide=1 build=0" in log_text
+
+
+def test_run_with_ppt_on_non_windows_fails_with_clear_message(tmp_path, monkeypatch):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": True,
+    }
+    monkeypatch.setattr("py3_script_runner.runner.sys.platform", "linux")
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    with pytest.raises(RuntimeError, match="PPT feature requires Windows \\+ PowerPoint COM"):
+        runner.run()

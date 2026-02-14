@@ -10,14 +10,33 @@ Console script runner for workshop orchestration across one or more dialog manag
 - Supports step start transitions:
   - `manual` (press ENTER)
   - `after_prev` with `delay_s`
+  - `with_prev` (starts in parallel with previous step)
 - Supports step action types:
   - `say`
   - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`)
   - `pause`
+  - `ppt` (`next_build`, `prev_build`, `goto`)
 - Uses DM wrapper endpoints:
   - `POST /api/script/say`
   - `POST /api/script/do`
   - `GET /api/script/capabilities`
+ 
+## PPT capture mode (v1)
+
+- Windows-only, via PowerPoint COM (`pywin32` + desktop PowerPoint required).
+- Optional top-level `ppt` section in script:
+  - `enabled` (default `false`)
+  - `file` (required when enabled)
+  - `fullscreen_required` (default `true`, set `false` for windowed slideshow test mode)
+  - `start_capture_on_run` (default `true`)
+- Capture controls:
+  - `c`: toggle capture ON/OFF
+  - when capture is OFF: `ENTER` = next build, `p` = previous build, `q` = quit prompt
+- Runner logs capture and position events:
+  - `[CAPTURE] ON/OFF`
+  - `[PPT] slide=X build=Y`
+  - `[SYNC] mismatch detected -> hard pause`
+  - `[PPT] snapback to slide/build`
 
 ## Install
 
@@ -53,14 +72,21 @@ python .\cli.py --script .\scripts\example_workshop.json
   - `on_error` (`prompt|abort|continue`)
 - `steps[]`:
   - `id` unique
-  - `start.mode`: `manual|after_prev`
+  - `start.mode`: `manual|after_prev|with_prev`
   - `start.delay_s` for `after_prev`
   - action types:
     - `say`: requires `robot_id`, `action.text`
     - `do`: requires `robot_id`, `action.mode`
     - `pause`: requires `action.seconds`
+    - `ppt`: `action.mode` is `next_build|prev_build|goto`
 
-See `scripts/example_workshop.json` for a complete example.
+- optional top-level `ppt`:
+  - `enabled` (bool, default `false`)
+  - `file` (required when `enabled=true`)
+  - `fullscreen_required` (bool, default `true`)
+  - `start_capture_on_run` (bool, default `true`)
+
+See `scripts/example_workshop.json` for a complete DM example, and `scripts/example_workshop_ppt.json` for PPT capture usage.
 
 By default, the runner executes against the current runtime config already active on each DM instance.
 
@@ -85,6 +111,31 @@ You can force each DM instance to a known runtime setup at preflight:
 ```
 
 The runner uses a persistent HTTP session per robot, so one stable DM `sid` is reused across all steps.
+
+### PPT example snippet
+
+```json
+{
+  "ppt": {
+    "enabled": true,
+    "file": "C:/workshops/demo.pptx",
+    "fullscreen_required": true,
+    "start_capture_on_run": true
+  },
+  "steps": [
+    {
+      "id": "p1",
+      "start": { "mode": "manual" },
+      "action": { "type": "ppt", "mode": "next_build" }
+    },
+    {
+      "id": "p2",
+      "start": { "mode": "with_prev" },
+      "action": { "type": "ppt", "mode": "goto", "slide": 5, "build": 2 }
+    }
+  ]
+}
+```
 
 ## Error handling
 
