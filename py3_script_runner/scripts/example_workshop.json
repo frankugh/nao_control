@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5301"
+    },
+    "nao2": {
+      "dm_url": "http://127.0.0.1:5302"
+    }
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "STAND_UP"
+      }
+    },
+    {
+      "id": "s2",
+      "robot_id": "nao2",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "STAND_UP"
+      }
+    },
+    {
+      "id": "s3",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Hallo allemaal, ik ben Alex"
+      }
+    },
+    {
+      "id": "s4",
+      "robot_id": "nao2",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 2
+      },
+      "action": {
+        "type": "say",
+        "text": "En ik ben Rene"
+      }
+    },
+    {
+      "id": "s5",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "pause",
+        "seconds": 2
+      }
+    },
+    {
+      "id": "s6",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "WAVE"
+      }
+    },
+    {
+      "id": "s7",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "REST"
+      }
+    },
+    {
+      "id": "s8",
+      "robot_id": "nao2",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "REST"
+      }
+    }
+  ]
+}

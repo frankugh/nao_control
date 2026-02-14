@@ -32,6 +32,7 @@ import sys
 import math
 from pathlib import Path
 import signal
+from urllib.parse import urlparse
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from flask import Flask, Response, jsonify, request, send_from_directory
@@ -297,6 +298,13 @@ def _clean_ui_active_tab(raw: Any) -> str:
     return "prompt"
 
 
+def _clean_robot_name(raw: Any) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    return value[:60]
+
+
 def _continuous_capture_timeout_s(
     start_timeout_s: float,
     *,
@@ -359,6 +367,20 @@ def _normalize_url(raw: Optional[str]) -> Optional[str]:
     return value.rstrip("/")
 
 
+def _url_port(raw_url: Optional[str], default_port: int) -> int:
+    normalized = _normalize_url(raw_url)
+    if not normalized:
+        return int(default_port)
+    try:
+        parsed = urlparse(normalized)
+        port = parsed.port
+    except Exception:
+        return int(default_port)
+    if isinstance(port, int) and port > 0:
+        return int(port)
+    return int(default_port)
+
+
 def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     nao_conn = cfg_src.get("nao_connection", {}) or {}
     primary = nao_conn.get("primary", {}) or {}
@@ -388,13 +410,13 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     output_cfg = (cfg_src.get("output", {}) or {})
     output_type = (output_cfg.get("type") or "none").lower()
     output_params = output_cfg.get("params", {}) if isinstance(output_cfg.get("params"), dict) else {}
-    output_target = output_cfg.get("target")
+    output_target = output_cfg.get("target") if output_cfg.get("target") is not None else output_params.get("target")
     if not output_target:
         if output_type == "none":
             output_target = "none"
         else:
             output_target = "nao" if output_type in ("nao_tts", "nao_py2", "nao") else "server"
-    tts_engine = output_cfg.get("engine")
+    tts_engine = output_cfg.get("engine") if output_cfg.get("engine") is not None else output_params.get("tts_engine")
     if not tts_engine:
         if output_type == "none":
             tts_engine = "none"
@@ -407,6 +429,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
 
     return {
         "confirm_policy": (cfg_src.get("confirm_policy") or "when_guarded"),
+        "robot_name": _clean_robot_name(cfg_src.get("robot_name") or cfg_src.get("agent_name") or ""),
         "nao_base_url": (fallback.get("base_url") or "").rstrip("/"),
         "behavior_manager_url": behavior_manager_url,
         "nao_ip": nao_ip or "",
@@ -472,6 +495,7 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
     nao_ip_value = (runtime_cfg.get("nao_ip") or "").strip()
     nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
+    cfg_out["robot_name"] = _clean_robot_name(runtime_cfg.get("robot_name") or cfg_out.get("robot_name") or "")
 
     if "nao_connection" in cfg_out:
         nao_conn = cfg_out["nao_connection"] or {}
@@ -687,17 +711,83 @@ def _append_turn(history: History, user_text: str, assistant_text: str) -> Histo
     return history
 
 
-def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLMOutputPipeline]:
+def create_app(
+    *,
+    cfg: JsonLike,
+    config_path: str,
+    instance_id: Optional[str] = None,
+    runtime_state_dir: Optional[str] = None,
+) -> Tuple[Flask, Any, InputLLMOutputPipeline]:
     app = Flask(__name__, static_folder="web", static_url_path="")
 
     base_cfg = copy.deepcopy(cfg)
     run_cfg = base_cfg.setdefault("run", {})
     run_cfg["web_ui_enabled"] = True
+    resolved_instance_id = str(instance_id or run_cfg.get("instance_id") or "").strip()
+    if not resolved_instance_id:
+        resolved_instance_id = "default"
     base_config_path = config_path
     base_pipeline = build_pipeline_from_config(cfg, config_path=config_path)
     base_stt = make_stt_backend_from_config(cfg)
     pipeline_lock = threading.Lock()
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    runtime_cfg_lock = threading.RLock()
+    runtime_cfg_default = _extract_runtime_config(base_cfg)
+
+    def _runtime_state_key(value: str) -> str:
+        key = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(value or "").strip())
+        return key or "default"
+
+    if runtime_state_dir:
+        runtime_state_base_dir = str(runtime_state_dir)
+    else:
+        runtime_state_base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "runtime")
+    runtime_state_enabled = config_path != "<memory>"
+    runtime_state_path = (
+        os.path.join(runtime_state_base_dir, f"runtime_{_runtime_state_key(resolved_instance_id)}.json")
+        if runtime_state_enabled
+        else None
+    )
+    runtime_cfg_global: JsonLike = copy.deepcopy(runtime_cfg_default)
+
+    def _sanitize_runtime_cfg_inplace(cfg_obj: JsonLike) -> JsonLike:
+        cfg_obj["listen_mode"] = _clean_listen_mode(cfg_obj.get("listen_mode", "ptt"))
+        cfg_obj["ui_active_tab"] = _clean_ui_active_tab(cfg_obj.get("ui_active_tab", "prompt"))
+        cfg_obj["robot_name"] = _clean_robot_name(cfg_obj.get("robot_name", ""))
+        return cfg_obj
+
+    def _runtime_cfg_snapshot() -> JsonLike:
+        with runtime_cfg_lock:
+            return copy.deepcopy(runtime_cfg_global)
+
+    def _save_runtime_cfg_state() -> None:
+        if not runtime_state_enabled or not runtime_state_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(runtime_state_path), exist_ok=True)
+            with open(runtime_state_path, "w", encoding="utf-8") as fh:
+                json.dump(_runtime_cfg_snapshot(), fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_runtime_cfg_state() -> None:
+        if not runtime_state_enabled or not runtime_state_path or not os.path.isfile(runtime_state_path):
+            return
+        try:
+            with open(runtime_state_path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if not isinstance(raw, dict):
+                return
+            with runtime_cfg_lock:
+                runtime_cfg_global.clear()
+                runtime_cfg_global.update(copy.deepcopy(runtime_cfg_default))
+                runtime_cfg_global.update(raw)
+                _sanitize_runtime_cfg_inplace(runtime_cfg_global)
+        except Exception:
+            pass
+
+    _sanitize_runtime_cfg_inplace(runtime_cfg_global)
+    _load_runtime_cfg_state()
     al_dir = os.path.join(repo_root, "py3_command_recognition_train", "data", "al")
     al_lock = threading.RLock()
     retrain_lock = threading.Lock()
@@ -730,7 +820,6 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     pending_confirms: Dict[str, Dict[str, Any]] = {}
     cmdrec_state: Dict[str, Dict[str, Any]] = {}
     runtime_context_state: Dict[str, Dict[str, Any]] = {}
-    runtime_cfg_by_sid: Dict[str, JsonLike] = {}
     pipeline_by_sid: Dict[str, InputLLMOutputPipeline] = {}
     stt_by_sid: Dict[str, Any] = {}
     continuous_state: Dict[str, Dict[str, Any]] = {}
@@ -746,6 +835,12 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if not sid:
             sid = secrets.token_urlsafe(16)
         return sid
+
+    def _request_ui_mode() -> str:
+        mode = str(request.cookies.get("ui_mode") or "").strip().lower()
+        if mode in ("server", "client"):
+            return mode
+        return "unknown"
 
     def _get_history(sid: str) -> History:
         return sessions.setdefault(sid, [])
@@ -1033,10 +1128,10 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     # runtime pipeline helpers
     def _get_runtime_cfg(sid: str) -> JsonLike:
-        cfg = runtime_cfg_by_sid.setdefault(sid, _extract_runtime_config(base_cfg))
-        cfg["listen_mode"] = _clean_listen_mode(cfg.get("listen_mode", "ptt"))
-        cfg["ui_active_tab"] = _clean_ui_active_tab(cfg.get("ui_active_tab", "prompt"))
-        return cfg
+        del sid
+        with runtime_cfg_lock:
+            _sanitize_runtime_cfg_inplace(runtime_cfg_global)
+            return runtime_cfg_global
 
     def _auto_rest_timeout_s(runtime_cfg: JsonLike) -> float:
         value = runtime_cfg.get("nao_auto_rest_after_s", base_cfg.get("nao_auto_rest_after_s", 0))
@@ -1049,10 +1144,19 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         with activity_lock:
             last_activity["ts"] = time.time()
 
+    def _ensure_sid_runtime_pipeline(sid: str) -> None:
+        if sid in pipeline_by_sid and sid in stt_by_sid:
+            return
+        runtime_cfg = _get_runtime_cfg(sid)
+        merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
+        _rebuild_pipeline_for_sid(sid, merged)
+
     def _get_pipeline(sid: str) -> InputLLMOutputPipeline:
+        _ensure_sid_runtime_pipeline(sid)
         return pipeline_by_sid.get(sid, base_pipeline)
 
     def _get_stt(sid: str):
+        _ensure_sid_runtime_pipeline(sid)
         return stt_by_sid.get(sid, base_stt)
 
     def _rebuild_pipeline_for_sid(sid: str, cfg_src: JsonLike) -> None:
@@ -1583,9 +1687,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         return {"ok": True, "stopped": True}
 
     def _pick_shutdown_runtime_cfg() -> JsonLike:
-        if runtime_cfg_by_sid:
-            return next(iter(runtime_cfg_by_sid.values()))
-        return _extract_runtime_config(base_cfg)
+        return _runtime_cfg_snapshot()
 
     def _try_nao_rest(runtime_cfg: JsonLike, *, reason: str) -> bool:
         def _rest_ok(resp) -> bool:
@@ -1663,7 +1765,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
 
     threading.Thread(target=_auto_rest_loop, daemon=True).start()
 
-    def _base_controller_cmd(nao_ip: str) -> Tuple[List[str], str, Optional[str]]:
+    def _base_controller_cmd(nao_ip: str, web_port: int) -> Tuple[List[str], str, Optional[str]]:
         base_dir = os.path.join(repo_root, "py2_nao_base_controller")
         python_path = os.path.join(base_dir, "venv", "Scripts", "python.exe")
         script_path = os.path.join(base_dir, "nao_api.py")
@@ -1671,12 +1773,12 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return [], base_dir, "venv\\Scripts\\python.exe niet gevonden (py2_nao_base_controller)."
         if not os.path.exists(script_path):
             return [], base_dir, "nao_api.py niet gevonden."
-        cmd = [python_path, script_path]
+        cmd = [python_path, script_path, "--port", str(int(web_port))]
         if nao_ip:
             cmd += ["--nao_ip", nao_ip]
         return cmd, base_dir, None
 
-    def _behavior_manager_cmd() -> Tuple[List[str], str, Optional[str]]:
+    def _behavior_manager_cmd(web_port: int, py2_api_url: str) -> Tuple[List[str], str, Optional[str]]:
         base_dir = os.path.join(repo_root, "py3_nao_behavior_manager")
         python_path = os.path.join(base_dir, "venv", "Scripts", "python.exe")
         script_path = os.path.join(base_dir, "py3_server.py")
@@ -1684,7 +1786,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
             return [], base_dir, "venv\\Scripts\\python.exe niet gevonden (py3_nao_behavior_manager)."
         if not os.path.exists(script_path):
             return [], base_dir, "py3_server.py niet gevonden."
-        cmd = [python_path, script_path]
+        cmd = [
+            python_path,
+            script_path,
+            "--port",
+            str(int(web_port)),
+            "--py2-api-url",
+            str(py2_api_url or "http://127.0.0.1:5000"),
+        ]
         return cmd, base_dir, None
 
     _al_key_cache: Dict[str, Dict[str, Any]] = {}
@@ -4210,7 +4319,14 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def api_runtime_config():
         sid = _get_sid()
         cfg_out = _get_runtime_cfg(sid)
-        resp = jsonify({"ok": True, "config": cfg_out, "system_prompt": _system_prompt_for_sid(sid)})
+        resp = jsonify(
+            {
+                "ok": True,
+                "config": cfg_out,
+                "system_prompt": _system_prompt_for_sid(sid),
+                "instance_id": resolved_instance_id,
+            }
+        )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -4226,6 +4342,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 "runtime_config": runtime_cfg,
                 "effective_config": merged,
                 "output_enabled": output_enabled,
+                "instance_id": resolved_instance_id,
             }
         )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
@@ -4235,38 +4352,71 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     def api_runtime_defaults():
         cfg_out = _extract_runtime_config(base_cfg)
         merged = _apply_runtime_overrides(base_cfg, cfg_out)
-        return jsonify({"ok": True, "config": cfg_out, "effective_config": merged})
+        return jsonify({"ok": True, "config": cfg_out, "effective_config": merged, "instance_id": resolved_instance_id})
 
     @app.post("/api/runtime_config")
     def api_runtime_config_set():
         payload = request.get_json(force=True, silent=True) or {}
         sid = _get_sid()
-        if payload.get("reset"):
-            runtime_cfg_by_sid.pop(sid, None)
-            pipeline_by_sid.pop(sid, None)
-            stt_by_sid.pop(sid, None)
+        if _request_ui_mode() == "client":
             cfg_out = _get_runtime_cfg(sid)
-            if not cfg_out.get("custom_life_enabled", False):
-                _release_custom_life_lock(sid, cfg_out)
-            resp = jsonify({"ok": True, "config": cfg_out, "system_prompt": _system_prompt_for_sid(sid)})
+            resp = jsonify(
+                {
+                    "ok": True,
+                    "config": cfg_out,
+                    "system_prompt": _system_prompt_for_sid(sid),
+                    "instance_id": resolved_instance_id,
+                    "client_ignored": True,
+                }
+            )
             resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
             return resp
 
-        runtime_cfg = _get_runtime_cfg(sid)
-        runtime_cfg.update(payload.get("config", payload))
-        runtime_cfg["listen_mode"] = _clean_listen_mode(runtime_cfg.get("listen_mode", "ptt"))
-        runtime_cfg["ui_active_tab"] = _clean_ui_active_tab(runtime_cfg.get("ui_active_tab", "prompt"))
-        runtime_cfg_by_sid[sid] = runtime_cfg
+        if payload.get("reset"):
+            with runtime_cfg_lock:
+                runtime_cfg_global.clear()
+                runtime_cfg_global.update(copy.deepcopy(runtime_cfg_default))
+                _sanitize_runtime_cfg_inplace(runtime_cfg_global)
+            _save_runtime_cfg_state()
+            pipeline_by_sid.pop(sid, None)
+            stt_by_sid.pop(sid, None)
+            pipeline_by_sid.clear()
+            stt_by_sid.clear()
+            cfg_out = _get_runtime_cfg(sid)
+            if not cfg_out.get("custom_life_enabled", False):
+                _release_custom_life_lock(sid, cfg_out)
+            resp = jsonify(
+                {
+                    "ok": True,
+                    "config": cfg_out,
+                    "system_prompt": _system_prompt_for_sid(sid),
+                    "instance_id": resolved_instance_id,
+                }
+            )
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
 
-        if runtime_cfg.get("base_enabled", True):
-            base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-            llm_type = (runtime_cfg.get("llm_type") or "").lower()
-            llm_model = (runtime_cfg.get("llm_model") or "").strip()
+        candidate = _runtime_cfg_snapshot()
+        candidate.update(payload.get("config", payload))
+        _sanitize_runtime_cfg_inplace(candidate)
+
+        if candidate.get("base_enabled", True):
+            llm_type = (candidate.get("llm_type") or "").lower()
+            llm_model = (candidate.get("llm_model") or "").strip()
             if llm_type != "echo" and not llm_model:
                 return jsonify({"ok": False, "error": "LLM model ontbreekt."}), 400
 
-        merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
-        _rebuild_pipeline_for_sid(sid, merged)
+        merged = _apply_runtime_overrides(base_cfg, candidate)
+        with runtime_cfg_lock:
+            runtime_cfg_global.clear()
+            runtime_cfg_global.update(candidate)
+        _save_runtime_cfg_state()
+
+        sid_keys = set(pipeline_by_sid.keys())
+        sid_keys.add(sid)
+        for sid_key in sid_keys:
+            _rebuild_pipeline_for_sid(sid_key, merged)
+        runtime_cfg = _get_runtime_cfg(sid)
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
             _release_custom_life_lock(sid, runtime_cfg)
@@ -4277,6 +4427,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
                 "system_prompt": _system_prompt_for_sid(sid),
                 "effective_config": merged,
                 "output_enabled": bool(runtime_cfg.get("base_enabled", True)),
+                "instance_id": resolved_instance_id,
             }
         )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
@@ -4904,7 +5055,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         sid = _get_sid()
         runtime_cfg = _get_runtime_cfg(sid)
         runtime_cfg["custom_life_enabled"] = bool(enabled)
-        runtime_cfg_by_sid[sid] = runtime_cfg
+        _save_runtime_cfg_state()
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
             _release_custom_life_lock(sid, runtime_cfg)
@@ -5007,20 +5158,35 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 500
 
-    @app.post("/api/command_execute")
-    def api_command_execute():
-        payload = request.get_json(force=True, silent=True) or {}
+    def _resolve_dance_by_key(cmdrec_obj: Any, dance_key: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        key_norm = str(dance_key or "").strip()
+        if not key_norm:
+            return None, "missing_dance_key"
+        catalog = _dance_catalog(cmdrec_obj)
+        for item in catalog:
+            key = item.get("key")
+            if not isinstance(key, str) or not key.strip():
+                continue
+            if key.strip().casefold() != key_norm.casefold():
+                continue
+            resolved: Dict[str, Any] = {"dance_key": key.strip()}
+            behavior = item.get("behavior")
+            if isinstance(behavior, str) and behavior.strip():
+                resolved["dance_behavior"] = behavior.strip()
+            return resolved, None
+        return None, "dance_not_found"
+
+    def _command_execute_impl(sid: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         label = (payload.get("label") or "").strip()
         if not label:
-            return jsonify({"ok": False, "error": "Missing 'label'."}), 400
+            return {"ok": False, "error": "Missing 'label'."}, 400
         _touch_activity()
-        sid = _get_sid()
         runtime_cfg = _get_runtime_cfg(sid)
         pipeline = _get_pipeline(sid)
         _, cmdrec, behavior_executor = _pipeline_props(pipeline)
         _set_behavior_executor_custom_life_management(behavior_executor, False)
         if behavior_executor is None:
-            return jsonify({"ok": False, "error": "behavior executor niet beschikbaar."}), 400
+            return {"ok": False, "error": "behavior executor niet beschikbaar."}, 400
         resolved = payload.get("resolved") if isinstance(payload.get("resolved"), dict) else None
         if label.upper() == "DANCE" and not resolved:
             resolved = _default_dance_resolution(cmdrec)
@@ -5031,7 +5197,7 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         try:
             behavior_executor.execute(cmd)
         except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return {"ok": False, "error": str(exc)}, 400
         if _normalize_command_label(cmd.label) == "STOP":
             _execute_standup_after_stop_if_needed(
                 sid,
@@ -5048,7 +5214,217 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         _touch_activity()
         out = {"ok": True}
         _attach_command_stop_payload(sid, out)
+        return out, 200
+
+    def _nao_behavior_start_impl(sid: str, behavior: str) -> Tuple[Dict[str, Any], int]:
+        behavior = str(behavior or "").strip()
+        if not behavior:
+            return {"ok": False, "error": "Missing 'behavior'."}, 400
+        _touch_activity()
+        runtime_cfg = _get_runtime_cfg(sid)
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        lock_mode = _custom_life_lock_mode_for_behavior_name(behavior)
+        state = _get_runtime_state(sid)
+        lock_active = _custom_life_lock_is_active(state)
+        candidates: List[Tuple[str, str]] = []
+        if behavior_enabled and behavior_url:
+            candidates.append((behavior_url, "behavior"))
+        if base_enabled and base_url:
+            candidates.append((base_url, "base"))
+        if not candidates:
+            return {"ok": False, "error": "NAO endpoint ontbreekt."}, 400
+
+        last_error = None
+        for endpoint_base_url, mode in candidates:
+            paused_now = False
+            pause_state = None
+            if lock_mode and not lock_active:
+                paused_now, pause_state = _custom_life_pause_on_endpoint(endpoint_base_url, mode)
+            try:
+                url = endpoint_base_url + "/nao/do_behavior" if mode == "behavior" else endpoint_base_url + "/do_behavior"
+                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+                data = resp.json() if resp.ok else {}
+            except Exception as exc:
+                last_error = str(exc)
+                if paused_now:
+                    try:
+                        _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
+                    except Exception:
+                        pass
+                continue
+            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+                last_error = data.get("error") or "behavior failed"
+                if paused_now:
+                    try:
+                        _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
+                    except Exception:
+                        pass
+                continue
+            if lock_mode:
+                if lock_active:
+                    state["custom_life_lock_mode"] = _custom_life_merge_lock_mode(state.get("custom_life_lock_mode"), lock_mode)
+                elif paused_now:
+                    _custom_life_store_lock_state(
+                        state,
+                        lock_mode=lock_mode,
+                        pause_state=pause_state,
+                        base_url=endpoint_base_url,
+                        endpoint_mode=mode,
+                    )
+                    lock_active = True
+            _touch_activity()
+            return {"ok": True}, 200
+        return {"ok": False, "error": last_error or "behavior failed"}, 400
+
+    def _nao_behavior_stop_impl(sid: str, behavior: str) -> Tuple[Dict[str, Any], int]:
+        behavior = str(behavior or "").strip()
+        if not behavior:
+            return {"ok": False, "error": "Missing 'behavior'."}, 400
+        _touch_activity()
+        runtime_cfg = _get_runtime_cfg(sid)
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        candidates: List[Tuple[str, str]] = []
+        if behavior_enabled and behavior_url:
+            candidates.append((behavior_url, "behavior"))
+        if base_enabled and base_url:
+            candidates.append((base_url, "base"))
+        if not candidates:
+            return {"ok": False, "error": "NAO endpoint ontbreekt."}, 400
+
+        last_error = None
+        walk_behavior_stop = "walkwithme" in behavior.strip().lower()
+        for endpoint_base_url, mode in candidates:
+            try:
+                url = endpoint_base_url + "/nao/stop_behavior" if mode == "behavior" else endpoint_base_url + "/stop_behavior"
+                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+                data = resp.json() if resp.ok else {}
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
+                last_error = data.get("error") or "behavior failed"
+                continue
+            if walk_behavior_stop:
+                try:
+                    delay_s = _post_stop_standup_delay_s(runtime_cfg)
+                    if delay_s > 0.0:
+                        time.sleep(delay_s)
+                    do_behavior_url = endpoint_base_url + "/nao/do_behavior" if mode == "behavior" else endpoint_base_url + "/do_behavior"
+                    requests.post(do_behavior_url, json={"behavior": "basic/standup"}, timeout=5.0)
+                except Exception:
+                    pass
+            _release_custom_life_lock(sid, runtime_cfg)
+            _touch_activity()
+            return {"ok": True}, 200
+        return {"ok": False, "error": last_error or "behavior failed"}, 400
+
+    @app.post("/api/command_execute")
+    def api_command_execute():
+        sid = _get_sid()
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = _command_execute_impl(sid, payload)
         resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.get("/api/script/capabilities")
+    def api_script_capabilities():
+        return jsonify(
+            {
+                "ok": True,
+                "supports": {
+                    "say": True,
+                    "do_modes": ["command", "behavior_start", "behavior_stop", "dance"],
+                    "dance_catalog": True,
+                },
+            }
+        )
+
+    @app.post("/api/script/say")
+    def api_script_say():
+        payload = request.get_json(force=True, silent=True) or {}
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return jsonify({"ok": False, "error": "Missing 'text'."}), 400
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        pipeline = _get_pipeline(sid)
+        _emit_followup_text(
+            pipeline=pipeline,
+            emit_used="pipeline",
+            runtime_cfg=runtime_cfg,
+            text=text,
+        )
+        _touch_activity()
+        resp = jsonify({"ok": True, "status": "accepted", "action": "say"})
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/script/do")
+    def api_script_do():
+        payload = request.get_json(force=True, silent=True) or {}
+        mode = str(payload.get("mode") or "").strip().lower()
+        sid = _get_sid()
+        if not mode:
+            return jsonify({"ok": False, "error": "Missing 'mode'."}), 400
+
+        if mode == "command":
+            label = str(payload.get("label") or "").strip()
+            resolved = payload.get("resolved") if isinstance(payload.get("resolved"), dict) else None
+            command_payload: Dict[str, Any] = {"label": label}
+            if resolved is not None:
+                command_payload["resolved"] = resolved
+            out, status_code = _command_execute_impl(sid, command_payload)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+        elif mode == "dance":
+            dance_key = str(payload.get("dance_key") or "").strip()
+            if not dance_key:
+                return jsonify({"ok": False, "error": "missing_dance_key"}), 400
+            pipeline = _get_pipeline(sid)
+            _, cmdrec, _ = _pipeline_props(pipeline)
+            if cmdrec is None:
+                return jsonify({"ok": False, "error": "cmdrec_unavailable"}), 400
+            resolved, err = _resolve_dance_by_key(cmdrec, dance_key)
+            if err:
+                return jsonify({"ok": False, "error": err, "dance_key": dance_key}), 400
+            out, status_code = _command_execute_impl(sid, {"label": "DANCE", "resolved": resolved})
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+        elif mode == "behavior_start":
+            behavior = str(payload.get("behavior") or "").strip()
+            out, status_code = _nao_behavior_start_impl(sid, behavior)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+        elif mode == "behavior_stop":
+            behavior = str(payload.get("behavior") or "").strip()
+            out, status_code = _nao_behavior_stop_impl(sid, behavior)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+        else:
+            return jsonify({"ok": False, "error": "invalid_mode", "mode": mode}), 400
+
+        _touch_activity()
+        resp = jsonify({"ok": True, "status": "accepted", "action": "do", "mode": mode})
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -5085,120 +5461,24 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
     @app.post("/api/nao_behavior_start")
     def api_nao_behavior_start():
         payload = request.get_json(force=True, silent=True) or {}
-        behavior = (payload.get("behavior") or "").strip()
-        if not behavior:
-            return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
-        _touch_activity()
         sid = _get_sid()
-        runtime_cfg = _get_runtime_cfg(sid)
-        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
-        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
-        base_enabled = bool(runtime_cfg.get("base_enabled", True))
-        lock_mode = _custom_life_lock_mode_for_behavior_name(behavior)
-        state = _get_runtime_state(sid)
-        lock_active = _custom_life_lock_is_active(state)
-        candidates: List[Tuple[str, str]] = []
-        if behavior_enabled and behavior_url:
-            candidates.append((behavior_url, "behavior"))
-        if base_enabled and base_url:
-            candidates.append((base_url, "base"))
-        if not candidates:
-            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
-
-        last_error = None
-        for base_url, mode in candidates:
-            paused_now = False
-            pause_state = None
-            if lock_mode and not lock_active:
-                paused_now, pause_state = _custom_life_pause_on_endpoint(base_url, mode)
-            try:
-                url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
-                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
-                data = resp.json() if resp.ok else {}
-            except Exception as exc:
-                last_error = str(exc)
-                if paused_now:
-                    try:
-                        _custom_life_restore_on_endpoint(base_url, mode, runtime_cfg, pause_state)
-                    except Exception:
-                        pass
-                continue
-            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-                last_error = data.get("error") or "behavior failed"
-                if paused_now:
-                    try:
-                        _custom_life_restore_on_endpoint(base_url, mode, runtime_cfg, pause_state)
-                    except Exception:
-                        pass
-                continue
-            if lock_mode:
-                if lock_active:
-                    state["custom_life_lock_mode"] = _custom_life_merge_lock_mode(state.get("custom_life_lock_mode"), lock_mode)
-                elif paused_now:
-                    _custom_life_store_lock_state(
-                        state,
-                        lock_mode=lock_mode,
-                        pause_state=pause_state,
-                        base_url=base_url,
-                        endpoint_mode=mode,
-                    )
-                    lock_active = True
-            _touch_activity()
-            resp = jsonify({"ok": True})
-            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-            return resp
-        return jsonify({"ok": False, "error": last_error or "behavior failed"}), 400
+        behavior = (payload.get("behavior") or "").strip()
+        out, status_code = _nao_behavior_start_impl(sid, behavior)
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     @app.post("/api/nao_behavior_stop")
     def api_nao_behavior_stop():
         payload = request.get_json(force=True, silent=True) or {}
-        behavior = (payload.get("behavior") or "").strip()
-        if not behavior:
-            return jsonify({"ok": False, "error": "Missing 'behavior'."}), 400
-        _touch_activity()
         sid = _get_sid()
-        runtime_cfg = _get_runtime_cfg(sid)
-        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
-        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
-        base_enabled = bool(runtime_cfg.get("base_enabled", True))
-        candidates: List[Tuple[str, str]] = []
-        if behavior_enabled and behavior_url:
-            candidates.append((behavior_url, "behavior"))
-        if base_enabled and base_url:
-            candidates.append((base_url, "base"))
-        if not candidates:
-            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
-
-        last_error = None
-        walk_behavior_stop = "walkwithme" in behavior.strip().lower()
-        for base_url, mode in candidates:
-            try:
-                url = base_url + "/nao/stop_behavior" if mode == "behavior" else base_url + "/stop_behavior"
-                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
-                data = resp.json() if resp.ok else {}
-            except Exception as exc:
-                last_error = str(exc)
-                continue
-            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-                last_error = data.get("error") or "behavior failed"
-                continue
-            if walk_behavior_stop:
-                try:
-                    delay_s = _post_stop_standup_delay_s(runtime_cfg)
-                    if delay_s > 0.0:
-                        time.sleep(delay_s)
-                    do_behavior_url = base_url + "/nao/do_behavior" if mode == "behavior" else base_url + "/do_behavior"
-                    requests.post(do_behavior_url, json={"behavior": "basic/standup"}, timeout=5.0)
-                except Exception:
-                    pass
-            _release_custom_life_lock(sid, runtime_cfg)
-            _touch_activity()
-            resp = jsonify({"ok": True})
-            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-            return resp
-        return jsonify({"ok": False, "error": last_error or "behavior failed"}), 400
+        behavior = (payload.get("behavior") or "").strip()
+        out, status_code = _nao_behavior_stop_impl(sid, behavior)
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     @app.get("/api/process_status")
     def api_process_status():
@@ -5235,20 +5515,44 @@ def create_app(*, cfg: JsonLike, config_path: str) -> Tuple[Flask, Any, InputLLM
         if name not in ("base", "behavior"):
             return jsonify({"ok": False, "error": "Unknown process name."}), 400
 
+        payload_nao_base_url = _normalize_url(payload.get("nao_base_url"))
+        payload_behavior_url = _normalize_url(payload.get("behavior_manager_url"))
+
         if name == "base":
             runtime_cfg = _get_runtime_cfg(_get_sid())
             payload_nao_ip = (payload.get("nao_ip") or "").strip()
             nao_ip = payload_nao_ip or (runtime_cfg.get("nao_ip") or "").strip()
             nao_ip_enabled = bool(payload.get("nao_ip_enabled", runtime_cfg.get("nao_ip_enabled", False)))
+            changed = False
             if payload_nao_ip:
                 runtime_cfg["nao_ip"] = payload_nao_ip
+                changed = True
             if "nao_ip_enabled" in payload:
                 runtime_cfg["nao_ip_enabled"] = nao_ip_enabled
+                changed = True
+            if payload_nao_base_url:
+                runtime_cfg["nao_base_url"] = payload_nao_base_url
+                changed = True
+            if changed:
+                _save_runtime_cfg_state()
             if not nao_ip or not nao_ip_enabled:
                 return jsonify({"ok": False, "error": "NAO IP ontbreekt of is disabled."}), 400
-            cmd, cwd, err = _base_controller_cmd(nao_ip)
+            base_port = _url_port(runtime_cfg.get("nao_base_url"), default_port=5000)
+            cmd, cwd, err = _base_controller_cmd(nao_ip, base_port)
         else:
-            cmd, cwd, err = _behavior_manager_cmd()
+            runtime_cfg = _get_runtime_cfg(_get_sid())
+            changed = False
+            if payload_nao_base_url:
+                runtime_cfg["nao_base_url"] = payload_nao_base_url
+                changed = True
+            if payload_behavior_url:
+                runtime_cfg["behavior_manager_url"] = payload_behavior_url
+                changed = True
+            if changed:
+                _save_runtime_cfg_state()
+            behavior_port = _url_port(runtime_cfg.get("behavior_manager_url"), default_port=5001)
+            py2_api_url = _normalize_url(runtime_cfg.get("nao_base_url")) or "http://127.0.0.1:5000"
+            cmd, cwd, err = _behavior_manager_cmd(behavior_port, py2_api_url)
 
         if err:
             return jsonify({"ok": False, "error": err}), 400
@@ -5275,11 +5579,13 @@ def main() -> None:
     ap.add_argument("--config", help="Pad naar configs/<file>.json")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--instance-id", help="Unieke runtime instance id (default: port_<port>).")
     args = ap.parse_args()
 
     config_path = args.config or DEFAULT_CONFIG_PATH
     cfg = _load_json(config_path)
-    app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path))
+    instance_id = str(args.instance_id or f"port_{args.port}")
+    app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path), instance_id=instance_id)
     def _sig_handler(signum, frame):
         try:
             shutdown = getattr(app, "_shutdown_rest", None)

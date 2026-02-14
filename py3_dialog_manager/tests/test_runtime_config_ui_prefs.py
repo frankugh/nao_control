@@ -17,7 +17,7 @@ class StubSTTBackend:
         raise AssertionError("STT not used in these tests")
 
 
-def _make_app(monkeypatch):
+def _make_app(monkeypatch, cfg=None):
     base_pipeline = SimpleNamespace(
         llm=StubLLMBackend(),
         output=None,
@@ -29,7 +29,7 @@ def _make_app(monkeypatch):
     )
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
     monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
-    app, _, _ = webapp_server.create_app(cfg={}, config_path="<memory>")
+    app, _, _ = webapp_server.create_app(cfg=cfg or {}, config_path="<memory>")
     return app
 
 
@@ -74,3 +74,43 @@ def test_runtime_config_ui_preferences_persist_and_are_cleaned(monkeypatch):
     assert data2["ok"] is True
     assert data2["config"]["listen_mode"] == "ptt"
     assert data2["config"]["ui_active_tab"] == "prompt"
+
+
+def test_runtime_config_defaults_read_output_router_params(monkeypatch):
+    cfg = {
+        "output": {
+            "type": "output_router",
+            "params": {"target": "nao", "tts_engine": "piper"},
+        }
+    }
+    app = _make_app(monkeypatch, cfg=cfg)
+    client = app.test_client()
+
+    resp = client.get("/api/runtime_config")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    runtime = data["config"]
+    assert runtime["output_target"] == "nao"
+    assert runtime["tts_engine"] == "piper"
+
+
+def test_runtime_config_robot_name_defaults_and_cleaning(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    baseline = client.get("/api/runtime_config").get_json()
+    assert baseline["ok"] is True
+    assert baseline["config"]["robot_name"] == ""
+
+    set_resp = client.post("/api/runtime_config", json={"config": {"robot_name": "  Alex  "}})
+    assert set_resp.status_code == 200
+    set_data = set_resp.get_json()
+    assert set_data["ok"] is True
+    assert set_data["config"]["robot_name"] == "Alex"
+
+    clear_resp = client.post("/api/runtime_config", json={"config": {"robot_name": "   "}})
+    assert clear_resp.status_code == 200
+    clear_data = clear_resp.get_json()
+    assert clear_data["ok"] is True
+    assert clear_data["config"]["robot_name"] == ""

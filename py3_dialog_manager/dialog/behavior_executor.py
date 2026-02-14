@@ -245,14 +245,18 @@ class BehaviorExecutor(ICommandExecutor):
 
 
 class PrintBehaviorExecutor(ICommandExecutor):
+    def __init__(self, *, dry_run: bool = True) -> None:
+        self._dry_run = bool(dry_run)
+
     def execute(self, cmd: CommandDecision) -> None:
         resolved = cmd.resolved or {}
-        print(f"EXECUTE (dry-run): {cmd.label} resolved={resolved}")
+        prefix = "EXECUTE (dry-run)" if self._dry_run else "EXECUTE"
+        print(f"{prefix}: {cmd.label} resolved={resolved}")
 
 
 class ConsoleAndBehaviorExecutor(ICommandExecutor):
     def __init__(self, executor: ICommandExecutor | None) -> None:
-        self._printer = PrintBehaviorExecutor()
+        self._printer = PrintBehaviorExecutor(dry_run=(executor is None))
         self._executor = executor
         self._on_finish: Optional[Callable[[CommandDecision], None]] = None
 

@@ -62,6 +62,26 @@
       .app-brand-copy { min-width: 0; }
       .app-brand-copy h2 { color: #0f223a; }
       .app-tagline { margin: 2px 0 0 0; color: var(--text-muted); font-size: 12px; }
+      .robot-chip {
+        margin-top: 6px;
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 999px;
+        border: 1px solid #b9d1ec;
+        background: #e8f3ff;
+        color: #13406d;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .robot-chip.inline {
+        margin-top: 0;
+      }
+      .robot-chip.missing {
+        border-color: #e3c3a3;
+        background: #fff4e8;
+        color: #7a4212;
+      }
       .app-brand-image { display: block; width: 56px; height: 56px; border-radius: 14px; object-fit: cover; object-position: center 16%; border: 1px solid var(--border-strong); background: #eef4fb; box-shadow: 0 4px 10px rgba(32, 63, 101, 0.18); cursor: zoom-in; }
       .app-nav { display: flex; align-items: center; gap: 8px; }
       .app-nav-badge { width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid var(--border-strong); opacity: 0.95; cursor: zoom-in; }
@@ -195,6 +215,7 @@
         <div class="app-brand-copy">
           <h2 id="appTitle">NAO Studio</h2>
           <div class="app-tagline">Robot dialog and control workspace</div>
+          <div id="appRobotNameBadge" class="robot-chip missing">Robot: niet ingesteld</div>
         </div>
       </div>
       <div class="app-nav">
@@ -221,6 +242,7 @@
               <button type="button" data-mode="ptt" class="active">Push-to-talk</button>
               <button type="button" data-mode="continuous">Continuous</button>
             </div>
+            <span id="listenRobotNameBadge" class="robot-chip inline missing">Robot: niet ingesteld</span>
           </div>
           <div id="listenModeNote" class="small" style="margin-top:6px"></div>
           <div class="row" style="margin-top:10px">
@@ -285,15 +307,16 @@
           <div class="card" style="margin-bottom:10px; background:#f8f8f8">
             <div class="row" style="align-items:center; gap:8px; flex-wrap:wrap">
               <label style="margin:0">NAO status</label>
+              <span id="cmdRobotNameBadge" class="robot-chip inline missing">Robot: niet ingesteld</span>
               <span id="cmdNaoAwakeState" class="pill">motoren: onbekend</span>
               <span id="cmdNaoAutLifeState" class="pill">aut life: onbekend</span>
-              <span class="row" style="gap:6px; margin:0; flex-wrap:nowrap">
-                <button id="btnCmdWakeUp" type="button">&#9728; Wake up</button>
-                <button id="btnCmdRest" type="button">&#9789; Rest</button>
-                <button id="btnCmdAutLifeToggle" type="button">&#9881; Aut life</button>
-                <button id="btnCmdNaoRefresh" type="button">&#8635; Ververs</button>
-              </span>
               <span id="cmdNaoLifeStatus" class="small"></span>
+            </div>
+            <div class="row" style="margin-top:8px; gap:6px">
+              <button id="btnCmdWakeUp" type="button">&#9728; Wake up</button>
+              <button id="btnCmdRest" type="button">&#9789; Rest</button>
+              <button id="btnCmdAutLifeToggle" type="button">&#9881; Aut life</button>
+              <button id="btnCmdNaoRefresh" type="button">&#8635; Ververs</button>
             </div>
           </div>
           <div>
@@ -454,6 +477,10 @@
           </div>
           <div id="cfgTabNaoPane" class="subtabpane">
             <div class="formgrid">
+              <div>
+                <label>Robot / agent naam</label>
+                <input id="cfgRobotName" type="text" placeholder="bijv. Alex" />
+              </div>
               <div>
                 <label>NAO IP</label>
                 <div class="field-row">
@@ -807,6 +834,8 @@
       const cfgPttUseVad = document.getElementById('cfgPttUseVad');
       const vadSection = document.getElementById('vadSection');
       const appTitle = document.getElementById('appTitle');
+      const appRobotNameBadge = document.getElementById('appRobotNameBadge');
+      const listenRobotNameBadge = document.getElementById('listenRobotNameBadge');
       const navToActiveLearning = document.getElementById('navToActiveLearning');
       const navToMain = document.getElementById('navToMain');
       const brandImagePreviewTrigger = document.getElementById('brandImagePreviewTrigger');
@@ -847,6 +876,7 @@
       const cfgTabAudioPane = document.getElementById('cfgTabAudioPane');
       const cfgTabOutputPane = document.getElementById('cfgTabOutputPane');
       const cfgTabReasoningPane = document.getElementById('cfgTabReasoningPane');
+      const cfgRobotName = document.getElementById('cfgRobotName');
       const reviewTabQueue = document.getElementById('reviewTabQueue');
       const reviewTabReviewed = document.getElementById('reviewTabReviewed');
       const reviewTabAutoQueue = document.getElementById('reviewTabAutoQueue');
@@ -991,6 +1021,7 @@
       const cmdNaoAwakeState = document.getElementById('cmdNaoAwakeState');
       const cmdNaoAutLifeState = document.getElementById('cmdNaoAutLifeState');
       const cmdNaoLifeStatus = document.getElementById('cmdNaoLifeStatus');
+      const cmdRobotNameBadge = document.getElementById('cmdRobotNameBadge');
       const btnCmdWakeUp = document.getElementById('btnCmdWakeUp');
       const btnCmdRest = document.getElementById('btnCmdRest');
       const btnCmdAutLifeToggle = document.getElementById('btnCmdAutLifeToggle');
@@ -1016,6 +1047,7 @@
       const healthNao = document.getElementById('healthNao');
       const LOCAL_CFG_KEY = 'nao_runtime_config_v1';
       const LAYOUT_SPLIT_KEY = 'nao_layout_split_left_pct_v1';
+      let currentRobotName = '';
       let runtimeCmdrecValue = null;
       let lastAppliedBaseUrl = '';
       let lastAppliedBehaviorUrl = '';
@@ -1029,6 +1061,7 @@
       let agentPresets = [];
       let agentPresetMap = {};
       const AGENT_PRESET_KEYS = [
+        'robot_name',
         'nao_ip',
         'nao_ip_enabled',
         'nao_base_url',
@@ -1071,6 +1104,7 @@
       ];
       const CFG_TAB_RESET_KEYS = {
         nao: [
+          'robot_name',
           'nao_ip',
           'nao_ip_enabled',
           'nao_base_url',
@@ -1431,6 +1465,33 @@
         return allowed.includes(value) ? value : 'prompt';
       }
 
+      function normalizeRobotName(name) {
+        const raw = String(name || '').trim();
+        return raw ? raw.slice(0, 60) : '';
+      }
+
+      function getRobotDisplayName() {
+        return normalizeRobotName(currentRobotName) || 'Bot';
+      }
+
+      function applyRobotBadge(el, robotName) {
+        if (!el) return;
+        el.textContent = robotName ? `Robot: ${robotName}` : 'Robot: niet ingesteld';
+        el.classList.toggle('missing', !robotName);
+      }
+
+      function updateAppIdentity() {
+        const baseTitle = isActiveLearningMode() ? 'Active learning' : 'NAO Studio';
+        const robotName = normalizeRobotName(currentRobotName);
+        if (appTitle) {
+          appTitle.textContent = baseTitle;
+        }
+        applyRobotBadge(appRobotNameBadge, robotName);
+        applyRobotBadge(listenRobotNameBadge, robotName);
+        applyRobotBadge(cmdRobotNameBadge, robotName);
+        document.title = robotName ? `${baseTitle} - ${robotName}` : baseTitle;
+      }
+
       function currentUiPrefs() {
         return {
           listen_mode: normalizeListenMode(listenMode),
@@ -1461,6 +1522,9 @@
         pendingUiPrefs = prefs;
         const localCfg = loadLocalConfig() || {};
         saveLocalConfig({ ...localCfg, ...prefs });
+        if (!isServerUi()) {
+          return;
+        }
         if (uiPrefsSyncTimer) clearTimeout(uiPrefsSyncTimer);
         uiPrefsSyncTimer = setTimeout(() => {
           uiPrefsSyncTimer = null;
@@ -2199,7 +2263,11 @@
             autoStartInProgress = true;
             try {
               const cfg = getConfigFromForm();
-              const payload = { name };
+              const payload = {
+                name,
+                nao_base_url: cfg.nao_base_url,
+                behavior_manager_url: cfg.behavior_manager_url,
+              };
               if (name === 'base') {
                 payload.nao_ip = cfg.nao_ip;
                 payload.nao_ip_enabled = cfg.nao_ip_enabled;
@@ -2968,7 +3036,7 @@
 
             const roleEl = document.createElement('div');
             roleEl.className = 'role';
-            roleEl.textContent = 'Bot';
+            roleEl.textContent = getRobotDisplayName();
             if (tsLabel) {
               const ts = document.createElement('span');
               ts.className = 'timestamp';
@@ -3050,7 +3118,7 @@
 
           const roleEl = document.createElement('div');
           roleEl.className = 'role';
-          roleEl.textContent = (role === 'user') ? 'You' : 'Bot';
+          roleEl.textContent = (role === 'user') ? 'You' : getRobotDisplayName();
           if (tsLabel) {
             const ts = document.createElement('span');
             ts.className = 'timestamp';
@@ -4264,8 +4332,7 @@
         if (!isActiveLearningMode()) return;
         document.body.classList.add('al-only');
         document.body.classList.add('al-mode');
-        if (appTitle) appTitle.textContent = 'Active learning';
-        document.title = 'Active learning';
+        updateAppIdentity();
         if (navToMain) {
           navToMain.href = resolveUiMode() === 'client' ? '/client' : '/server';
         }
@@ -4408,6 +4475,7 @@
         const naoIpValue = (cfgNaoIp.value || '').trim() || lastAppliedNaoIp || '';
         const naoBaseValue = (cfgNaoBase.value || '').trim() || lastAppliedBaseUrl || '';
         const behaviorValue = (cfgBehavior.value || '').trim() || lastAppliedBehaviorUrl || '';
+        const robotNameValue = normalizeRobotName(cfgRobotName ? cfgRobotName.value : '');
         const autoRestEnabled = !!cfgNaoAutoRestEnabled.checked;
         let autoRestSeconds = parseInt(cfgNaoAutoRestSeconds.value || '0', 10);
         if (isNaN(autoRestSeconds) || autoRestSeconds < 0) autoRestSeconds = 0;
@@ -4437,6 +4505,7 @@
           const piperSentenceSilence = readFloatOrNull(cfgPiperSentenceSilence ? cfgPiperSentenceSilence.value : '');
           const piperVolume = readFloatOrNull(cfgPiperVolume ? cfgPiperVolume.value : '');
           return {
+            robot_name: robotNameValue,
             nao_ip: naoIpValue,
             nao_ip_enabled: !!cfgNaoIpEnabled.checked,
             nao_base_url: naoBaseValue,
@@ -4489,6 +4558,9 @@
           const effectiveStt = ((effectiveCfg || {}).input || {}).stt || {};
           const effectiveSttParams = effectiveStt.params || {};
           const effectiveSttType = (effectiveStt.type || '').toLowerCase();
+          if (cfgRobotName) cfgRobotName.value = cfg.robot_name || '';
+          currentRobotName = normalizeRobotName(cfg.robot_name || '');
+          updateAppIdentity();
           cfgNaoIp.value = cfg.nao_ip || '';
           cfgNaoIpEnabled.checked = !!cfg.nao_ip_enabled;
           cfgNaoBase.value = cfg.nao_base_url || '';
@@ -5530,7 +5602,11 @@
               setStatus('NAO is down; proces niet gestart.');
               return;
             }
-            const payload = { name };
+            const payload = {
+              name,
+              nao_base_url: cfg.nao_base_url,
+              behavior_manager_url: cfg.behavior_manager_url,
+            };
             if (name === 'base') {
               payload.nao_ip = cfg.nao_ip;
               payload.nao_ip_enabled = cfg.nao_ip_enabled;
@@ -6534,6 +6610,7 @@
         applyLlmModelNow();
       });
 
+      addApplyButtonForInput(cfgRobotName, { id: 'btnApplyRobotName', label: 'Robotnaam toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgNaoAutoRestSeconds, { id: 'btnApplyNaoAutoRestSeconds', label: 'Auto-rest toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgWakeTimeout, { id: 'btnApplyWakeTimeout', label: 'Wake-timeout toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgVadStartRms, { id: 'btnApplyVadStartRms', label: 'VAD toepassen', onApply: applyConfigNow });
@@ -6612,6 +6689,7 @@
 
       // init
       applyActiveLearningMode();
+      updateAppIdentity();
       initLayoutSplitter();
       try {
         const storedPromptView = localStorage.getItem('prompt_view_mode_v1') || 'plain';
@@ -6678,6 +6756,9 @@
                 merged[key] = cfg[key];
               }
             });
+            // Keep robot identity server-owned to avoid stale browser cache
+            // accidentally overriding the active robot instance.
+            merged.robot_name = cfg.robot_name;
             cfg = merged;
             await applyRuntimeConfig(cfg, true);
           }

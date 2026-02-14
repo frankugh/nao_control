@@ -13,6 +13,7 @@ Doel:
 
 import os
 import threading
+import argparse
 
 from flask import Flask, request, jsonify
 import requests
@@ -384,16 +385,24 @@ def create_app(py2_api_url=None, py2_timeout_s=None, py2_tts_timeout_s=None):
 
 if __name__ == "__main__":
     cfg = load_config()
+    parser = argparse.ArgumentParser(description="Py3 NAO behavior manager")
+    parser.add_argument("--host", default=cfg["WEB_HOST"])
+    parser.add_argument("--port", type=int, default=int(cfg["WEB_PORT"]))
+    parser.add_argument("--py2-api-url", default=cfg["PY2_NAO_API_URL"])
+    parser.add_argument("--py2-timeout-s", type=float, default=float(cfg["PY2_TIMEOUT_S"]))
+    parser.add_argument("--py2-tts-timeout-s", type=float, default=float(cfg["PY2_TTS_TIMEOUT_S"]))
+    args = parser.parse_args()
+
     app = create_app(
-        cfg["PY2_NAO_API_URL"],
-        py2_timeout_s=cfg["PY2_TIMEOUT_S"],
-        py2_tts_timeout_s=cfg["PY2_TTS_TIMEOUT_S"],
+        args.py2_api_url,
+        py2_timeout_s=args.py2_timeout_s,
+        py2_tts_timeout_s=args.py2_tts_timeout_s,
     )
 
-    host = cfg["WEB_HOST"]
-    port = cfg["WEB_PORT"]
+    host = args.host
+    port = args.port
 
     print("Py3 NAO API beschikbaar op: http://%s:%s" % (host, port))
-    print("Proxy naar Py2 NAO API op:", cfg["PY2_NAO_API_URL"])
+    print("Proxy naar Py2 NAO API op:", args.py2_api_url)
 
     app.run(host=host, port=port, debug=False, use_reloader=False)
