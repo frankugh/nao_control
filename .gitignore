@@ -57,3 +57,6 @@ py3_command_recognition_train/data/al/review_queue.jsonl
 py3_command_recognition_train/data/al/auto_train_queue.jsonl
 py3_command_recognition_train/data/al/review_log.jsonl
 py3_command_recognition_train/data/al/retrain_state.json
+
+# === Story Engine runtime output ===
+py3_story_engine/runtime/story/

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "py3-story-engine"
+version = "0.1.0"
+description = "Standalone text-only story engine runtime and CLI."
+requires-python = ">=3.10"
+dependencies = [
+  "ollama>=0.3.0",
+]
+
+[project.scripts]
+storyteller-cli = "storyteller.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["storyteller*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

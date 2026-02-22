@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/py3_story_engine/config.schema.json",
+  "title": "Standalone Storyteller CLI Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "storyteller": {
+      "$ref": "#/$defs/llmSection"
+    },
+    "state_updater": {
+      "$ref": "#/$defs/llmSection"
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strict_json": { "type": "boolean" },
+        "required_language": { "type": "string", "minLength": 1 },
+        "invalid_retry_count": { "type": "integer", "minimum": 0 },
+        "max_history_turns": { "type": "integer", "minimum": 0 },
+        "require_global_summary": { "type": "boolean" },
+        "beat_gate_policy": { "type": "string", "minLength": 1 },
+        "session_id": { "type": "string", "minLength": 1 },
+        "debug": { "type": "boolean" },
+        "log_file": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "llmSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["ollama_local", "ollama_cloud"]
+        },
+        "model": { "type": "string", "minLength": 1 },
+        "host": { "type": "string", "minLength": 1 },
+        "api_key": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "temperature": {
+          "anyOf": [
+            { "type": "number", "minimum": 0.0, "maximum": 2.0 },
+            { "type": "null" }
+          ]
+        },
+        "top_p": {
+          "anyOf": [
+            { "type": "number", "exclusiveMinimum": 0.0, "maximum": 1.0 },
+            { "type": "null" }
+          ]
+        },
+        "top_k": {
+          "anyOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "prompt_file": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
