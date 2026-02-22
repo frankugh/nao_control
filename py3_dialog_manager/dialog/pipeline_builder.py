@@ -322,6 +322,49 @@ def _make_stt(stt_cfg: JsonLike):
     raise ValueError(f"Onbekende stt.type: {t!r}")
 
 
+def _extract_ollama_options(params: JsonLike) -> Optional[JsonLike]:
+    raw_options = params.get("options")
+    if raw_options is not None and not isinstance(raw_options, dict):
+        raise ValueError("llm.params.options moet een object/dict zijn.")
+
+    source: JsonLike = {}
+    if isinstance(raw_options, dict):
+        source.update(raw_options)
+    for key in ("temperature", "top_p", "top_k"):
+        if key in params and key not in source:
+            source[key] = params.get(key)
+
+    out: JsonLike = {}
+    if "temperature" in source and source.get("temperature") is not None:
+        try:
+            temperature = float(source.get("temperature"))
+        except Exception as exc:
+            raise ValueError("llm.params.options.temperature moet een getal zijn.") from exc
+        if temperature < 0.0 or temperature > 2.0:
+            raise ValueError("llm.params.options.temperature moet tussen 0.0 en 2.0 liggen.")
+        out["temperature"] = temperature
+
+    if "top_p" in source and source.get("top_p") is not None:
+        try:
+            top_p = float(source.get("top_p"))
+        except Exception as exc:
+            raise ValueError("llm.params.options.top_p moet een getal zijn.") from exc
+        if top_p <= 0.0 or top_p > 1.0:
+            raise ValueError("llm.params.options.top_p moet in (0.0, 1.0] liggen.")
+        out["top_p"] = top_p
+
+    if "top_k" in source and source.get("top_k") is not None:
+        try:
+            top_k = int(source.get("top_k"))
+        except Exception as exc:
+            raise ValueError("llm.params.options.top_k moet een integer zijn.") from exc
+        if top_k < 1:
+            raise ValueError("llm.params.options.top_k moet >= 1 zijn.")
+        out["top_k"] = top_k
+
+    return out or None
+
+
 def make_stt_backend_from_config(cfg: JsonLike):
     """
     Factory for "just the STT backend" from a full run config.
@@ -364,6 +407,7 @@ def _make_llm(cfg: JsonLike):
     llm_cfg = _req(cfg, "llm")
     t = _req(llm_cfg, "type").lower()
     p = llm_cfg.get("params", {}) or {}
+    options = _extract_ollama_options(p)
 
     if t == "echo":
         return EchoLLMBackend()
@@ -375,7 +419,7 @@ def _make_llm(cfg: JsonLike):
         host = p.get("host", "http://localhost:11434")
         model = p.get("model", "llama3.1:8b")
         api_key = p.get("api_key", None)
-        client = OllamaClient(model=model, host=host, api_key=api_key)
+        client = OllamaClient(model=model, host=host, api_key=api_key, options=options)
         return OllamaLLMBackend(client)
 
     if t in ("ollama", "ollama_cloud"):
@@ -385,7 +429,7 @@ def _make_llm(cfg: JsonLike):
 
         host = p.get("host", os.environ.get("OLLAMA_HOST", "https://ollama.com"))
         model = p.get("model", os.environ.get("OLLAMA_MODEL", "gpt-oss:120b"))
-        client = OllamaClient(model=model, host=host, api_key=api_key)
+        client = OllamaClient(model=model, host=host, api_key=api_key, options=options)
         return OllamaLLMBackend(client)
 
     raise ValueError(f"Onbekende llm.type: {t!r}")

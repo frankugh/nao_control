@@ -110,6 +110,21 @@ _WAKE_MODE_VALUES = {"never", "always", "timeout"}
 _DEFAULT_WAKE_WORDS = ["NAO", "Alex"]
 _LISTEN_MODE_VALUES = {"ptt", "continuous"}
 _UI_ACTIVE_TAB_VALUES = {"prompt", "runtime", "commands", "camera", "review", "retrain", "logs"}
+_UI_COLOR_SCHEME_VALUES = {
+    "default",
+    "brown",
+    "forest",
+    "gold",
+    "rose",
+    "teal",
+    "slate",
+    "night_blue",
+    "night_brown",
+    "night_teal",
+    "amber",
+    "dark",
+    "night",
+}
 _CONTINUOUS_PHASE_LOG_LIMIT = 40
 _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN = "until_next_user_turn"
 _CUSTOM_LIFE_LOCK_UNTIL_STOP = "until_stop"
@@ -305,6 +320,74 @@ def _clean_robot_name(raw: Any) -> str:
     return value[:60]
 
 
+def _clean_ui_color_scheme(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value == "amber":
+        return "gold"
+    if value in {"brown_dark", "brown_deep"}:
+        return "brown"
+    if value in {"dark", "night"}:
+        return "night_blue"
+    if value in _UI_COLOR_SCHEME_VALUES:
+        return value
+    return "default"
+
+
+def _clean_llm_temperature(raw: Any) -> Optional[float]:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip().lower()
+        if not text or text == "null":
+            return None
+        raw = text
+    try:
+        value = float(raw)
+    except Exception:
+        return None
+    if math.isnan(value) or math.isinf(value):
+        return None
+    if value < 0.0 or value > 2.0:
+        return None
+    return float(value)
+
+
+def _clean_llm_top_p(raw: Any) -> Optional[float]:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip().lower()
+        if not text or text == "null":
+            return None
+        raw = text
+    try:
+        value = float(raw)
+    except Exception:
+        return None
+    if math.isnan(value) or math.isinf(value):
+        return None
+    if value <= 0.0 or value > 1.0:
+        return None
+    return float(value)
+
+
+def _clean_llm_top_k(raw: Any) -> Optional[int]:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip().lower()
+        if not text or text == "null":
+            return None
+        raw = text
+    try:
+        value = int(raw)
+    except Exception:
+        return None
+    if value < 1:
+        return None
+    return int(value)
+
+
 def _continuous_capture_timeout_s(
     start_timeout_s: float,
     *,
@@ -405,7 +488,11 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
 
     llm_cfg = (cfg_src.get("llm", {}) or {})
     llm_params = (llm_cfg.get("params", {}) or {})
+    llm_options = llm_params.get("options", {}) if isinstance(llm_params.get("options"), dict) else {}
     master_prompt_file = llm_params.get("system_prompt_file", None)
+    llm_temperature = llm_options.get("temperature", llm_params.get("temperature"))
+    llm_top_p = llm_options.get("top_p", llm_params.get("top_p"))
+    llm_top_k = llm_options.get("top_k", llm_params.get("top_k"))
 
     output_cfg = (cfg_src.get("output", {}) or {})
     output_type = (output_cfg.get("type") or "none").lower()
@@ -449,10 +536,14 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "wake_words": _clean_wake_words(input_params.get("wake_words")),
         "listen_mode": _clean_listen_mode(cfg_src.get("listen_mode", "ptt")),
         "ui_active_tab": _clean_ui_active_tab(cfg_src.get("ui_active_tab", "prompt")),
+        "ui_color_scheme": _clean_ui_color_scheme(cfg_src.get("ui_color_scheme", "default")),
         "cmdrec": cfg_src.get("cmdrec", "latest"),
         "ptt_use_vad": bool(cfg_src.get("ptt_use_vad", False)),
         "llm_type": llm_cfg.get("type", "echo"),
         "llm_model": llm_params.get("model", ""),
+        "llm_temperature": _clean_llm_temperature(llm_temperature),
+        "llm_top_p": _clean_llm_top_p(llm_top_p),
+        "llm_top_k": _clean_llm_top_k(llm_top_k),
         "master_prompt_file": master_prompt_file,
         "master_prompt_text": llm_params.get("system_prompt", None),
         "output_nao_tts": output_type in ("nao_tts", "nao_py2", "nao"),
@@ -496,6 +587,7 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     nao_ip_value = (runtime_cfg.get("nao_ip") or "").strip()
     nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
     cfg_out["robot_name"] = _clean_robot_name(runtime_cfg.get("robot_name") or cfg_out.get("robot_name") or "")
+    cfg_out["ui_color_scheme"] = _clean_ui_color_scheme(runtime_cfg.get("ui_color_scheme", cfg_out.get("ui_color_scheme", "default")))
 
     if "nao_connection" in cfg_out:
         nao_conn = cfg_out["nao_connection"] or {}
@@ -564,6 +656,7 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     llm_type = (runtime_cfg.get("llm_type") or cfg_out.get("llm", {}).get("type") or "echo").lower()
     llm_cfg = cfg_out.get("llm", {}) or {}
     llm_params = llm_cfg.get("params", {}) or {}
+    llm_options = llm_params.get("options", {}) if isinstance(llm_params.get("options"), dict) else {}
     if llm_type == "echo":
         cfg_out["llm"] = {"type": "echo"}
     else:
@@ -583,6 +676,37 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
         mp_file = runtime_cfg.get("master_prompt_file", None)
         if mp_file and not llm_params.get("system_prompt"):
             llm_params["system_prompt_file"] = mp_file
+        if "llm_temperature" in runtime_cfg:
+            llm_temperature = _clean_llm_temperature(runtime_cfg.get("llm_temperature"))
+        else:
+            llm_temperature = _clean_llm_temperature(llm_options.get("temperature", llm_params.get("temperature")))
+        if "llm_top_p" in runtime_cfg:
+            llm_top_p = _clean_llm_top_p(runtime_cfg.get("llm_top_p"))
+        else:
+            llm_top_p = _clean_llm_top_p(llm_options.get("top_p", llm_params.get("top_p")))
+        if "llm_top_k" in runtime_cfg:
+            llm_top_k = _clean_llm_top_k(runtime_cfg.get("llm_top_k"))
+        else:
+            llm_top_k = _clean_llm_top_k(llm_options.get("top_k", llm_params.get("top_k")))
+        llm_params.pop("temperature", None)
+        llm_params.pop("top_p", None)
+        llm_params.pop("top_k", None)
+        if llm_temperature is not None:
+            llm_options["temperature"] = llm_temperature
+        else:
+            llm_options.pop("temperature", None)
+        if llm_top_p is not None:
+            llm_options["top_p"] = llm_top_p
+        else:
+            llm_options.pop("top_p", None)
+        if llm_top_k is not None:
+            llm_options["top_k"] = llm_top_k
+        else:
+            llm_options.pop("top_k", None)
+        if llm_options:
+            llm_params["options"] = llm_options
+        else:
+            llm_params.pop("options", None)
         llm_cfg["params"] = llm_params
         cfg_out["llm"] = llm_cfg
 
@@ -753,7 +877,11 @@ def create_app(
     def _sanitize_runtime_cfg_inplace(cfg_obj: JsonLike) -> JsonLike:
         cfg_obj["listen_mode"] = _clean_listen_mode(cfg_obj.get("listen_mode", "ptt"))
         cfg_obj["ui_active_tab"] = _clean_ui_active_tab(cfg_obj.get("ui_active_tab", "prompt"))
+        cfg_obj["ui_color_scheme"] = _clean_ui_color_scheme(cfg_obj.get("ui_color_scheme", "default"))
         cfg_obj["robot_name"] = _clean_robot_name(cfg_obj.get("robot_name", ""))
+        cfg_obj["llm_temperature"] = _clean_llm_temperature(cfg_obj.get("llm_temperature"))
+        cfg_obj["llm_top_p"] = _clean_llm_top_p(cfg_obj.get("llm_top_p"))
+        cfg_obj["llm_top_k"] = _clean_llm_top_k(cfg_obj.get("llm_top_k"))
         return cfg_obj
 
     def _runtime_cfg_snapshot() -> JsonLike:
@@ -4669,6 +4797,10 @@ def create_app(
                     "confirm_policy": "when_guarded",
                     "llm_type": "echo",
                     "llm_model": "",
+                    "ui_color_scheme": "default",
+                    "llm_temperature": None,
+                    "llm_top_p": None,
+                    "llm_top_k": None,
                     "master_prompt_file": None,
                 },
             },
@@ -4684,6 +4816,10 @@ def create_app(
                     "confirm_policy": "when_guarded",
                     "llm_type": "ollama_local",
                     "llm_model": "gemma:2b",
+                    "ui_color_scheme": "default",
+                    "llm_temperature": None,
+                    "llm_top_p": None,
+                    "llm_top_k": None,
                     "master_prompt_file": "master_prompts/short.txt",
                 },
             },
@@ -4699,6 +4835,10 @@ def create_app(
                     "confirm_policy": "when_guarded",
                     "llm_type": "ollama_cloud",
                     "llm_model": "gpt-oss:120b",
+                    "ui_color_scheme": "default",
+                    "llm_temperature": None,
+                    "llm_top_p": None,
+                    "llm_top_k": None,
                     "master_prompt_file": "master_prompts/atlantis.txt",
                 },
             },

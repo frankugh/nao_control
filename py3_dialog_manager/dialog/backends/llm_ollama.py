@@ -1,7 +1,6 @@
 # app/dialog/backends/llm_ollama.py
 
-import os
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 
 from ollama import Client as OllamaHttpClient
 
@@ -13,15 +12,25 @@ class OllamaClient:
     Dunne wrapper om de officiële Ollama Python client.
     """
 
-    def __init__(self, model: str, host: str, api_key: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        model: str,
+        host: str,
+        api_key: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         headers: Dict[str, str] = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         self._client = OllamaHttpClient(host=host, headers=headers or None)
         self.model = model
+        self.options = dict(options) if isinstance(options, dict) and options else None
 
     def chat(self, messages: History) -> Dict[str, Any]:
-        return self._client.chat(self.model, messages=messages, stream=False)
+        kwargs: Dict[str, Any] = {"messages": messages, "stream": False}
+        if self.options:
+            kwargs["options"] = self.options
+        return self._client.chat(self.model, **kwargs)
 
 
 class OllamaLLMBackend(LLMBackend):

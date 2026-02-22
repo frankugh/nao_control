@@ -60,3 +60,6 @@ py3_command_recognition_train/data/al/retrain_state.json
 
 # === Story Engine runtime output ===
 py3_story_engine/runtime/story/
+
+# === Dialog manager local runtime state ===
+py3_dialog_manager/configs/runtime/runtime_port_*.json
