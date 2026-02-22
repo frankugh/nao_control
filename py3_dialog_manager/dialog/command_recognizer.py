@@ -6,12 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from dialog.interfaces import (
-    CommandDecision,
-    ICommandRecognizer,
-    RouteDecision,
-    parse_cmdrec_bundle,
-)
+from dialog.interfaces import CommandDecision, ICommandRecognizer, RouteDecision, parse_cmdrec_bundle
 
 
 def _resolve_existing_dir(path_str: str, candidates: list[Path]) -> Optional[Path]:
@@ -184,18 +179,12 @@ class CmdRecRecognizer(ICommandRecognizer):
         assert self._decision_policy is not None
         assert self._labels is not None
 
-        from cmdrec.predict import decide, top_k
-        from cmdrec.resolvers import load_dance_catalog, resolve_dance, resolve_locomotion
-        from cmdrec.rules import stop_rules
+        from cmdrec.predict import classify_text
 
-        proba = self._model.predict_proba([text])[0]
-        top3_items = top_k(proba, self._labels)
+        classification = classify_text(self._model, self._decision_policy, self._labels, text, k=3)
+        top3_items = classification["top3"]
         top3 = [(item["label"], float(item["score"])) for item in top3_items]
-
-        threshold = float(self._decision_policy["threshold"])
-        margin = float(self._decision_policy["margin"])
-        ml_decision = decide(proba, self._labels, threshold, margin)
-        final_decision = "STOP" if stop_rules(text) else ml_decision
+        final_decision = str(classification["final_decision"])
 
         if final_decision == "NONE":
             return RouteDecision(is_command=False, reason="low_confidence", top3=top3)
@@ -205,6 +194,8 @@ class CmdRecRecognizer(ICommandRecognizer):
 
         resolved: Optional[Dict[str, str]] = None
         if final_decision == "DANCE" and self._bundle_path:
+            from cmdrec.resolvers import load_dance_catalog, resolve_dance
+
             catalog_path = self._bundle_path / "dance_catalog.json"
             if not catalog_path.exists():
                 dm_root = Path(__file__).resolve().parents[1]
@@ -224,6 +215,8 @@ class CmdRecRecognizer(ICommandRecognizer):
                 if isinstance(dance_behavior, str) and dance_behavior.strip():
                     resolved["dance_behavior"] = dance_behavior
         elif final_decision == "LOCOMOTION_REQUEST":
+            from cmdrec.resolvers import resolve_locomotion
+
             locomotion = resolve_locomotion(text).get("action", "unknown")
             resolved = {"locomotion": locomotion}
 

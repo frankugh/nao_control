@@ -885,6 +885,7 @@ def create_app(
     runtime_cfg_global: JsonLike = copy.deepcopy(runtime_cfg_default)
 
     def _sanitize_runtime_cfg_inplace(cfg_obj: JsonLike) -> JsonLike:
+        cfg_obj.pop("cmdrec_stop_rule_mode", None)
         cfg_obj["listen_mode"] = _clean_listen_mode(cfg_obj.get("listen_mode", "ptt"))
         cfg_obj["confirm_policy"] = _clean_confirm_policy(cfg_obj.get("confirm_policy", "when_guarded"))
         cfg_obj["ui_active_tab"] = _clean_ui_active_tab(cfg_obj.get("ui_active_tab", "prompt"))

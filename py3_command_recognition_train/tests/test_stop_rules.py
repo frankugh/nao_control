@@ -7,6 +7,7 @@ def test_stop_rules_match() -> None:
     assert stop_rules("stop ermee")
     assert stop_rules("halt alsjeblieft")
     assert stop_rules("ho nu")
+    assert stop_rules("blijf staan")
     assert stop_rules("kap ermee")
     assert stop_rules("annuleer")
     assert stop_rules("niet doen")
@@ -43,3 +44,5 @@ def test_stop_rules_no_substring_match() -> None:
     assert not stop_rules("help")
     assert not stop_rules("ik zei kut gisteren")
     assert not stop_rules("dit is shit nieuws")
+    assert not stop_rules("ho, dat klinkt ouderwets.")
+    assert not stop_rules('ik bedoelde "blijf staan" als grapje.')

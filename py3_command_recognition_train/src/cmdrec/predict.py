@@ -36,6 +36,53 @@ def decide(proba: np.ndarray, labels: list[str], threshold: float, margin: float
     return labels[top_idx]
 
 
+def stop_rule_mode(decision_policy: dict[str, Any]) -> str:
+    raw = str(decision_policy.get("stop_rule_mode", "preemptive") or "preemptive").strip().lower()
+    if raw in {"off", "none", "disabled", "false", "0"}:
+        return "off"
+    return "preemptive"
+
+
+def classify_text(
+    model: Any,
+    decision_policy: dict[str, Any],
+    labels: list[str],
+    text: str,
+    *,
+    k: int = 3,
+) -> dict[str, Any]:
+    threshold = float(decision_policy["threshold"])
+    margin = float(decision_policy["margin"])
+    mode = stop_rule_mode(decision_policy)
+
+    # Safety fast-path from decision policy: can bypass ML inference entirely.
+    if mode != "off" and stop_rules(text):
+        return {
+            "top3": [{"label": "STOP", "score": 1.0}],
+            "ml_decision": None,
+            "final_decision": "STOP",
+            "threshold": threshold,
+            "margin": margin,
+            "stop_rule_fired": True,
+            "inference_skipped": True,
+            "stop_rule_mode": mode,
+        }
+
+    proba = model.predict_proba([text])[0]
+    top3 = top_k(proba, labels, k=k)
+    ml_decision = decide(proba, labels, threshold, margin)
+    return {
+        "top3": top3,
+        "ml_decision": ml_decision,
+        "final_decision": ml_decision,
+        "threshold": threshold,
+        "margin": margin,
+        "stop_rule_fired": False,
+        "inference_skipped": False,
+        "stop_rule_mode": mode,
+    }
+
+
 def find_latest_bundle(root: Path) -> Path | None:
     candidates = [path for path in root.glob("bundle_v*") if path.is_dir()]
     if not candidates:
@@ -73,13 +120,12 @@ def main() -> None:
                 bundle_path = latest
     model, decision_policy, labels = load_bundle(bundle_path)
 
-    proba = model.predict_proba([args.text])[0]
-    top3 = top_k(proba, labels)
-    threshold = decision_policy["threshold"]
-    margin = decision_policy["margin"]
-
-    ml_decision = decide(proba, labels, threshold, margin)
-    final_decision = "STOP" if stop_rules(args.text) else ml_decision
+    classification = classify_text(model, decision_policy, labels, args.text)
+    top3 = classification["top3"]
+    threshold = classification["threshold"]
+    margin = classification["margin"]
+    ml_decision = classification["ml_decision"]
+    final_decision = classification["final_decision"]
 
     resolved_dance = None
     if final_decision == "DANCE":
@@ -97,7 +143,9 @@ def main() -> None:
         "final_decision": final_decision,
         "threshold": threshold,
         "margin": margin,
-        "stop_rule_fired": stop_rules(args.text),
+        "stop_rule_fired": classification["stop_rule_fired"],
+        "stop_rule_mode": classification["stop_rule_mode"],
+        "inference_skipped": classification["inference_skipped"],
         "resolved_dance": resolved_dance,
     }
 
@@ -108,7 +156,7 @@ def main() -> None:
     print("Top-3:")
     for item in top3:
         print(f"- {item['label']}: {item['score']:.3f}")
-    print(f"ML decision: {ml_decision}")
+    print(f"ML decision: {ml_decision if ml_decision is not None else '<skipped>'}")
     print(f"Final decision: {final_decision}")
     if resolved_dance is not None:
         print(f"Resolved dance: {resolved_dance}")

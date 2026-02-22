@@ -140,6 +140,19 @@ def decision_from_proba(proba_row: np.ndarray, classes: np.ndarray, threshold: f
     return classes[top_idx]
 
 
+def normalize_stop_rule_mode(raw: Any) -> str:
+    value = str(raw or "preemptive").strip().lower()
+    if value in {"off", "none", "disabled", "false", "0"}:
+        return "off"
+    return "preemptive"
+
+
+def apply_stop_rule_override(text: str, ml_pred_label: str, stop_rule_mode: str) -> tuple[str, bool]:
+    mode = normalize_stop_rule_mode(stop_rule_mode)
+    stop_hit = mode != "off" and stop_rules(text)
+    return ("STOP" if stop_hit else ml_pred_label), stop_hit
+
+
 def build_error_records(
     texts: list[str],
     y_true: list[str],
@@ -147,6 +160,7 @@ def build_error_records(
     classes: np.ndarray,
     threshold: float,
     margin: float,
+    stop_rule_mode: str = "preemptive",
 ) -> list[dict[str, Any]]:
     label_to_index = {label: idx for idx, label in enumerate(classes)}
     records: list[dict[str, Any]] = []
@@ -158,8 +172,7 @@ def build_error_records(
         true_idx = label_to_index.get(true_label)
         true_prob = float(row[true_idx]) if true_idx is not None else 0.0
         top3 = [[classes[int(idx)], float(row[int(idx)])] for idx in top_indices[:3]]
-        stop_hit = stop_rules(text)
-        system_pred_label = "STOP" if stop_hit else ml_pred_label
+        system_pred_label, stop_hit = apply_stop_rule_override(text, ml_pred_label, stop_rule_mode)
         records.append(
             {
                 "text": text,
@@ -278,6 +291,7 @@ def evaluate_candidate(
     y_val: list[str],
     threshold: float,
     margin: float,
+    stop_rule_mode: str = "preemptive",
 ) -> tuple[dict[str, Any], list[list[int]], list[str], list[str]]:
     proba = pipeline.predict_proba(x_val)
     classes = pipeline.named_steps["clf"].classes_
@@ -287,7 +301,7 @@ def evaluate_candidate(
     labels = list(classes)
     ml_confusion = confusion_matrix(y_val, ml_preds, labels=labels).tolist()
 
-    system_preds = ["STOP" if stop_rules(text) else pred for text, pred in zip(x_val, ml_preds)]
+    system_preds = [apply_stop_rule_override(text, pred, stop_rule_mode)[0] for text, pred in zip(x_val, ml_preds)]
 
     return ml_report, ml_confusion, ml_preds, system_preds
 
@@ -385,9 +399,11 @@ def main() -> None:
     parser.add_argument("--commands", type=Path, default=Path("data/commands.jsonl"))
     parser.add_argument("--none", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=Path("dist/bundle_v1"))
+    parser.add_argument("--stop-rule-mode", choices=["preemptive", "off"], default="preemptive")
     parser.add_argument("--export-errors", dest="export_errors", action="store_true", default=True)
     parser.add_argument("--no-export-errors", dest="export_errors", action="store_false")
     args = parser.parse_args()
+    stop_rule_mode = normalize_stop_rule_mode(args.stop_rule_mode)
 
     none_path = select_none_path(args.none)
 
@@ -470,7 +486,7 @@ def main() -> None:
         for threshold in thresholds:
             for margin in margins:
                 ml_report, ml_confusion, ml_preds, system_preds = evaluate_candidate(
-                    name, pipeline, x_val, y_val, threshold, margin
+                    name, pipeline, x_val, y_val, threshold, margin, stop_rule_mode=stop_rule_mode
                 )
                 system_metrics = compute_system_metrics(y_val, ml_preds, system_preds)
                 system_metrics.update(compute_none_fp_rates(y_val, system_preds, val_sources))
@@ -527,7 +543,15 @@ def main() -> None:
         error_pipeline.fit(x_train, y_train)
         val_proba = error_pipeline.predict_proba(x_val)
         classes = error_pipeline.named_steps["clf"].classes_
-        records = build_error_records(x_val, y_val, val_proba, classes, best.threshold, best.margin)
+        records = build_error_records(
+            x_val,
+            y_val,
+            val_proba,
+            classes,
+            best.threshold,
+            best.margin,
+            stop_rule_mode=stop_rule_mode,
+        )
         ml_errors = [record for record in records if record["ml_pred_label"] != record["true_label"]]
         system_errors = build_system_disagreement_cases(records)
 
@@ -578,6 +602,7 @@ def main() -> None:
     decision_policy = {
         "threshold": best.threshold,
         "margin": best.margin,
+        "stop_rule_mode": stop_rule_mode,
         "labels": label_list,
         "stop_rules": STOP_RULES,
         "constraints": constraints,

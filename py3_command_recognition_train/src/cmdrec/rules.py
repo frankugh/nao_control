@@ -12,7 +12,8 @@ STOP_PHRASE_RULES = [
     r"\bhou\s+op\b",
     r"\bstop\s+ermee\b",
     r"\bsta\s+stil\b",
-    r"\bblijf\s+staan\b",
+    # Keep "blijf staan" high-precision: only when uttered as (almost) standalone command.
+    r"^\s*blijf\s+staan(?:\s+(?:nu|graag|alsjeblieft|aub))?\s*[.!?]*\s*$",
     r"\bkap\s+ermee\b",
     r"\bannuleer\b",
     r"\bniet\s+doen\b",
@@ -26,7 +27,8 @@ STOP_PHRASE_RULES = [
 STOP_SHORT_RULES = [
     r"\bstop\b",
     r"\bhalt\b",
-    r"\bho\b",
+    # "ho" is ambiguous in normal conversation; only treat as stop when standalone.
+    r"^\s*ho(?:\s+nu)?\s*[.!?]*\s*$",
     r"\bpauze\b",
     r"\bpauzeer\b",
     r"\bophouden\b",

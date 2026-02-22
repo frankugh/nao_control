@@ -219,10 +219,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("dist/bundle_v17"))
     parser.add_argument("--auto-root", type=Path, default=Path("dist/experiments"))
+    parser.add_argument("--stop-rule-mode", choices=["preemptive", "off"], default="preemptive")
     parser.add_argument("--promote-if-better", action="store_true", default=False)
     parser.add_argument("--export-errors", dest="export_errors", action="store_true", default=True)
     parser.add_argument("--no-export-errors", dest="export_errors", action="store_false")
     args = parser.parse_args()
+    stop_rule_mode = train_mod.normalize_stop_rule_mode(args.stop_rule_mode)
 
     bundles_dir = Path("dist")
     out_auto = args.out.as_posix().lower() == "auto"
@@ -333,7 +335,13 @@ def main() -> None:
             for threshold in thresholds:
                 for margin in margins:
                     ml_report, ml_confusion, ml_preds, system_preds = train_mod.evaluate_candidate(
-                        name, pipeline, x_val, y_val, threshold, margin
+                        name,
+                        pipeline,
+                        x_val,
+                        y_val,
+                        threshold,
+                        margin,
+                        stop_rule_mode=stop_rule_mode,
                     )
                     system_metrics = train_mod.compute_system_metrics(y_val, ml_preds, system_preds)
                     system_metrics.update(train_mod.compute_none_fp_rates(y_val, system_preds, val_sources))
@@ -410,7 +418,15 @@ def main() -> None:
         error_pipeline.fit(x_train, y_train)
         val_proba = error_pipeline.predict_proba(x_val)
         classes = error_pipeline.named_steps["clf"].classes_
-        records = train_mod.build_error_records(x_val, y_val, val_proba, classes, best.threshold, best.margin)
+        records = train_mod.build_error_records(
+            x_val,
+            y_val,
+            val_proba,
+            classes,
+            best.threshold,
+            best.margin,
+            stop_rule_mode=stop_rule_mode,
+        )
         ml_errors = [record for record in records if record["ml_pred_label"] != record["true_label"]]
         system_errors = train_mod.build_system_disagreement_cases(records)
 
@@ -461,6 +477,7 @@ def main() -> None:
     decision_policy = {
         "threshold": best.threshold,
         "margin": best.margin,
+        "stop_rule_mode": stop_rule_mode,
         "labels": label_list,
         "stop_rules": STOP_RULES,
         "constraints": constraints,
