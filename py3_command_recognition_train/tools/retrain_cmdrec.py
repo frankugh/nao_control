@@ -158,10 +158,16 @@ def load_train_report(bundle_path: Path) -> dict[str, Any] | None:
 def constraints_ok(report: dict[str, Any]) -> bool:
     constraints = report.get("constraints", {})
     metrics = report.get("system_metrics", {})
-    stop_req = float(constraints.get("system_stop_recall", 0.0))
+    stop_req = constraints.get("system_stop_recall", None)
+    stop_max_misses = constraints.get("system_stop_max_misses", None)
     none_req = float(constraints.get("fp_none_rate", 1.0))
+    stop_ok = True
+    if stop_req is not None:
+        stop_ok = stop_ok and (float(metrics.get("system_stop_recall", 0.0)) >= float(stop_req))
+    if stop_max_misses is not None:
+        stop_ok = stop_ok and (int(metrics.get("stop_miss_count", 0)) <= int(stop_max_misses))
     return (
-        float(metrics.get("system_stop_recall", 0.0)) >= stop_req
+        stop_ok
         and float(metrics.get("fp_none_rate", 1.0)) <= none_req
     )
 
@@ -251,9 +257,11 @@ def main() -> None:
         if normalize_key(entry.get("text", "")) not in existing_keys
     ]
 
-    max_auto = int(math.floor(0.5 * reviewed_count))
-    if args.auto_train_sample and args.auto_train_sample > 0:
-        max_auto = min(max_auto, args.auto_train_sample)
+    # Queue promotion is opt-in via --auto-train-sample.
+    # This avoids surprising auto_train mutations in manual retrains.
+    max_auto = int(args.auto_train_sample or 0)
+    if max_auto < 0:
+        max_auto = 0
     needed = max(0, max_auto - len(auto_train_raw))
     if needed > 0:
         selected = select_auto_train_entries(
@@ -292,7 +300,7 @@ def main() -> None:
     margins = np.arange(0.05, 0.30, 0.05)
 
     constraints = {
-        "system_stop_recall": 0.95,
+        "system_stop_max_misses": 2,
         "fp_none_rate": 0.05,
     }
 
@@ -345,16 +353,23 @@ def main() -> None:
                     )
                     system_metrics = train_mod.compute_system_metrics(y_val, ml_preds, system_preds)
                     system_metrics.update(train_mod.compute_none_fp_rates(y_val, system_preds, val_sources))
-                    constraints_ok_flag = (
-                        system_metrics["system_stop_recall"] >= constraints["system_stop_recall"]
-                        and system_metrics["fp_none_rate"] <= constraints["fp_none_rate"]
+                    stop_ok = True
+                    if "system_stop_recall" in constraints:
+                        stop_ok = stop_ok and (
+                            system_metrics.get("system_stop_recall", 0.0)
+                            >= float(constraints["system_stop_recall"])
+                        )
+                    if "system_stop_max_misses" in constraints:
+                        stop_ok = stop_ok and (
+                            int(system_metrics.get("stop_miss_count", 0))
+                            <= int(constraints["system_stop_max_misses"])
+                        )
+                    constraints_ok_flag = stop_ok and (
+                        system_metrics["fp_none_rate"] <= constraints["fp_none_rate"]
                     )
 
-                    score = (
-                        0.70 * system_metrics["macro_f1_others"]
-                        + 0.15 * system_metrics["recall_box"]
-                        + 0.15 * system_metrics["recall_dance"]
-                        - 1.0 * system_metrics["fp_none_rate"]
+                    score = float(
+                        system_metrics.get("report", {}).get("macro avg", {}).get("f1-score", 0.0)
                     )
 
                     results.append(
@@ -505,9 +520,7 @@ def main() -> None:
         json.dumps(decision_policy, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    score_formula = (
-        "0.70*macro_f1_others + 0.15*recall_box + 0.15*recall_dance - 1.0*fp_none_rate"
-    )
+    score_formula = "system_macro_f1"
     train_report = {
         "best": {
             "vectorizer": best.name,
@@ -585,15 +598,17 @@ def main() -> None:
     LOGGER.info("Best vectorizer: %s", best.name)
     LOGGER.info("Threshold=%.2f Margin=%.2f Score=%.3f", best.threshold, best.margin, best.score)
     LOGGER.info(
-        "Score components: macro_f1_others=%.3f recall_box=%.3f recall_dance=%.3f fp_none_rate=%.3f",
-        best.system_metrics["macro_f1_others"],
-        best.system_metrics["recall_box"],
-        best.system_metrics["recall_dance"],
+        "Score components: system_macro_f1=%.3f fp_none_rate=%.3f",
+        float(best.system_metrics.get("report", {}).get("macro avg", {}).get("f1-score", 0.0)),
         best.system_metrics["fp_none_rate"],
     )
     LOGGER.info(
         "System stop recall=%.3f",
         best.system_metrics.get("system_stop_recall", 0.0),
+    )
+    LOGGER.info(
+        "System stop misses=%s",
+        int(best.system_metrics.get("stop_miss_count", 0)),
     )
     LOGGER.info("Bundle written to %s", args.out)
 

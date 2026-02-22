@@ -160,6 +160,7 @@ Als ik naar je zwaai, wat doe je dan?
 Als ik naar je zwaai, zwaai je dan terug?
 Kun je ook zwaaien zonder dat ik het vraag?
 Kun je ook dansen?
+Kun je dansen?
 Welke dansjes ken je?
 Hoeveel dansjes heb je?
 Wat is je favoriete dans?
@@ -291,7 +292,6 @@ Ik vind het woord “stop” grappig.
 Je reageert snel op het woord stop.
 Ik wil niet dat je stopt, ik praat gewoon.
 Het was meer “ho”, als uitdrukking, niet als commando.
-Ho, dat klinkt ouderwets.
 Als ik “halt” zeg, klinkt dat wel streng.
 Ik zei “sta stil” omdat ik zelf stil stond.
 Ik bedoelde “blijf staan” als grapje.

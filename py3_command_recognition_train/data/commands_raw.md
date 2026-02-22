@@ -63,10 +63,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - doe een high five
 - geef me een high five
 - kun je een high five geven
-- sla mijn hand
-- tik mijn hand aan
-- geef me een vijf
-- geef me een vijfje
 - nu een high five
 - ik wil een high five
 - kom op, high five
@@ -87,7 +83,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - zwaai even
 - zwaai eens
 - wuif
-- doe eens zwaaien
 - zwaai hallo
 - zwaai gedag
 - zeg even hallo
@@ -102,19 +97,14 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - zwaai even naar mij
 - zwaai eens naar mij
 - wuif even
-- doe even gedag
-- doe gedag
 - zwaai gedag naar me
 - zwaai hallo naar me
 - zwaai als begroeting
-- zeg hallo met je hand
 - zwaai vriendelijk
 - Alex, zwaai even
 - NAO, zwaai even
 - zwaai naar iedereen
 - zwaai naar ons
-- groet met je hand
-- maak een zwaai
 
 ## WALK\_WITH\_ME
 
@@ -287,7 +277,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - stop nu
 - stop ermee
 - hou op
-- kap ermee
 - annuleer
 - stop alsjeblieft
 - stop met bewegen
@@ -305,7 +294,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - ho, stoppen
 - wacht
 - gaat fout, niet doen
-- shit, stop
 - wachten
 - halt
 - stil staan
@@ -377,7 +365,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - nee, niet doen
 - nee, hou op
 - nee, stop meteen
-- help, stop
 - help, niet doen
 
 
@@ -407,7 +394,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - NAO, ga zitten
 - ga eens zitten
 - ga rustig zitten
-- zak maar door je knieën en ga zitten
 - ga zitten alsjeblieft
 - zit alsjeblieft
 - ga zitten nu
@@ -415,7 +401,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - ga zitten op je knieën
 - ga zitten en wacht
 - kun je even zitten
-- doe zit
 - ga zitten robot
 
 ## STAND\_UP
@@ -453,7 +438,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - sta op nu
 - ga staan nu
 - kom weer overeind
-- ga terug staan
 - sta rechtop
 - ga staan en wacht
 
@@ -462,7 +446,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - rust
 - rust even
 - ga rusten
-- ontspan
 - ga in ruststand
 - ga naar rust
 - ruststand
@@ -485,7 +468,6 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - ga in slaapstand
 - ga naar slaapstand
 - ga naar standby
-- standby
 - zet jezelf uit
 - ga uit
 - ga maar uit
@@ -524,17 +506,20 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - ga even rusten
 - ga even slapen
 
-## DANCE (intent)
+## DANCE
 
 ### Algemeen (zonder naam)
 
 - doe een dansje
 - ga dansen
 - dans voor me
-- kun je dansen
 - doe een dans
 - laat een dans zien
 - laat je dansje zien
+- nu in de gloria
+- doe nu in de gloria
+- dans nu in de gloria
+- doe een dap
 
 ### Met naam (uit catalog)
 
@@ -550,26 +535,29 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - dans gangnam
 - doe gangnam
 - dans gangnam style
+- doe gangnam style
 - dans happy
 - doe happy
 - dans in the stone
+- doe in the stone
 - doe inthestone
 - dans lang zal hij leven
 - doe langzalhijleven
 - dans op lang zal hij leven
-- nu in de gloria
-- doe nu in de gloria
+- doe lang zal hij leven
 - dans robot
 - doe robot
+- doe de robotdans
 - dans taichi
 - doe taichi
 - dans yeah yeah
 - doe yeahyeah
-## DANCE
+
+### Muziek + dans
+
 - NAO, speel jij lang zal hij leven af? dan kunnen we samen dansen
 - speel lang zal hij leven af en dans mee
 - kun je lang zal hij leven doen
-- doe lang zal hij leven
 - zet lang zal hij leven aan en dans
 - wil je lang zal hij leven dansen
 - kun je lang zal hij leven dansen
@@ -579,32 +567,20 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - doe het liedje lang zal hij leven
 - speel het liedje lang zal hij leven en dans
 - zet dat liedje lang zal hij leven op en dans
-- speel zie ginds komt de stoomboot af en dans
-- doe zie ginds komt de stoomboot
-- zet zie ginds komt de stoomboot aan
 - speel gangnam style af en doe het dansje
-- doe gangnam style
 - zet gangnam style op en dans
 - speel happy af en dans
-- doe happy
 - speel taichi af
-- doe taichi
 - zet de robotdans aan
 - speel de robotdans af
-- doe de robotdans
-- doe ateam
 - zet ateam op en dans
 - speel ateam af
-- doe dab
 - zet dab aan en dans
 - speel dab af
-- doe yeahyeah
 - zet yeahyeah op en dans
 - speel yeahyeah af
-- doe bebold
 - zet bebold aan
 - speel bebold af
-- doe in the stone
 - zet in the stone op en dans
 - speel in the stone af
 
@@ -618,3 +594,5 @@ Hard negatives/meta-praat staan in `data/none_candidates.txt` (niet hier).
 - de stoomboot uit spanje
 - sinterklaas
 - sinterklaasliedje
+- speel zie ginds komt de stoomboot af en dans
+- zet zie ginds komt de stoomboot aan

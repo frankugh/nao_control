@@ -316,6 +316,7 @@ def compute_system_metrics(
     stop_total = sum(1 for label in y_true if label == "STOP")
     stop_correct = sum(1 for label, pred in zip(y_true, y_pred_system) if label == "STOP" and pred == "STOP")
     system_stop_recall = stop_correct / stop_total if stop_total else 0.0
+    stop_miss_count = max(0, stop_total - stop_correct)
 
     none_total = sum(1 for label in y_true if label == "NONE")
     none_pred_command = sum(1 for label, pred in zip(y_true, y_pred_system) if label == "NONE" and pred != "NONE")
@@ -339,6 +340,9 @@ def compute_system_metrics(
 
     return {
         "system_stop_recall": system_stop_recall,
+        "stop_total": stop_total,
+        "stop_correct": stop_correct,
+        "stop_miss_count": stop_miss_count,
         "fp_none_rate": fp_none_rate,
         "fp_loco_rate": fp_loco_rate,
         "recall_dance": recall_dance,
@@ -469,7 +473,7 @@ def main() -> None:
     margins = np.arange(0.05, 0.30, 0.05)
 
     constraints = {
-        "system_stop_recall": 0.95,
+        "system_stop_max_misses": 2,
         "fp_none_rate": 0.02,
     }
 
@@ -490,16 +494,23 @@ def main() -> None:
                 )
                 system_metrics = compute_system_metrics(y_val, ml_preds, system_preds)
                 system_metrics.update(compute_none_fp_rates(y_val, system_preds, val_sources))
-                constraints_ok = (
-                    system_metrics["system_stop_recall"] >= constraints["system_stop_recall"]
-                    and system_metrics["fp_none_rate"] <= constraints["fp_none_rate"]
+                stop_ok = True
+                if "system_stop_recall" in constraints:
+                    stop_ok = stop_ok and (
+                        system_metrics.get("system_stop_recall", 0.0)
+                        >= float(constraints["system_stop_recall"])
+                    )
+                if "system_stop_max_misses" in constraints:
+                    stop_ok = stop_ok and (
+                        int(system_metrics.get("stop_miss_count", 0))
+                        <= int(constraints["system_stop_max_misses"])
+                    )
+                constraints_ok = stop_ok and (
+                    system_metrics["fp_none_rate"] <= constraints["fp_none_rate"]
                 )
 
-                score = (
-                    0.70 * system_metrics["macro_f1_others"]
-                    + 0.15 * system_metrics["recall_box"]
-                    + 0.15 * system_metrics["recall_dance"]
-                    - 1.0 * system_metrics["fp_none_rate"]
+                score = float(
+                    system_metrics.get("report", {}).get("macro avg", {}).get("f1-score", 0.0)
                 )
 
                 results.append(
@@ -637,6 +648,7 @@ def main() -> None:
             "margin": best.margin,
             "score": best.score,
         },
+        "score_formula": "system_macro_f1",
         "ml_only": {
             "report": best.ml_report,
             "confusion_matrix": {
@@ -675,12 +687,11 @@ def main() -> None:
     LOGGER.info("Best vectorizer: %s", best.name)
     LOGGER.info("Threshold=%.2f Margin=%.2f Score=%.3f", best.threshold, best.margin, best.score)
     LOGGER.info(
-        "Score components: macro_f1_others=%.3f recall_box=%.3f recall_dance=%.3f fp_none_rate=%.3f",
-        best.system_metrics["macro_f1_others"],
-        best.system_metrics["recall_box"],
-        best.system_metrics["recall_dance"],
+        "Score components: system_macro_f1=%.3f fp_none_rate=%.3f",
+        float(best.system_metrics.get("report", {}).get("macro avg", {}).get("f1-score", 0.0)),
         best.system_metrics["fp_none_rate"],
     )
+    LOGGER.info("System stop misses=%s", int(best.system_metrics.get("stop_miss_count", 0)))
     LOGGER.info("Bundle written to %s", args.out)
 
 

@@ -1,0 +1,768 @@
+{"text": "hé robot, boks", "label": "BOX", "source": "commands_raw"}
+{"text": "laten we een box doen", "label": "BOX", "source": "commands_raw"}
+{"text": "Jo, box", "label": "BOX", "source": "commands_raw"}
+{"text": "Alex, boks", "label": "BOX", "source": "commands_raw"}
+{"text": "boks eens", "label": "BOX", "source": "commands_raw"}
+{"text": "boks alsjeblieft", "label": "BOX", "source": "commands_raw"}
+{"text": "ik wil een box doen", "label": "BOX", "source": "commands_raw"}
+{"text": "kom, boks", "label": "BOX", "source": "commands_raw"}
+{"text": "tik hem aan vriend", "label": "BOX", "source": "commands_raw"}
+{"text": "Nu een box", "label": "BOX", "source": "commands_raw"}
+{"text": "doe een boks met me", "label": "BOX", "source": "commands_raw"}
+{"text": "he, box man", "label": "BOX", "source": "commands_raw"}
+{"text": "boks", "label": "BOX", "source": "commands_raw"}
+{"text": "Geef eens een box.", "label": "BOX", "source": "al_gold_candidate"}
+{"text": "begroet me met een box", "label": "BOX", "source": "commands_raw"}
+{"text": "tik hem aan", "label": "BOX", "source": "commands_raw"}
+{"text": "geef me een boks", "label": "BOX", "source": "commands_raw"}
+{"text": "Ja, doe een box.", "label": "BOX", "source": "al_gold_candidate"}
+{"text": "Nu een boks", "label": "BOX", "source": "commands_raw"}
+{"text": "raak mijn vuist aan", "label": "BOX", "source": "commands_raw"}
+{"text": "doe een boks", "label": "BOX", "source": "commands_raw"}
+{"text": "boks, tik 'm aan", "label": "BOX", "source": "commands_raw"}
+{"text": "kunnen we een boks doen", "label": "BOX", "source": "commands_raw"}
+{"text": "OK, geef me nu eens een box", "label": "BOX", "source": "al_gold_candidate"}
+{"text": "René, boks", "label": "BOX", "source": "commands_raw"}
+{"text": "NAO, boks", "label": "BOX", "source": "commands_raw"}
+{"text": "box", "label": "BOX", "source": "commands_raw"}
+{"text": "boks met mij", "label": "BOX", "source": "commands_raw"}
+{"text": "speel in the stone af", "label": "DANCE", "source": "commands_raw"}
+{"text": "ga dansen", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel gangnam style af en doe het dansje", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans in the stone", "label": "DANCE", "source": "commands_raw"}
+{"text": "sinterklaas", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe yeahyeah", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans nu in de gloria", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet dat liedje lang zal hij leven op en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "begin lang zal hij leven", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans lang zal hij leven", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet yeahyeah op en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet ateam op en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans robot", "label": "DANCE", "source": "commands_raw"}
+{"text": "de stoomboot uit spanje", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe gangnam", "label": "DANCE", "source": "commands_raw"}
+{"text": "sinterklaasliedje", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe de stoomboot", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet de robotdans aan", "label": "DANCE", "source": "commands_raw"}
+{"text": "stoomboot", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe gangnam style", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans yeah yeah", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans ateam", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet gangnam style op en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe langzalhijleven", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans dab", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel dab af", "label": "DANCE", "source": "commands_raw"}
+{"text": "nu in de gloria", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel het liedje lang zal hij leven en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet bebold aan", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel de robotdans af", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe de a-team", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet lang zal hij leven aan en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans voor me", "label": "DANCE", "source": "commands_raw"}
+{"text": "laat een dans zien", "label": "DANCE", "source": "commands_raw"}
+{"text": "zie ginds komt de stoomboot", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe zie ginds komt de stoomboot", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe taichi", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans happy", "label": "DANCE", "source": "commands_raw"}
+{"text": "NAO, speel jij lang zal hij leven af? dan kunnen we samen dansen", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel lang zal hij leven af en dans mee", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel happy af en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe dab", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel zie ginds komt de stoomboot af en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel bebold af", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe happy", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet dab aan en dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe nu in de gloria", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe de robotdans", "label": "DANCE", "source": "commands_raw"}
+{"text": "speel ateam af", "label": "DANCE", "source": "commands_raw"}
+{"text": "laat je dansje zien", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe robot", "label": "DANCE", "source": "commands_raw"}
+{"text": "kun je lang zal hij leven dansen", "label": "DANCE", "source": "commands_raw"}
+{"text": "start lang zal hij leven", "label": "DANCE", "source": "commands_raw"}
+{"text": "laat ateam zien", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe het liedje lang zal hij leven", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe ateam", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe de a-team dans", "label": "DANCE", "source": "commands_raw"}
+{"text": "zet zie ginds komt de stoomboot aan", "label": "DANCE", "source": "commands_raw"}
+{"text": "doe inthestone", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans gangnam", "label": "DANCE", "source": "commands_raw"}
+{"text": "dans taichi", "label": "DANCE", "source": "commands_raw"}
+{"text": "wil je lang zal hij leven dansen", "label": "DANCE", "source": "commands_raw"}
+{"text": "oh, high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "Alex, high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "Ik wil nu een high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "ik wil een high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "mag ik een high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "kun je een high five geven", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "NAO, high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "nu een high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "geef me een high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "high five dan", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "hé robot, high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "kom op, high five", "label": "HIGH\\_FIVE", "source": "commands_raw"}
+{"text": "Ben je daar?", "label": "NONE", "source": "seed"}
+{"text": "Hoe is je dag?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik zei “sta stil” omdat ik zelf stil stond.", "label": "NONE", "source": "seed"}
+{"text": "Kun je knipperen met je ogen?", "label": "NONE", "source": "seed"}
+{"text": "Je hebt net iets anders gedaan dan ik bedoelde", "label": "NONE", "source": "seed"}
+{"text": "Kun je een liedje zingen?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik harder praten?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “pauze” omdat ik zelf pauze heb.", "label": "NONE", "source": "seed"}
+{"text": "Begrijp je “high five” altijd?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind draaien er grappig uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd wat je kan", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar boven kijken?", "label": "NONE", "source": "seed"}
+{"text": "Je praat niet terug", "label": "NONE", "source": "seed"}
+{"text": "Vertel eens wie je bent?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Volgens mij verstond je me net verkeerd.", "label": "NONE", "source": "seed"}
+{"text": "Hoeveel kan je onthouden?", "label": "NONE", "source": "seed"}
+{"text": "Kun je na een actie weer wachten op mijn naam?", "label": "NONE", "source": "seed"}
+{"text": "Wat is daar dan gebeurd?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je achteraf vertellen wat je deed?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind een fistbump meestal makkelijker.", "label": "NONE", "source": "seed"}
+{"text": "Wie ben jij?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je jezelf resetten?", "label": "NONE", "source": "seed"}
+{"text": "Luister je nog?", "label": "NONE", "source": "seed"}
+{"text": "Zie je mijn vuist?", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met dialect?", "label": "NONE", "source": "seed"}
+{"text": "Het was meer “ho”, als uitdrukking, niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Waarom reageer je niet?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “stop” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Alex, Waar kom je vandaan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Wat bedoel je precies?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even bezig, moment.", "label": "NONE", "source": "seed"}
+{"text": "vertel eens wat leuks", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik ben aan het wachten op iemand.", "label": "NONE", "source": "seed"}
+{"text": "Dat is vreemd", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde box als in “denk buiten de box”.", "label": "NONE", "source": "seed"}
+{"text": "En wat vonden de dwergen daarvan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Wat doe je als ik “vooruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je grapjes maken?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “tik hem aan” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik praat soms door elkaar als ik enthousiast ben.", "label": "NONE", "source": "seed"}
+{"text": "Je reageert snel op het woord stop.", "label": "NONE", "source": "seed"}
+{"text": "Dat is wel grappig eigenlijk.", "label": "NONE", "source": "seed"}
+{"text": "Waarom praat je soms tegen jezelf?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je me slaat, hoor.", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn accent verstaan?", "label": "NONE", "source": "seed"}
+{"text": "Ik heet Frank", "label": "NONE", "source": "seed"}
+{"text": "Kun je aangeven als je het niet zeker weet?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd of je “loop” vaak fout begrijpt.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vandaag juist extra sociaal.", "label": "NONE", "source": "seed"}
+{"text": "Ben jij een robot?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe jij graag?", "label": "NONE", "source": "seed"}
+{"text": "Kun je emoties herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Haha, oké dan.", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met typefouten?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb er zin in", "label": "NONE", "source": "seed"}
+{"text": "Ik haal links en rechts altijd door elkaar.", "label": "NONE", "source": "seed"}
+{"text": "Kun je een voorbeeld geven?", "label": "NONE", "source": "seed"}
+{"text": "Het gaat goed hoor.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben aan het testen wat jij doet.", "label": "NONE", "source": "seed"}
+{"text": "Kun je wat zachter praten?", "label": "NONE", "source": "seed"}
+{"text": "Wat is daar dan gebeurt? Lucht je metalen hart joh", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik zwaaide net naar iemand achter je.", "label": "NONE", "source": "seed"}
+{"text": "Kun je Nederlands praten?", "label": "NONE", "source": "seed"}
+{"text": "Hoe heet jij?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje hees.", "label": "NONE", "source": "seed"}
+{"text": "Hoe weet je wanneer je moet stoppen?", "label": "NONE", "source": "seed"}
+{"text": "Wat is de beste manier om jou iets te vragen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je herkennen of ik blij ben?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me aankijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met luisteren?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben zo terug", "label": "NONE", "source": "seed"}
+{"text": "Kun je een vuist herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je twijfel herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Ik probeer iets uit", "label": "NONE", "source": "seed"}
+{"text": "Ik ben blij vandaag", "label": "NONE", "source": "seed"}
+{"text": "Kun je me goed verstaan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Links is voor mij altijd lastig.", "label": "NONE", "source": "seed"}
+{"text": "Ik moet het nog eens proberen.", "label": "NONE", "source": "seed"}
+{"text": "Ik ga het eenvoudiger zeggen.", "label": "NONE", "source": "seed"}
+{"text": "Die stoomboot is echt Sinterklaas voor mij.", "label": "NONE", "source": "seed"}
+{"text": "Wat is jouw lievelingsliedje?", "label": "NONE", "source": "seed"}
+{"text": "Gangnam style blijft toch leuk.", "label": "NONE", "source": "seed"}
+{"text": "Kun je voorzichtig bewegen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een verhaal vertellen?", "label": "NONE", "source": "seed"}
+{"text": "Oké, ik snap het volgens mij.", "label": "NONE", "source": "seed"}
+{"text": "Kun je herhalen wat je hoorde?", "label": "NONE", "source": "seed"}
+{"text": "Kun je muziek maken?", "label": "NONE", "source": "seed"}
+{"text": "Zie je mijn hand omhoog?", "label": "NONE", "source": "seed"}
+{"text": "Ben je nog wakker?", "label": "NONE", "source": "seed"}
+{"text": "Kun je één stap doen?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben nu die melodie aan het neuriën.", "label": "NONE", "source": "seed"}
+{"text": "Kun je zeggen wat je verstaan hebt?", "label": "NONE", "source": "seed"}
+{"text": "Werkt dit goed?", "label": "NONE", "source": "seed"}
+{"text": "Kun je kalm blijven?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn hand zien?", "label": "NONE", "source": "seed"}
+{"text": "Als ik “halt” zeg, klinkt dat wel streng.", "label": "NONE", "source": "seed"}
+{"text": "Kun je alleen luisteren als ik je aanraak?", "label": "NONE", "source": "seed"}
+{"text": "Kun je empathisch reageren?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb net mijn hand gewassen.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Dat was sneller dan ik dacht.", "label": "NONE", "source": "seed"}
+{"text": "Heb je moeite met draaien?", "label": "NONE", "source": "seed"}
+{"text": "Wie ben je, kun je ons wat over jezelf vertellen en waar je vandaan komt?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Dat ging niet helemaal lekker.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar beneden kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje bang dat ik je omstoot.", "label": "NONE", "source": "seed"}
+{"text": "Kun je herkennen wie er praat?", "label": "NONE", "source": "seed"}
+{"text": "Goedemorgen", "label": "NONE", "source": "seed"}
+{"text": "Wie heeft jou gemaakt?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik langzaam praten?", "label": "NONE", "source": "seed"}
+{"text": "Vertel eens iets over draken?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Taichi ziet er altijd rustig uit.", "label": "NONE", "source": "seed"}
+{"text": "Ben je oké?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil liever gewoon even kletsen.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb een droge keel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je me iets uitleggen?", "label": "NONE", "source": "seed"}
+{"text": "Dat is best knap.", "label": "NONE", "source": "seed"}
+{"text": "Ik denk dat lopen best energie kost.", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “high five” tegen iemand anders.", "label": "NONE", "source": "seed"}
+{"text": "Kun je naar rechts kijken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je vragen wat ik bedoel?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een quiz doen?", "label": "NONE", "source": "seed"}
+{"text": "Wacht even alsjeblieft", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn naam onthouden?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het awkward om naar een robot te zwaaien.", "label": "NONE", "source": "seed"}
+{"text": "Wat betekent “loopmodus” voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als je struikelt?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het leuk dat je reageert op stem.", "label": "NONE", "source": "seed"}
+{"text": "Kun je klappen op de maat?", "label": "NONE", "source": "seed"}
+{"text": "Volgens mij begreep je me verkeerd", "label": "NONE", "source": "seed"}
+{"text": "Kun je loggen wat ik zei?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind boksen er stoer uitzien.", "label": "NONE", "source": "seed"}
+{"text": "Kun je mij waarschuwen als iets gevaarlijk is?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me uitleggen wat je net deed?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn gezicht zien?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als je iets raakt?", "label": "NONE", "source": "seed"}
+{"text": "Nee, laat maar.", "label": "NONE", "source": "seed"}
+{"text": "Je scherm doet raar", "label": "NONE", "source": "seed"}
+{"text": "Kun je dit zien?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over rechts in de tekst, niet over jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je vragen stellen?", "label": "NONE", "source": "seed"}
+{"text": "High five is altijd een beetje ongemakkelijk.", "label": "NONE", "source": "seed"}
+{"text": "Dat is beter.", "label": "NONE", "source": "seed"}
+{"text": "Waar ben je voor gemaakt?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even aan het kijken.", "label": "NONE", "source": "seed"}
+{"text": "Kun je praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Ben jij een NAO?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “achteruit” zeg?", "label": "NONE", "source": "seed"}
+{"text": "begrijpt hij het als ik hem zeg te zwaaien", "label": "NONE", "source": "seed"}
+{"text": "NAO, ik probeer je spraakherkenning te snappen.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dit eigenlijk best spannend.", "label": "NONE", "source": "seed"}
+{"text": "Praat je wel eens door jezelf?", "label": "NONE", "source": "seed"}
+{"text": "Kun je onthouden wat ik zojuist zei?", "label": "NONE", "source": "seed"}
+{"text": "Welke fouten maakten ze met ai en wat kunnen wij anders doen?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Alex, woonde Jij Alleen in Atlantis?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Hoe weet je waar ik ben?", "label": "NONE", "source": "seed"}
+{"text": "Kun je jezelf voorstellen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je wat vertellen over jezelf?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "happy", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik heb koude handen.", "label": "NONE", "source": "seed"}
+{"text": "Wat kun jij allemaal?", "label": "NONE", "source": "seed"}
+{"text": "Waarom wiebel je soms?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik duidelijke woorden gebruiken?", "label": "NONE", "source": "seed"}
+{"text": "Kun je om mij heen lopen?", "label": "NONE", "source": "seed"}
+{"text": "Hoe heet jij ook alweer?", "label": "NONE", "source": "seed"}
+{"text": "he, ik zwaai naar je", "label": "NONE", "source": "seed"}
+{"text": "Ik wacht even, ik denk na.", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn hand vasthouden?", "label": "NONE", "source": "seed"}
+{"text": "Ik weet niet of je mij wel goed verstaat.", "label": "NONE", "source": "seed"}
+{"text": "Ben je in slaapstand?", "label": "NONE", "source": "seed"}
+{"text": "Wat kun je allemaal?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil niet dat je stopt, ik praat gewoon.", "label": "NONE", "source": "seed"}
+{"text": "Kun je obstakels zien?", "label": "NONE", "source": "seed"}
+{"text": "mooi zeg eens wat", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik ga straks weer weg, dus dan zwaai ik wel.", "label": "NONE", "source": "seed"}
+{"text": "Kun je herkennen of ik boos ben?", "label": "NONE", "source": "seed"}
+{"text": "Super gaaf leuk.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je achtergrondgeluid aan?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vandaag niet zo sociaal.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind “lang zal hij leven” een leuk liedje.", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn humor aan?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben net terug van een wandeling.", "label": "NONE", "source": "seed"}
+{"text": "zou leuk zijn als hij zomaar ging zwaaien", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vandaag veel gelopen.", "label": "NONE", "source": "seed"}
+{"text": "Ik voel me een beetje draaierig.", "label": "NONE", "source": "seed"}
+{"text": "Luister je altijd mee?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind dansjes altijd grappig om te zien.", "label": "NONE", "source": "seed"}
+{"text": "Kun je dat herhalen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me verstaan?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb zelf net een stukje gelopen.", "label": "NONE", "source": "seed"}
+{"text": "Wat is jouw favoriete kleur?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb het over links en rechts, niet over lopen.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even wachten op bevestiging?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben vandaag moe", "label": "NONE", "source": "seed"}
+{"text": "Lopen lijkt me best moeilijk voor jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je samenvatten wat er net gebeurde?", "label": "NONE", "source": "seed"}
+{"text": "Ik hou van dansen, maar ik ga nu niet dansen hoor.", "label": "NONE", "source": "seed"}
+{"text": "Kun je even rustig blijven?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben niet echt in een feeststemming vandaag.", "label": "NONE", "source": "seed"}
+{"text": "We doen een test", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen waarom je iets niet doet?", "label": "NONE", "source": "seed"}
+{"text": "hoe gaat het?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik ben vooral aan het experimenteren.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je niet reageert?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “rechts” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik moet even iets pakken", "label": "NONE", "source": "seed"}
+{"text": "Ik heb geen zin om te boksen nu.", "label": "NONE", "source": "seed"}
+{"text": "Kun je lachen?", "label": "NONE", "source": "seed"}
+{"text": "Waarom heet je zo?", "label": "NONE", "source": "seed"}
+{"text": "Kun je sneller praten?", "label": "NONE", "source": "seed"}
+{"text": "Wat vind jij leuk om te doen?", "label": "NONE", "source": "seed"}
+{"text": "Wat heb je vandaag gedaan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je naar links kijken?", "label": "NONE", "source": "seed"}
+{"text": "Ik zeg vaak “zwaai” als ik afscheid neem.", "label": "NONE", "source": "seed"}
+{"text": "Kun je zeggen wanneer je het niet begrijpt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stoppen met praten terwijl je beweegt?", "label": "NONE", "source": "seed"}
+{"text": "Kun je langzamer praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je dat nog een keer zeggen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe ik als je blijft hangen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je je hoofd draaien?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben eigenlijk niet zo’n zwaaier.", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook stoppen met lopen als ik stop zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een alternatief voorstellen?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben zo terug, ik ben even weg.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even in pauze-modus.", "label": "NONE", "source": "seed"}
+{"text": "Ik wil iets testen", "label": "NONE", "source": "seed"}
+{"text": "Welke dansjes kun je?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik sprak te snel denk ik", "label": "NONE", "source": "seed"}
+{"text": "Alex, ik praat tegen jou, maar niet als commando.", "label": "NONE", "source": "seed"}
+{"text": "Kun je langzaam bewegen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “ho” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben benieuwd hoe dit gaat.", "label": "NONE", "source": "seed"}
+{"text": "Wat is er dan gebeurd dat je moest ontsnappen?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je een ritme voelen?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je precies?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een vraag beantwoorden?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben meer in een rustige bui.", "label": "NONE", "source": "seed"}
+{"text": "Heb je een naam?", "label": "NONE", "source": "seed"}
+{"text": "Ik vraag me af hoe jij een robotdans doet.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben Frank", "label": "NONE", "source": "seed"}
+{"text": "Goedenavond", "label": "NONE", "source": "seed"}
+{"text": "Kun je omgaan met straattaal?", "label": "NONE", "source": "seed"}
+{"text": "Boxen lijkt me zwaar.", "label": "NONE", "source": "seed"}
+{"text": "Als ik “box” zeg, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Konden zij het waarderen of waren ze bang voor hun goud?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik ging net naar links, maar dat was per ongeluk.", "label": "NONE", "source": "seed"}
+{"text": "Kun je wat harder praten?", "label": "NONE", "source": "seed"}
+{"text": "Kun je een gesprek voeren?", "label": "NONE", "source": "seed"}
+{"text": "Waar kom je vandaan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Wat betekent “high five” eigenlijk voor jou?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mij zien?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me zeggen wat je gaat doen?", "label": "NONE", "source": "seed"}
+{"text": "Ik vind het grappig dat je zo klein bent.", "label": "NONE", "source": "seed"}
+{"text": "Kun je na een actie weer naar slaapstand?", "label": "NONE", "source": "seed"}
+{"text": "Dat is niet wat ik zei.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb vroeger wel eens gebokst op training.", "label": "NONE", "source": "seed"}
+{"text": "Ik heb mijn hand al vol, sorry.", "label": "NONE", "source": "seed"}
+{"text": "Kun je sarcasme begrijpen?", "label": "NONE", "source": "seed"}
+{"text": "Als ik naar je zwaai, zwaai je dan terug?", "label": "NONE", "source": "seed"}
+{"text": "Het lijkt alsof je vastzit", "label": "NONE", "source": "seed"}
+{"text": "Dat was niet de bedoeling.", "label": "NONE", "source": "seed"}
+{"text": "Ik sprak te zacht denk ik", "label": "NONE", "source": "seed"}
+{"text": "wat leuk", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik vind lopen bij jou een beetje wiebelig.", "label": "NONE", "source": "seed"}
+{"text": "hallo hoe gaat het?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je lopen zonder om te vallen?", "label": "NONE", "source": "seed"}
+{"text": "Wanneer luister je wel en wanneer niet?", "label": "NONE", "source": "seed"}
+{"text": "Ik zei “stop” tegen mezelf, niet tegen jou.", "label": "NONE", "source": "seed"}
+{"text": "Kun je een voorbeeldzin geven die jij goed begrijpt?", "label": "NONE", "source": "seed"}
+{"text": "Dat “box” klinkt agressiever dan ik bedoel.", "label": "NONE", "source": "seed"}
+{"text": "Ken je mijn naam?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn stem herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Rustig maar.", "label": "NONE", "source": "seed"}
+{"text": "Mag ik je iets vragen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me wat vertellen over jezelf?", "label": "NONE", "source": "seed"}
+{"text": "Dit is grappig", "label": "NONE", "source": "seed"}
+{"text": "Ik ben een beetje zenuwachtig", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoelde “blijf staan” als grapje.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “pauze” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Vind je het leuk hier?", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “halt” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Als ik mijn hand omhoog houd, wat doe je dan?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me helpen leren hoe ik je moet aanspreken?", "label": "NONE", "source": "seed"}
+{"text": "vertel eens iets.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Werkt je geluid?", "label": "NONE", "source": "seed"}
+{"text": "Hoe werkt jouw spraakherkenning?", "label": "NONE", "source": "seed"}
+{"text": "Wat is je favoriete dans?", "label": "NONE", "source": "seed"}
+{"text": "Mijn hoofd draait overuren vandaag.", "label": "NONE", "source": "seed"}
+{"text": "Hoi", "label": "NONE", "source": "seed"}
+{"text": "Ik schrok een beetje.", "label": "NONE", "source": "seed"}
+{"text": "Ik probeer het nog een keer.", "label": "NONE", "source": "seed"}
+{"text": "Moet ik je aanraken om je wakker te maken?", "label": "NONE", "source": "seed"}
+{"text": "Moet ik dicht bij je staan?", "label": "NONE", "source": "seed"}
+{"text": "Wat zijn dan slimme en veilige ai toepassingen?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik denk dat er iets mis is", "label": "NONE", "source": "seed"}
+{"text": "Ik zag je net lopen en ik schrok.", "label": "NONE", "source": "seed"}
+{"text": "Ik twijfel nog.", "label": "NONE", "source": "seed"}
+{"text": "Ik moest aan de stoomboot denken door het weer.", "label": "NONE", "source": "seed"}
+{"text": "Kun je mijn hand herkennen?", "label": "NONE", "source": "seed"}
+{"text": "Ik heb gisteren nog Gangnam style gehoord.", "label": "NONE", "source": "seed"}
+{"text": "Ik pak even iets", "label": "NONE", "source": "seed"}
+{"text": "Wat bedoel je met loopmodus?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn?", "label": "NONE", "source": "seed"}
+{"text": "Dat was langzamer dan ik dacht.", "label": "NONE", "source": "seed"}
+{"text": "Ben je er nog?", "label": "NONE", "source": "seed"}
+{"text": "Kun je uitleggen wat je onder loopmodus verstaat?", "label": "NONE", "source": "seed"}
+{"text": "Ik praat te snel, denk ik.", "label": "NONE", "source": "seed"}
+{"text": "Kun je me een beetje verstaan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Hallo", "label": "NONE", "source": "seed"}
+{"text": "Kun je vooraf aankondigen wat je doet?", "label": "NONE", "source": "seed"}
+{"text": "Kun je in slaapstand?", "label": "NONE", "source": "seed"}
+{"text": "Kun je stil zijn tijdens het lopen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je mij volgen zonder te praten?", "label": "NONE", "source": "seed"}
+{"text": "Ik ben even bezig", "label": "NONE", "source": "seed"}
+{"text": "Kun je open dialoog voeren?", "label": "NONE", "source": "seed"}
+{"text": "Ik krijg meteen dat liedje in mijn hoofd.", "label": "NONE", "source": "seed"}
+{"text": "Ik denk dat dit werkt.", "label": "NONE", "source": "seed"}
+{"text": "Kun je je balans houden?", "label": "NONE", "source": "seed"}
+{"text": "Dat is best schattig.", "label": "NONE", "source": "seed"}
+{"text": "Ik ben er weer.", "label": "NONE", "source": "seed"}
+{"text": "Ik vind zwaaien altijd zo’n schattig gebaar.", "label": "NONE", "source": "seed"}
+{"text": "Kijk eens hier", "label": "NONE", "source": "seed"}
+{"text": "Ik zal langzamer praten.", "label": "NONE", "source": "seed"}
+{"text": "Spannend, wat gebeurde er dan?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Luister je?", "label": "NONE", "source": "seed"}
+{"text": "Ik bedoel stop als in “stop ermee in mijn hoofd”, snap je.", "label": "NONE", "source": "seed"}
+{"text": "Wat doe je als ik “draai links” zeg?", "label": "NONE", "source": "seed"}
+{"text": "Oei, dat ging bijna mis.", "label": "NONE", "source": "seed"}
+{"text": "Kun je aangeven als je me niet goed verstaat?", "label": "NONE", "source": "seed"}
+{"text": "vertel eens iets leuks", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kun je omgaan met muziek op de achtergrond?", "label": "NONE", "source": "seed"}
+{"text": "Kun je onderscheid maken tussen stemmen?", "label": "NONE", "source": "seed"}
+{"text": "Kun je me helpen?", "label": "NONE", "source": "seed"}
+{"text": "Ik moet even schakelen.", "label": "NONE", "source": "seed"}
+{"text": "Kun je op commando’s reageren zonder te praten?", "label": "NONE", "source": "seed"}
+{"text": "Ik wil je niet per ongeluk aanraken.", "label": "NONE", "source": "seed"}
+{"text": "Vertel eens een verhaal over robots en draken.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Hoe word je wakker?", "label": "NONE", "source": "seed"}
+{"text": "Ik ken de dab van vroeger.", "label": "NONE", "source": "seed"}
+{"text": "Ben je aan het slapen?", "label": "NONE", "source": "seed"}
+{"text": "Ik zet iets klaar", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook Engels?", "label": "NONE", "source": "seed"}
+{"text": "Dat is verrassend.", "label": "NONE", "source": "seed"}
+{"text": "Dat snap ik niet", "label": "NONE", "source": "seed"}
+{"text": "Waarom reageer je soms niet?", "label": "NONE", "source": "seed"}
+{"text": "Kun je ook zonder commando praten?", "label": "NONE", "source": "seed"}
+{"text": "Dit is een proefje", "label": "NONE", "source": "seed"}
+{"text": "Je mag nu gaan rusten", "label": "REST", "source": "commands_raw"}
+{"text": "ga maar uit", "label": "REST", "source": "commands_raw"}
+{"text": "René, ga rusten", "label": "REST", "source": "commands_raw"}
+{"text": "ga maar rusten", "label": "REST", "source": "commands_raw"}
+{"text": "NAO, ga rusten", "label": "REST", "source": "commands_raw"}
+{"text": "ga slapen", "label": "REST", "source": "commands_raw"}
+{"text": "NAO, slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "zet jezelf uit nu", "label": "REST", "source": "commands_raw"}
+{"text": "stop je motoren", "label": "REST", "source": "commands_raw"}
+{"text": "ga in ruststand", "label": "REST", "source": "commands_raw"}
+{"text": "rust", "label": "REST", "source": "commands_raw"}
+{"text": "ga nu slapen", "label": "REST", "source": "commands_raw"}
+{"text": "ga naar standby", "label": "REST", "source": "commands_raw"}
+{"text": "naar slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "Alex, rust", "label": "REST", "source": "commands_raw"}
+{"text": "doe slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "ga terug naar rust", "label": "REST", "source": "commands_raw"}
+{"text": "rust nu", "label": "REST", "source": "commands_raw"}
+{"text": "naar ruststand", "label": "REST", "source": "commands_raw"}
+{"text": "ga uit", "label": "REST", "source": "commands_raw"}
+{"text": "oké, slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "schakel uit", "label": "REST", "source": "commands_raw"}
+{"text": "ga naar rest", "label": "REST", "source": "commands_raw"}
+{"text": "ga naar rust", "label": "REST", "source": "commands_raw"}
+{"text": "rest", "label": "REST", "source": "commands_raw"}
+{"text": "René, slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "ga rusten", "label": "REST", "source": "commands_raw"}
+{"text": "rust even", "label": "REST", "source": "commands_raw"}
+{"text": "NAO, rust", "label": "REST", "source": "commands_raw"}
+{"text": "motoren uit", "label": "REST", "source": "commands_raw"}
+{"text": "zet je motoren maar uit nu", "label": "REST", "source": "commands_raw"}
+{"text": "ga naar slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "zet de motoren maar uit NAO", "label": "REST", "source": "commands_raw"}
+{"text": "ga rustig slapen", "label": "REST", "source": "commands_raw"}
+{"text": "zet jezelf uit", "label": "REST", "source": "commands_raw"}
+{"text": "Je mag nu gaan slapen", "label": "REST", "source": "commands_raw"}
+{"text": "Alex, ga rusten", "label": "REST", "source": "commands_raw"}
+{"text": "tijd om te rusten", "label": "REST", "source": "commands_raw"}
+{"text": "ga nu rusten", "label": "REST", "source": "commands_raw"}
+{"text": "ga in slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "ruststand", "label": "REST", "source": "commands_raw"}
+{"text": "Alex, slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "stop maar NAO, ga maar rusten", "label": "REST", "source": "commands_raw"}
+{"text": "kun je gaan rusten", "label": "REST", "source": "commands_raw"}
+{"text": "ga even slapen", "label": "REST", "source": "commands_raw"}
+{"text": "wil je naar slaapstand", "label": "REST", "source": "commands_raw"}
+{"text": "kun je gaan zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "zit neer", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "Alex, ga zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga eens zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "NAO, ga zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "zit", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga zitten op de grond", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga even zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "neem plaats", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "René, ga zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "kun je even zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "zit alsjeblieft", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga zitten op je knieën", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "wil je gaan zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "Alex zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga rustig zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga zitten alsjeblieft", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "ga maar zitten", "label": "SITDOWN", "source": "commands_raw"}
+{"text": "sta op alsjeblieft", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "ga weer staan", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "ga staan en wacht", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "sta eens op", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "kom omhoog", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "René, ga staan", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "sta rechtop", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "sta op nu", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "sta recht", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "sta op", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "René, sta op", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "kom eens overeind", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "NAO, sta op", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "ga staan alsjeblieft", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "opstaan alsjeblieft", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "kom overeind", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "kun je opstaan", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "kom staan", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "ga staan nu", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "opstaan", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "sta even op", "label": "STAND\\_UP", "source": "commands_raw"}
+{"text": "stop met lopen", "label": "STOP", "source": "commands_raw"}
+{"text": "stop even", "label": "STOP", "source": "commands_raw"}
+{"text": "kap ermee nu", "label": "STOP", "source": "commands_raw"}
+{"text": "stop direct", "label": "STOP", "source": "commands_raw"}
+{"text": "fuck stop", "label": "STOP", "source": "commands_raw"}
+{"text": "wacht", "label": "STOP", "source": "commands_raw"}
+{"text": "terug, stop", "label": "STOP", "source": "commands_raw"}
+{"text": "René, stop", "label": "STOP", "source": "commands_raw"}
+{"text": "oeps stop", "label": "STOP", "source": "commands_raw"}
+{"text": "stop meteen nu", "label": "STOP", "source": "commands_raw"}
+{"text": "stop met lopen nu", "label": "STOP", "source": "commands_raw"}
+{"text": "stop alsjeblieft meteen", "label": "STOP", "source": "commands_raw"}
+{"text": "Ho", "label": "STOP", "source": "commands_raw"}
+{"text": "blijf staan", "label": "STOP", "source": "commands_raw"}
+{"text": "kappen nu", "label": "STOP", "source": "commands_raw"}
+{"text": "sta stil", "label": "STOP", "source": "commands_raw"}
+{"text": "niet verder lopen", "label": "STOP", "source": "commands_raw"}
+{"text": "even stoppen", "label": "STOP", "source": "commands_raw"}
+{"text": "stop, wacht even", "label": "STOP", "source": "commands_raw"}
+{"text": "NAO, stop", "label": "STOP", "source": "commands_raw"}
+{"text": "nee, stop", "label": "STOP", "source": "commands_raw"}
+{"text": "stop daar", "label": "STOP", "source": "commands_raw"}
+{"text": "stop ermee", "label": "STOP", "source": "commands_raw"}
+{"text": "stop nu meteen", "label": "STOP", "source": "commands_raw"}
+{"text": "annuleer", "label": "STOP", "source": "commands_raw"}
+{"text": "fuck nee kappen nu", "label": "STOP", "source": "commands_raw"}
+{"text": "ho, nee, niet doen", "label": "STOP", "source": "commands_raw"}
+{"text": "halt", "label": "STOP", "source": "commands_raw"}
+{"text": "stop even alsjeblieft", "label": "STOP", "source": "commands_raw"}
+{"text": "nee, hou op", "label": "STOP", "source": "commands_raw"}
+{"text": "stop met bewegen nu", "label": "STOP", "source": "commands_raw"}
+{"text": "stop nu", "label": "STOP", "source": "commands_raw"}
+{"text": "hou daarmee op", "label": "STOP", "source": "commands_raw"}
+{"text": "stop alsjeblieft", "label": "STOP", "source": "commands_raw"}
+{"text": "hou eens op", "label": "STOP", "source": "commands_raw"}
+{"text": "stop eens", "label": "STOP", "source": "commands_raw"}
+{"text": "nee, ophouden nu", "label": "STOP", "source": "commands_raw"}
+{"text": "kut stop", "label": "STOP", "source": "commands_raw"}
+{"text": "stop direct nu", "label": "STOP", "source": "commands_raw"}
+{"text": "nee, niet verder", "label": "STOP", "source": "commands_raw"}
+{"text": "shit, nee", "label": "STOP", "source": "commands_raw"}
+{"text": "shit, kappen meteen", "label": "STOP", "source": "commands_raw"}
+{"text": "ophouden nu", "label": "STOP", "source": "commands_raw"}
+{"text": "gaat fout, niet doen", "label": "STOP", "source": "commands_raw"}
+{"text": "ho, nee dat gaat fout", "label": "STOP", "source": "commands_raw"}
+{"text": "stop nou", "label": "STOP", "source": "commands_raw"}
+{"text": "pauze", "label": "STOP", "source": "commands_raw"}
+{"text": "blijf daar", "label": "STOP", "source": "commands_raw"}
+{"text": "niet doen", "label": "STOP", "source": "commands_raw"}
+{"text": "stop met bewegen", "label": "STOP", "source": "commands_raw"}
+{"text": "stil staan", "label": "STOP", "source": "commands_raw"}
+{"text": "hou op nou", "label": "STOP", "source": "commands_raw"}
+{"text": "nu stoppen", "label": "STOP", "source": "commands_raw"}
+{"text": "oh, oeps, nee niet doen", "label": "STOP", "source": "commands_raw"}
+{"text": "Alex, stop", "label": "STOP", "source": "commands_raw"}
+{"text": "stop daar mee", "label": "STOP", "source": "commands_raw"}
+{"text": "stop alsjeblieft nu", "label": "STOP", "source": "commands_raw"}
+{"text": "stop nou alsjeblieft", "label": "STOP", "source": "commands_raw"}
+{"text": "sta stil nu", "label": "STOP", "source": "commands_raw"}
+{"text": "niet doen alsjeblieft", "label": "STOP", "source": "commands_raw"}
+{"text": "ho nee", "label": "STOP", "source": "commands_raw"}
+{"text": "stop daarmee", "label": "STOP", "source": "commands_raw"}
+{"text": "stoppen", "label": "STOP", "source": "commands_raw"}
+{"text": "gaat fout, nee wacht", "label": "STOP", "source": "commands_raw"}
+{"text": "wachten", "label": "STOP", "source": "commands_raw"}
+{"text": "stop, terug", "label": "STOP", "source": "commands_raw"}
+{"text": "stop gelijk", "label": "STOP", "source": "commands_raw"}
+{"text": "blijf staan nu", "label": "STOP", "source": "commands_raw"}
+{"text": "hou op", "label": "STOP", "source": "commands_raw"}
+{"text": "help, niet doen", "label": "STOP", "source": "commands_raw"}
+{"text": "ho, help, nee wachten", "label": "STOP", "source": "commands_raw"}
+{"text": "nee nee", "label": "STOP", "source": "commands_raw"}
+{"text": "stop meteen", "label": "STOP", "source": "commands_raw"}
+{"text": "help stop", "label": "STOP", "source": "commands_raw"}
+{"text": "draai een kwartslag links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "draai links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "naar links draaien", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "René, draai links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "linksom", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "draai naar links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "NAO, draai links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "draai wat meer links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "draai 90 graden links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "draai een beetje links", "label": "TURN\\_LEFT", "source": "commands_raw"}
+{"text": "René, draai rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "draai 90 graden rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "rechtsom", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "NAO, draai rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "ga rechtsom", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "naar rechts draaien", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "draai een kwartslag rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "draai een beetje rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "draai wat meer rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "draai naar rechts", "label": "TURN\\_RIGHT", "source": "commands_raw"}
+{"text": "NAO, achteruit", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "stukje terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "stap terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "ga terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "Alex, achteruit", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "stukje terug nu", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "ga achteruit", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "loop naar achteren", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "loop achteruit", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "ga een stap achteruit", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "een stukje terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "ga een stukje terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "Alex, stukje terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "René, ga terug", "label": "WALK\\_BACKWARD", "source": "commands_raw"}
+{"text": "René, loop naar voren", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "ga een stukje vooruit", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "loop alleen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "begin naar voren te lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "kom, we gaan lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "René, start met lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "Alex, vooruit", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "zet loopmodus aan", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "start loopmodus", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "loop naar voren Alex", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "loopmodus", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "loop vooruit", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "een stukje vooruit", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "begin te lopen naar voren", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "Alex, ga lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "NAO, loop naar voren", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "ga lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "begin te lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "we gaan lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "loop naar voren", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "activeer loopmodus", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "start met lopen", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "begin naar voren te lopen René", "label": "WALK\\_FORWARD", "source": "commands_raw"}
+{"text": "Alex, links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "NAO, naar links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "stap naar links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "ga naar links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "loop links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "een stap naar links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "ga een stukje naar links", "label": "WALK\\_LEFT", "source": "commands_raw"}
+{"text": "ga naar rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "NAO, naar rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "een stap naar rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "Alex, rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "stap naar rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "loop rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "René, loop naar rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "rechts", "label": "WALK\\_RIGHT", "source": "commands_raw"}
+{"text": "pak m'n hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "pak even mijn hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "loop met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "ga met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "wil je met me meelopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "kom, pak mijn hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "pak mn hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "laten we samen lopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "geef mij je hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "kom, loop met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "volg me", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "Alex, loop met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "hé robot, loop met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "volg mij", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "wandel met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "kun je met me meelopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "kom, laten we lopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "ik wil samen lopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "houd m'n hand vast", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "geef me je hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "René, loop met me mee", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "hou m'n hand vast", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "kom met me mee lopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "pak mijn hand", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "pak mijn hand vast", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "kom, laten we samen lopen", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "loop samen met me", "label": "WALK\\_WITH\\_ME", "source": "commands_raw"}
+{"text": "zwaai als begroeting", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai even naar mij", "label": "WAVE", "source": "commands_raw"}
+{"text": "René, zwaai even", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai hallo", "label": "WAVE", "source": "commands_raw"}
+{"text": "Alex, zwaai", "label": "WAVE", "source": "commands_raw"}
+{"text": "wuif even", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai gedag", "label": "WAVE", "source": "commands_raw"}
+{"text": "hé robot, zwaai", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai eens", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai naar me", "label": "WAVE", "source": "commands_raw"}
+{"text": "wuif", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai naar het publiek", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai eens terug", "label": "WAVE", "source": "commands_raw"}
+{"text": "Yo NAO, zwaai maar vriend", "label": "WAVE", "source": "al_gold_candidate"}
+{"text": "NAO, zwaai even", "label": "WAVE", "source": "commands_raw"}
+{"text": "doe een zwaai", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai eens naar mij", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai even", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai naar mij", "label": "WAVE", "source": "commands_raw"}
+{"text": "Alex, zwaai even", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai naar ons", "label": "WAVE", "source": "commands_raw"}
+{"text": "zwaai gedag naar me", "label": "WAVE", "source": "commands_raw"}
+{"text": "Gezellig praten even.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ja, box.", "label": "BOX", "source": "al_reviewed"}
+{"text": "Kan je een dansje doen?", "label": "NONE", "source": "al_reviewed"}
+{"text": "yo", "label": "NONE", "source": "al_reviewed"}
+{"text": "OK.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Mooi.", "label": "NONE", "source": "al_reviewed"}
+{"text": "dan jij", "label": "NONE", "source": "al_reviewed"}
+{"text": "Daniel zegt dat die stoomboot wil.", "label": "NONE", "source": "al_reviewed"}
+{"text": "zo", "label": "NONE", "source": "al_reviewed"}
+{"text": "kun je ook dat happy dansje doen", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou duidelijk hoor, geef maar een box.", "label": "BOX", "source": "ui_review"}
+{"text": "Het stoombootje.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oké, We zijn klaar, ga maar slapen.", "label": "REST", "source": "al_reviewed"}
+{"text": "Vind je het nu leuk bij ons om te wonen?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oh, dat lijkt best goed.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens iets over draken in een mythe.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens iets over draken in een mythische setting.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Alex box", "label": "BOX", "source": "al_reviewed"}
+{"text": "uit", "label": "REST", "source": "al_reviewed"}
+{"text": "Hoi, sta eens op Alex", "label": "STAND\\_UP", "source": "al_reviewed"}
+{"text": "Goed he, ik heb het geleerd", "label": "NONE", "source": "al_reviewed"}
+{"text": "En wat vonden de dwergen ervan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "En jij kan ons helpen om dat te leren.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ik vroeg, hoe kunnen we die fouten voorkomen?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ga je eens naar ons?", "label": "NONE", "source": "al_reviewed"}
+{"text": "cool", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ai.", "label": "NONE", "source": "al_reviewed"}
+{"text": "klinkt leuk die verhalen", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou, Ik vind programmeren wel heel complex klinken. Wat je aangeeft kun je ook gewoon wat richtlijnen geven voor hoe ik dat verstandig doe.", "label": "NONE", "source": "al_reviewed"}
+{"text": "OK zet je motoren maar weer uit.", "label": "REST", "source": "al_reviewed"}
+{"text": "Geef eens een boks dan?", "label": "BOX", "source": "al_reviewed"}
+{"text": "ehm, kun je iets vertellen over draken?", "label": "NONE", "source": "al_reviewed"}
+{"text": "loop mee", "label": "WALK\\_WITH\\_ME", "source": "al_reviewed"}
+{"text": "dans", "label": "DANCE", "source": "al_reviewed"}
+{"text": "oké zet je motoren maar uit", "label": "REST", "source": "al_reviewed"}

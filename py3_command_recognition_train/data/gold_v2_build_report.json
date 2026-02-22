@@ -1,0 +1,120 @@
+{
+  "generated_at_utc": "2026-02-22T20:48:16+00:00",
+  "inputs": {
+    "commands": "data\\commands_raw.md",
+    "none_seed": "data\\none_seed.txt",
+    "gold_candidates": "data\\al\\gold_candidates.jsonl",
+    "reviewed": "data\\al\\reviewed.jsonl",
+    "none_external": "data\\none_external.jsonl",
+    "gold_ratio": 0.2,
+    "seed": 42
+  },
+  "raw_pool": {
+    "commands_count": 475,
+    "none_seed_count": 396,
+    "combined_before_gold_candidates": 871,
+    "split_input_count": 916,
+    "split_input_label_counts": {
+      "BOX": 35,
+      "HIGH\\_FIVE": 15,
+      "WAVE": 29,
+      "WALK\\_WITH\\_ME": 34,
+      "WALK\\_FORWARD": 29,
+      "WALK\\_BACKWARD": 18,
+      "WALK\\_LEFT": 10,
+      "WALK\\_RIGHT": 10,
+      "TURN\\_LEFT": 12,
+      "TURN\\_RIGHT": 12,
+      "STOP": 93,
+      "SITDOWN": 23,
+      "STAND\\_UP": 26,
+      "REST": 57,
+      "DANCE": 77,
+      "NONE": 436
+    },
+    "gold_candidates_input_count": 47,
+    "gold_candidates_added": 45,
+    "gold_candidates_duplicate_same_label": 2,
+    "gold_candidates_overridden_conflict": 0
+  },
+  "split": {
+    "gold_v2_count": 183,
+    "gold_v2_label_counts": {
+      "BOX": 7,
+      "DANCE": 15,
+      "HIGH\\_FIVE": 3,
+      "NONE": 87,
+      "REST": 11,
+      "SITDOWN": 5,
+      "STAND\\_UP": 5,
+      "STOP": 19,
+      "TURN\\_LEFT": 2,
+      "TURN\\_RIGHT": 2,
+      "WALK\\_BACKWARD": 4,
+      "WALK\\_FORWARD": 6,
+      "WALK\\_LEFT": 2,
+      "WALK\\_RIGHT": 2,
+      "WALK\\_WITH\\_ME": 7,
+      "WAVE": 6
+    },
+    "train_split_count": 733,
+    "train_split_label_counts": {
+      "BOX": 28,
+      "DANCE": 62,
+      "HIGH\\_FIVE": 12,
+      "NONE": 349,
+      "REST": 46,
+      "SITDOWN": 18,
+      "STAND\\_UP": 21,
+      "STOP": 74,
+      "TURN\\_LEFT": 10,
+      "TURN\\_RIGHT": 10,
+      "WALK\\_BACKWARD": 14,
+      "WALK\\_FORWARD": 23,
+      "WALK\\_LEFT": 8,
+      "WALK\\_RIGHT": 8,
+      "WALK\\_WITH\\_ME": 27,
+      "WAVE": 23
+    }
+  },
+  "reviewed_train_only": {
+    "reviewed_total": 90,
+    "reviewed_train_only_candidates": 43,
+    "train_before_reviewed_augment": 733,
+    "reviewed_added": 35,
+    "reviewed_duplicate_same_label": 7,
+    "reviewed_overridden_conflict": 0,
+    "reviewed_skipped_because_in_gold_v2": 1
+  },
+  "outputs": {
+    "gold_v2_out": "data\\gold_v2.jsonl",
+    "train_base_v2_out": "data\\train_base_v2.jsonl",
+    "gold_v2_count": 183,
+    "train_base_v2_count": 768,
+    "train_base_v2_label_counts": {
+      "BOX": 32,
+      "DANCE": 63,
+      "HIGH\\_FIVE": 12,
+      "NONE": 373,
+      "REST": 50,
+      "SITDOWN": 18,
+      "STAND\\_UP": 22,
+      "STOP": 74,
+      "TURN\\_LEFT": 10,
+      "TURN\\_RIGHT": 10,
+      "WALK\\_BACKWARD": 14,
+      "WALK\\_FORWARD": 23,
+      "WALK\\_LEFT": 8,
+      "WALK\\_RIGHT": 8,
+      "WALK\\_WITH\\_ME": 28,
+      "WAVE": 23
+    },
+    "final_leakage_removed_from_train": 0
+  },
+  "none_external_policy": {
+    "used_in_build_gold_v2": false,
+    "none_external_line_count": 8518,
+    "used_in_retrain_when": "Only if NONE target count (none_ratio * command_count) exceeds NONE in train pool.",
+    "action_needed_now": "No immediate action for split/build. Refresh none_external only if you want different external NONE sampling in retrain."
+  }
+}

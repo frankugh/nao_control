@@ -1940,6 +1940,24 @@ def create_app(
 
     _al_key_cache: Dict[str, Dict[str, Any]] = {}
 
+    def _cmdrec_data_path(*names: str) -> str:
+        return os.path.join(repo_root, "py3_command_recognition_train", "data", *names)
+
+    def _active_train_base_relpath() -> str:
+        train_v2 = _cmdrec_data_path("train_base_v2.jsonl")
+        if os.path.exists(train_v2):
+            return "data/train_base_v2.jsonl"
+        return "data/train_base.jsonl"
+
+    def _active_train_base_abspath() -> str:
+        return _cmdrec_data_path(os.path.basename(_active_train_base_relpath()))
+
+    def _active_gold_relpath() -> str:
+        gold_v2 = _cmdrec_data_path("gold_v2.jsonl")
+        if os.path.exists(gold_v2):
+            return "data/gold_v2.jsonl"
+        return "data/gold_v1.jsonl"
+
     def _al_keyset(path: str) -> set[str]:
         try:
             stat = os.stat(path)
@@ -1963,9 +1981,7 @@ def create_app(
         key = _normalize_key(payload.get("text", ""))
         if not key:
             return True
-        train_base_path = os.path.join(
-            repo_root, "py3_command_recognition_train", "data", "train_base.jsonl"
-        )
+        train_base_path = _active_train_base_abspath()
         reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
         auto_train_path = os.path.join(al_dir, "auto_train.jsonl")
         auto_train_queue_path = os.path.join(al_dir, "auto_train_queue.jsonl")
@@ -3302,9 +3318,16 @@ def create_app(
             f"INFO: AL counts: reviewed={reviewed_count} auto_train={auto_count} auto_train_queue={auto_queue_count} new_since_last_retrain={since}"
         )
         _append_retrain_log(f"INFO: Auto-train sample cap: {auto_sample} (50% van reviewed)")
+        train_base_rel = _active_train_base_relpath()
+        gold_rel = _active_gold_relpath()
+        _append_retrain_log(f"INFO: Retrain datasets: train_base={train_base_rel} gold={gold_rel}")
         cmd = [
             _cmdrec_train_python(),
             "tools/retrain_cmdrec.py",
+            "--train-base",
+            train_base_rel,
+            "--gold",
+            gold_rel,
             "--out",
             "auto",
             "--promote-if-better",

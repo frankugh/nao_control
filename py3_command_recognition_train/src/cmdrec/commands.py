@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 from typing import Iterable
 
@@ -37,7 +38,17 @@ def normalize_text(text: str) -> str:
 
 
 def normalize_key(text: str) -> str:
-    return normalize_text(text).casefold()
+    raw = normalize_text(text).casefold()
+    if not raw:
+        return ""
+    cleaned_chars: list[str] = []
+    for ch in raw:
+        cat = unicodedata.category(ch)
+        if cat.startswith("P") or cat.startswith("S"):
+            cleaned_chars.append(" ")
+        else:
+            cleaned_chars.append(ch)
+    return " ".join("".join(cleaned_chars).split()).strip()
 
 
 def parse_label(line: str) -> str | None:
