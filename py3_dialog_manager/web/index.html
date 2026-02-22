@@ -1150,6 +1150,7 @@
                 <label>Client audio output</label>
                 <div class="row">
                   <select id="cfgClientOutputMode">
+                    <option value="text">Uit (alleen tekst)</option>
                     <option value="server">Server config gebruiken</option>
                     <option value="client">Client speakers (browser)</option>
                   </select>
@@ -1710,7 +1711,7 @@
       let commandStopAvailable = false;
       let commandStopLabel = null;
       let clientInputMode = 'client';
-      let clientOutputMode = 'server';
+      let clientOutputMode = 'text';
       let clientSpeechUtterance = null;
       let clientAudioPrefsLoaded = false;
       let promptEditorLoadedName = '';
@@ -2271,7 +2272,7 @@
           if (input === 'client' || input === 'server') {
             clientInputMode = input;
           }
-          if (output === 'client' || output === 'server') {
+          if (output === 'client' || output === 'server' || output === 'text') {
             clientOutputMode = output;
           }
         } catch (_) {}
@@ -2336,7 +2337,9 @@
         if (cfgClientOutputModeNote) {
           cfgClientOutputModeNote.textContent = clientOutputMode === 'server'
             ? 'Antwoorden worden uitgesproken via server-config.'
-            : 'Antwoorden worden uitgesproken via client speakers (browser).';
+            : clientOutputMode === 'client'
+              ? 'Antwoorden worden uitgesproken via client speakers (browser).'
+              : 'Audio uit: antwoorden blijven tekst-only.';
         }
       }
 
@@ -2928,6 +2931,15 @@
       async function refreshCmdNaoState(opts = {}) {
         const showErrors = !!opts.showErrors;
         if (!cmdNaoAwakeState || !cmdNaoAutLifeState) return;
+        if (!showErrors && !cmdNaoHealthAvailable) {
+          cmdNaoReachable = false;
+          cmdNaoIsAwake = null;
+          cmdNaoAutLifeEnabled = null;
+          cmdNaoAutLifeValue = '';
+          if (!cmdNaoActionBusy) setCmdNaoStatus('');
+          renderCmdNaoState();
+          return;
+        }
         if (cmdNaoRefreshBusy) return;
         cmdNaoRefreshBusy = true;
         if (showErrors) {
@@ -5519,7 +5531,9 @@
           if (client) {
             cfgOutputTargetNote.textContent = clientOutputMode === 'server'
               ? 'Client override: server config gebruiken.'
-              : 'Client override: audio afspelen via browser speakers.';
+              : clientOutputMode === 'client'
+                ? 'Client override: audio afspelen via browser speakers.'
+                : 'Client override: audio uit (alleen tekst).';
           } else if (target === 'none') {
             cfgOutputTargetNote.textContent = 'Geen audio output: alleen tekst in UI/logs.';
           } else if (target === 'server') {
@@ -6653,7 +6667,7 @@
           setStatus('Klaar. Je kunt opnieuw opnemen.');
           if (j.emit_used === 'pipeline' && (j.reply || '').trim()) {
             speakingWindowStarted = startSpeakingWindow(j.reply || '');
-          } else if (!isClientOutputUsingServerConfig() && (j.reply || '').trim()) {
+          } else if (clientOutputMode === 'client' && (j.reply || '').trim()) {
             speakingWindowStarted = startClientSpeaking(j.reply || '');
           }
         } catch (e) {
@@ -6920,7 +6934,7 @@
       if (cfgClientOutputMode) {
         cfgClientOutputMode.addEventListener('change', () => {
           const next = (cfgClientOutputMode.value || '').toLowerCase();
-          clientOutputMode = (next === 'client') ? 'client' : 'server';
+          clientOutputMode = (next === 'client' || next === 'server' || next === 'text') ? next : 'text';
           saveClientAudioPrefs();
           updateClientAudioModeUi();
           if (clientOutputMode !== 'client') {

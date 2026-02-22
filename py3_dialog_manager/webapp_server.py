@@ -4610,11 +4610,15 @@ def create_app(
         behavior_enabled = bool(payload.get("behavior_enabled", True))
         nao_ip_enabled = bool(payload.get("nao_ip_enabled", False))
         nao_host, nao_port = _parse_host_port(payload.get("nao_ip"), 9559)
-        base_ping = _check_ping(base_url, "/ping") if base_enabled else False
-        base_nao_ping = _check_ping(base_url, "/is_awake") if base_enabled else False
-        behavior_ping = _check_ping(behavior_url, "/ping") if behavior_enabled else False
-        behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/is_awake") if behavior_enabled else False
         nao_ping = _check_tcp(nao_host, nao_port) if nao_ip_enabled else False
+        # Only probe /is_awake when NAO checks are explicitly enabled and TCP is up.
+        probe_nao_via_services = bool(nao_ip_enabled and nao_ping)
+        base_ping = _check_ping(base_url, "/ping") if base_enabled else False
+        base_nao_ping = _check_ping(base_url, "/is_awake") if (base_enabled and base_ping and probe_nao_via_services) else False
+        behavior_ping = _check_ping(behavior_url, "/ping") if behavior_enabled else False
+        behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/is_awake") if (
+            behavior_enabled and behavior_ping and probe_nao_via_services
+        ) else False
         return jsonify(
             {
                 "ok": True,
