@@ -36,7 +36,7 @@
   "cmdrec": "latest",
   "ptt_use_vad": false,
   "llm_type": "ollama_cloud",
-  "llm_model": "gpt-oss:120b",
+  "llm_model": "gpt-oss:120b-cloud",
   "master_prompt_file": "master_prompts/atlantis_Renee.txt",
   "master_prompt_text": null,
   "output_nao_tts": false,

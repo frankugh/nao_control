@@ -43,7 +43,7 @@ class StubCmdRec:
         return label.upper() in self._guarded
 
 
-def _make_app(monkeypatch, decisions, guarded_labels):
+def _make_app(monkeypatch, decisions, guarded_labels, *, confirm_policy: str = "when_guarded"):
     executor = StubExecutor()
     base_pipeline = SimpleNamespace(
         llm=StubLLMBackend(),
@@ -62,6 +62,7 @@ def _make_app(monkeypatch, decisions, guarded_labels):
     app, _, _ = webapp_server.create_app(
         cfg={
             "confirm_method": "web",
+            "confirm_policy": confirm_policy,
             "confirm_timeout_s": 10.0,
             "output": {"type": "console"},
         },
@@ -115,6 +116,45 @@ def test_guarded_command_cancel(monkeypatch):
     assert data2["ok"] is True
     assert executor.calls == 0
     assert "Geannuleerd" in data2["history"][-1]["content"]
+
+
+def test_confirm_policy_never_executes_guarded_without_confirm(monkeypatch):
+    decisions = {
+        "actie": RouteDecision(
+            is_command=True,
+            command=CommandDecision(label="REST", confidence=0.9, raw_text="actie"),
+            top3=[("REST", 0.9)],
+        )
+    }
+    app, executor = _make_app(monkeypatch, decisions, {"REST"}, confirm_policy="never")
+    client = app.test_client()
+
+    resp = client.post("/api/send", json={"text": "actie"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert executor.calls == 1
+    assert all(msg.get("type") != "confirm_required" for msg in data["history"])
+    assert "Uitgevoerd: REST" in data["history"][-1]["content"]
+
+
+def test_confirm_policy_always_confirms_even_unguarded(monkeypatch):
+    decisions = {
+        "actie": RouteDecision(
+            is_command=True,
+            command=CommandDecision(label="REST", confidence=0.9, raw_text="actie"),
+            top3=[("REST", 0.9)],
+        )
+    }
+    app, executor = _make_app(monkeypatch, decisions, set(), confirm_policy="always")
+    client = app.test_client()
+
+    resp = client.post("/api/send", json={"text": "actie"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert executor.calls == 0
+    assert data["history"][-1]["type"] == "confirm_required"
 
 
 def test_stop_bypasses_guard_and_cancels_pending(monkeypatch):

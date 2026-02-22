@@ -514,6 +514,7 @@
       .inline-apply { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; margin-top: 4px; }
       .row .inline-apply, .field-row .inline-apply { margin-top: 0; flex: 1 1 220px; min-width: 200px; }
       .inline-apply > input { min-width: 0; }
+      .inline-apply > select { min-width: 0; }
       .inline-apply .input-apply-btn { padding: 4px 8px; font-size: 12px; line-height: 1; display: none; }
       .dirty-note { font-size: 12px; color: #b00020; }
 
@@ -1256,23 +1257,26 @@
                 <select id="cfgCmdrec"></select>
               </div>
               <div>
-                <label>Confirm policy</label>
-                <select id="cfgConfirmPolicy">
+                <label title="when_guarded: alleen bevestigen voor guarded commands. always: altijd bevestigen. never: nooit bevestigen.">Confirm policy</label>
+                <select id="cfgConfirmPolicy" title="when_guarded: alleen bevestigen voor guarded commands. always: altijd bevestigen. never: nooit bevestigen.">
                   <option value="when_guarded">when_guarded</option>
                   <option value="always">always</option>
+                  <option value="never">never</option>
                 </select>
               </div>
               <div>
                 <label>Dialog (LLM)</label>
-                <div class="row">
-                  <select id="cfgLlmType">
-                    <option value="echo">echo</option>
-                    <option value="ollama_local">ollama_local</option>
-                    <option value="ollama_cloud">ollama_cloud</option>
-                  </select>
-                  <input id="cfgLlmModel" type="text" placeholder="model name" list="ollamaModels" />
-                  <datalist id="ollamaModels"></datalist>
-                </div>
+                <select id="cfgLlmType">
+                  <option value="echo">echo</option>
+                  <option value="ollama_local">ollama_local</option>
+                  <option value="ollama_cloud">ollama_cloud</option>
+                </select>
+              </div>
+              <div>
+                <label>Model naam</label>
+                <select id="cfgLlmModel" title="Model selectie op basis van ollama list">
+                  <option value="">-- kies model --</option>
+                </select>
               </div>
               <div>
                 <label>Master prompt</label>
@@ -1527,7 +1531,6 @@
       const cfgLlmTopK = document.getElementById('cfgLlmTopK');
       const cfgLlmAdvancedNote = document.getElementById('cfgLlmAdvancedNote');
       const cfgMasterPrompt = document.getElementById('cfgMasterPrompt');
-      const ollamaModels = document.getElementById('ollamaModels');
       const btnResetCfg = document.getElementById('btnResetCfg');
       const btnRefreshCfg = document.getElementById('btnRefreshCfg');
       const cfgStatus = document.getElementById('cfgStatus');
@@ -1572,6 +1575,7 @@
       let lastAppliedNaoIp = '';
       let ollamaLocalModels = [];
       let ollamaCloudModels = [];
+      let desiredLlmModel = '';
       let piperDefaultsByPath = {};
       let lastPiperDefaults = null;
       let lastTtsEngineValue = null;
@@ -5160,7 +5164,8 @@
         cfgCmdrec.value = cmdrecValue;
         cfgConfirmPolicy.value = cfg.confirm_policy || 'when_guarded';
         cfgLlmType.value = cfg.llm_type || 'echo';
-        cfgLlmModel.value = cfg.llm_model || '';
+        desiredLlmModel = String(cfg.llm_model || '').trim();
+        cfgLlmModel.value = desiredLlmModel;
         cfgLlmModel.classList.toggle('dirty', false);
         if (cfgLlmTemperature) {
           cfgLlmTemperature.value = cfg.llm_temperature == null ? '' : String(cfg.llm_temperature);
@@ -5776,12 +5781,37 @@
         }
       }
 
+      function isCloudModelName(name) {
+        return /cloud$/i.test(String(name || '').trim());
+      }
+
+      function dedupeModelList(values) {
+        const out = [];
+        const seen = new Set();
+        (values || []).forEach((value) => {
+          const name = String(value || '').trim();
+          if (!name) return;
+          const key = name.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          out.push(name);
+        });
+        return out;
+      }
+
       async function loadOllamaModels(kind) {
         const endpoint = kind === 'local' ? '/api/ollama_models_local' : '/api/ollama_models_cloud';
-        const r = await fetch(endpoint);
-        const j = await r.json();
-        if (!j.ok) return;
-        const models = (j.models || []).slice();
+        let j = { ok: false, models: [] };
+        try {
+          const r = await fetch(endpoint);
+          j = await r.json();
+        } catch (_) {
+          j = { ok: false, models: [] };
+        }
+        const rawModels = dedupeModelList(j.models || []);
+        const models = kind === 'cloud'
+          ? rawModels.filter((name) => isCloudModelName(name))
+          : rawModels.filter((name) => !isCloudModelName(name));
         if (kind === 'local') {
           ollamaLocalModels = models;
         } else {
@@ -5793,20 +5823,33 @@
       function renderOllamaModels() {
         const kind = cfgLlmType.value === 'ollama_cloud' ? 'cloud' : 'local';
         const models = kind === 'cloud' ? ollamaCloudModels : ollamaLocalModels;
-        ollamaModels.innerHTML = '';
-        models.forEach(name => {
+        const existing = String(cfgLlmModel.value || '').trim();
+        const desired = String(desiredLlmModel || '').trim();
+        cfgLlmModel.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '-- kies model --';
+        cfgLlmModel.appendChild(placeholder);
+        models.forEach((name) => {
           const opt = document.createElement('option');
           opt.value = name;
-          ollamaModels.appendChild(opt);
+          opt.textContent = name;
+          cfgLlmModel.appendChild(opt);
         });
-        if (models.length && !models.includes(cfgLlmModel.value)) {
+        const target = desired || existing;
+        if (target && models.includes(target)) {
+          cfgLlmModel.value = target;
+          desiredLlmModel = '';
+        } else {
           cfgLlmModel.value = '';
         }
+        updateLlmConfigAvailability();
       }
 
       function updateLlmConfigAvailability() {
         const echoMode = cfgLlmType.value === 'echo';
-        cfgLlmModel.disabled = echoMode;
+        const hasChoices = cfgLlmModel.options.length > 1;
+        cfgLlmModel.disabled = echoMode || !hasChoices;
         if (cfgMasterPrompt) cfgMasterPrompt.disabled = echoMode;
         [cfgLlmTemperature, cfgLlmTopP, cfgLlmTopK].forEach((el) => {
           if (!el) return;
@@ -6088,6 +6131,11 @@
         cfgStatus.textContent = silent ? '' : 'Applied';
         renderPrompt(j.system_prompt || '');
         applyConfigToForm(j.runtime_config || j.config || cfg, j.effective_config || null);
+        if (cfgLlmType.value === 'ollama_local') {
+          try { await loadOllamaModels('local'); } catch (_) {}
+        } else if (cfgLlmType.value === 'ollama_cloud') {
+          try { await loadOllamaModels('cloud'); } catch (_) {}
+        }
         refreshProcessStatus();
         refreshProcessLogs();
         refreshCustomLifeState(true);
@@ -6131,6 +6179,11 @@
           const j = await r.json();
           if (!j.ok) return;
           applyConfigToForm(j.runtime_config || {}, j.effective_config || null);
+          if (cfgLlmType.value === 'ollama_local') {
+            try { await loadOllamaModels('local'); } catch (_) {}
+          } else if (cfgLlmType.value === 'ollama_cloud') {
+            try { await loadOllamaModels('cloud'); } catch (_) {}
+          }
           refreshProcessStatus();
           refreshProcessLogs();
         } catch (_) {}
@@ -6823,6 +6876,7 @@
       cfgLlmType.addEventListener('change', () => {
         updateLlmConfigAvailability();
         if (cfgLlmType.value === 'echo') {
+          desiredLlmModel = '';
           cfgLlmModel.value = '';
           cfgLlmModel.classList.remove('dirty');
           cfgLlmModel.dispatchEvent(new Event('input'));
@@ -6836,6 +6890,7 @@
         } else if (cfgLlmType.value === 'ollama_cloud') {
           loadOllamaModels('cloud').catch(() => {});
         }
+        desiredLlmModel = '';
         cfgLlmModel.value = '';
         cfgLlmModel.classList.add('dirty');
         cfgLlmModel.dispatchEvent(new Event('input'));
@@ -7190,6 +7245,7 @@
       const applyLlmAdvancedNow = () => applyRuntimeConfig(getConfigFromForm(), false, false);
 
       cfgLlmModel.addEventListener('change', () => {
+        desiredLlmModel = String(cfgLlmModel.value || '').trim();
         applyLlmModelNow();
       });
       if (cfgLlmTemperature) {
@@ -7211,7 +7267,6 @@
       addApplyButtonForInput(cfgVadMaxUtter, { id: 'btnApplyVadMaxUtter', label: 'VAD toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgAzureInitialSilence, { id: 'btnApplyAzureInitialSilence', label: 'Azure STT toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgAzureEndSilence, { id: 'btnApplyAzureEndSilence', label: 'Azure STT toepassen', onApply: applyConfigNow });
-      addApplyButtonForInput(cfgLlmModel, { id: 'btnApplyLlmModel', label: 'LLM model toepassen', onApply: applyLlmModelNow });
       addApplyButtonForInput(cfgLlmTemperature, { id: 'btnApplyLlmTemperature', label: 'LLM advanced toepassen', onApply: applyLlmAdvancedNow });
       addApplyButtonForInput(cfgLlmTopP, { id: 'btnApplyLlmTopP', label: 'LLM advanced toepassen', onApply: applyLlmAdvancedNow });
       addApplyButtonForInput(cfgLlmTopK, { id: 'btnApplyLlmTopK', label: 'LLM advanced toepassen', onApply: applyLlmAdvancedNow });

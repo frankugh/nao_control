@@ -109,6 +109,7 @@ _MIC_VAD_KEYS = {
 _WAKE_MODE_VALUES = {"never", "always", "timeout"}
 _DEFAULT_WAKE_WORDS = ["NAO", "Alex"]
 _LISTEN_MODE_VALUES = {"ptt", "continuous"}
+_CONFIRM_POLICY_VALUES = {"when_guarded", "always", "never"}
 _UI_ACTIVE_TAB_VALUES = {"prompt", "runtime", "commands", "camera", "review", "retrain", "logs"}
 _UI_COLOR_SCHEME_VALUES = {
     "default",
@@ -304,6 +305,13 @@ def _clean_listen_mode(raw: Any) -> str:
     if value in _LISTEN_MODE_VALUES:
         return value
     return "ptt"
+
+
+def _clean_confirm_policy(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    if value in _CONFIRM_POLICY_VALUES:
+        return value
+    return "when_guarded"
 
 
 def _clean_ui_active_tab(raw: Any) -> str:
@@ -515,7 +523,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         input_device = "nao_ssh"
 
     return {
-        "confirm_policy": (cfg_src.get("confirm_policy") or "when_guarded"),
+        "confirm_policy": _clean_confirm_policy(cfg_src.get("confirm_policy")),
         "robot_name": _clean_robot_name(cfg_src.get("robot_name") or cfg_src.get("agent_name") or ""),
         "nao_base_url": (fallback.get("base_url") or "").rstrip("/"),
         "behavior_manager_url": behavior_manager_url,
@@ -588,6 +596,7 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
     cfg_out["robot_name"] = _clean_robot_name(runtime_cfg.get("robot_name") or cfg_out.get("robot_name") or "")
     cfg_out["ui_color_scheme"] = _clean_ui_color_scheme(runtime_cfg.get("ui_color_scheme", cfg_out.get("ui_color_scheme", "default")))
+    cfg_out["confirm_policy"] = _clean_confirm_policy(runtime_cfg.get("confirm_policy", cfg_out.get("confirm_policy", "when_guarded")))
 
     if "nao_connection" in cfg_out:
         nao_conn = cfg_out["nao_connection"] or {}
@@ -876,6 +885,7 @@ def create_app(
 
     def _sanitize_runtime_cfg_inplace(cfg_obj: JsonLike) -> JsonLike:
         cfg_obj["listen_mode"] = _clean_listen_mode(cfg_obj.get("listen_mode", "ptt"))
+        cfg_obj["confirm_policy"] = _clean_confirm_policy(cfg_obj.get("confirm_policy", "when_guarded"))
         cfg_obj["ui_active_tab"] = _clean_ui_active_tab(cfg_obj.get("ui_active_tab", "prompt"))
         cfg_obj["ui_color_scheme"] = _clean_ui_color_scheme(cfg_obj.get("ui_color_scheme", "default"))
         cfg_obj["robot_name"] = _clean_robot_name(cfg_obj.get("robot_name", ""))
@@ -1570,11 +1580,13 @@ def create_app(
                 payload["debug"] = debug
             return payload
 
-        confirm_policy = (runtime_cfg.get("confirm_policy") or base_cfg.get("confirm_policy") or "when_guarded").lower()
+        confirm_policy = _clean_confirm_policy(runtime_cfg.get("confirm_policy") or base_cfg.get("confirm_policy"))
         confirm_needed = False
         if confirm_method != "none":
             if confirm_policy == "always":
                 confirm_needed = True
+            elif confirm_policy == "never":
+                confirm_needed = False
             else:
                 confirm_needed = bool(cmdrec_obj and cmdrec_obj.is_guarded(cmd.label))
 
@@ -4417,10 +4429,9 @@ def create_app(
             return jsonify({"ok": True, "presets": presets})
         return jsonify({"ok": False, "error": "preset bestaat niet"}), 404
 
-    @app.get("/api/ollama_models_local")
-    def api_ollama_models_local():
+    def _split_ollama_models() -> Tuple[List[str], List[str], Optional[str]]:
         if not shutil.which("ollama"):
-            return jsonify({"ok": True, "models": [], "error": "ollama cli niet gevonden"})
+            return [], [], "ollama cli niet gevonden"
         try:
             proc = subprocess.run(
                 ["ollama", "list"],
@@ -4430,18 +4441,47 @@ def create_app(
                 check=False,
             )
             lines = (proc.stdout or "").splitlines()
-            models = []
+            local_models: List[str] = []
+            cloud_models: List[str] = []
+            seen_local = set()
+            seen_cloud = set()
             for line in lines[1:]:
                 parts = line.split()
-                if parts:
-                    models.append(parts[0])
-            return jsonify({"ok": True, "models": models})
+                if not parts:
+                    continue
+                name = str(parts[0] or "").strip()
+                if not name:
+                    continue
+                key = name.lower()
+                if key.endswith("cloud"):
+                    if key in seen_cloud:
+                        continue
+                    seen_cloud.add(key)
+                    cloud_models.append(name)
+                else:
+                    if key in seen_local:
+                        continue
+                    seen_local.add(key)
+                    local_models.append(name)
+            return local_models, cloud_models, None
         except Exception as exc:
-            return jsonify({"ok": True, "models": [], "error": str(exc)})
+            return [], [], str(exc)
+
+    @app.get("/api/ollama_models_local")
+    def api_ollama_models_local():
+        local_models, _cloud_models, err = _split_ollama_models()
+        payload = {"ok": True, "models": local_models}
+        if err:
+            payload["error"] = err
+        return jsonify(payload)
 
     @app.get("/api/ollama_models_cloud")
     def api_ollama_models_cloud():
-        return jsonify({"ok": True, "models": ["gpt-oss:120b", "gpt-oss:20b"]})
+        _local_models, cloud_models, err = _split_ollama_models()
+        payload = {"ok": True, "models": cloud_models}
+        if err:
+            payload["error"] = err
+        return jsonify(payload)
 
     @app.get("/api/runtime_config")
     def api_runtime_config():
@@ -4834,12 +4874,12 @@ def create_app(
                     "cmdrec": "latest",
                     "confirm_policy": "when_guarded",
                     "llm_type": "ollama_cloud",
-                    "llm_model": "gpt-oss:120b",
+                    "llm_model": "gpt-oss:120b-cloud",
                     "ui_color_scheme": "default",
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,
-                    "master_prompt_file": "master_prompts/atlantis.txt",
+                    "master_prompt_file": "master_prompts/atlantis_Alex.txt",
                 },
             },
         ]
