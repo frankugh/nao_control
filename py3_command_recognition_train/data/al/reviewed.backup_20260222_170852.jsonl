@@ -22,6 +22,7 @@
 {"text": "kun je ook dat happy dansje doen", "label": "NONE", "source": "al_reviewed"}
 {"text": "Nou duidelijk hoor, geef maar een box.", "label": "BOX", "source": "ui_review"}
 {"text": "Alex, Waar kom je vandaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "vertel eens iets.", "label": "NONE", "source": "al_reviewed"}
 {"text": "vertel eens wat leuks", "label": "NONE", "source": "al_reviewed"}
 {"text": "Vertel eens wie je bent?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Het stoombootje.", "label": "NONE", "source": "al_reviewed"}
@@ -29,6 +30,7 @@
 {"text": "Oké, We zijn klaar, ga maar slapen.", "label": "REST", "source": "al_reviewed"}
 {"text": "Wie ben jij?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Vertel eens iets over draken?", "label": "NONE", "source": "al_reviewed"}
+{"text": "hoe gaat het?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Welke dansjes kun je?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Vind je het nu leuk bij ons om te wonen?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Oh, dat lijkt best goed.", "label": "NONE", "source": "al_reviewed"}
@@ -75,6 +77,7 @@
 {"text": "Hoe kan ik verstandig met AI omgaan?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Kun je wat vertellen over jezelf?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Nou, Ik vind programmeren wel heel complex klinken. Wat je aangeeft kun je ook gewoon wat richtlijnen geven voor hoe ik dat verstandig doe.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Sta eens op.", "label": "STAND\\_UP", "source": "al_reviewed"}
 {"text": "OK zet je motoren maar weer uit.", "label": "REST", "source": "al_reviewed"}
 {"text": "Geef eens een boks dan?", "label": "BOX", "source": "al_reviewed"}
 {"text": "ehm, kun je iets vertellen over draken?", "label": "NONE", "source": "al_reviewed"}
@@ -86,5 +89,3 @@
 {"text": "zit", "label": "SITDOWN", "source": "al_reviewed"}
 {"text": "ga maar zitten", "label": "SITDOWN", "source": "al_reviewed"}
 {"text": "oké zet je motoren maar uit", "label": "REST", "source": "al_reviewed"}
-{"text": "Dag robot. Vertel me eens iets belangrijks", "label": "NONE", "source": "al_reviewed"}
-{"text": "Wat is daar dan gebeurt? Lucht je metalen hart joh", "label": "NONE", "source": "al_reviewed"}

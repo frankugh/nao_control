@@ -198,6 +198,37 @@ def cap_error_cases(
     return capped
 
 
+def build_system_disagreement_cases(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Return only cases where the system decision differs from the raw ML decision.
+    Adds explicit comparison fields so it's immediately visible whether the
+    system improved or harmed the outcome.
+    """
+    out: list[dict[str, Any]] = []
+    for record in records:
+        ml_pred = record.get("ml_pred_label")
+        system_pred = record.get("system_pred_label")
+        true_label = record.get("true_label")
+        if ml_pred == system_pred:
+            continue
+        ml_correct = ml_pred == true_label
+        system_correct = system_pred == true_label
+        if system_correct and not ml_correct:
+            outcome = "system_fixed_ml_error"
+        elif ml_correct and not system_correct:
+            outcome = "system_overrode_ml_correct"
+        else:
+            outcome = "both_wrong_different_choice"
+        reason = "stop_rule_override" if bool(record.get("stop_rule_hit")) else "system_override"
+        enriched = dict(record)
+        enriched["ml_correct"] = ml_correct
+        enriched["system_correct"] = system_correct
+        enriched["comparison_outcome"] = outcome
+        enriched["comparison_reason"] = reason
+        out.append(enriched)
+    return out
+
+
 def build_error_summary(
     y_true: list[str],
     ml_preds: list[str],
@@ -216,12 +247,27 @@ def build_error_summary(
             row[pred_label] = row.get(pred_label, 0) + 1
         return matrix
 
+    diff_pairs = [
+        (true_label, ml_pred, system_pred)
+        for true_label, ml_pred, system_pred in zip(y_true, ml_preds, system_preds)
+        if ml_pred != system_pred
+    ]
+    system_better = sum(1 for true_label, ml_pred, system_pred in diff_pairs if system_pred == true_label and ml_pred != true_label)
+    ml_better = sum(1 for true_label, ml_pred, system_pred in diff_pairs if ml_pred == true_label and system_pred != true_label)
+    both_wrong = sum(1 for true_label, ml_pred, system_pred in diff_pairs if ml_pred != true_label and system_pred != true_label)
+
     return {
         "true_label_counts": count_labels(y_true),
         "ml_pred_label_counts": count_labels(ml_preds),
         "system_pred_label_counts": count_labels(system_preds),
         "ml_confusion_counts": confusion_counts(y_true, ml_preds),
         "system_confusion_counts": confusion_counts(y_true, system_preds),
+        "system_ml_disagreement_count": len(diff_pairs),
+        "system_ml_disagreement_breakdown": {
+            "system_better": system_better,
+            "ml_better": ml_better,
+            "both_wrong": both_wrong,
+        },
     }
 
 
@@ -466,6 +512,7 @@ def main() -> None:
     error_export = {
         "ml_error_count": 0,
         "system_error_count": 0,
+        "system_disagreement_count": 0,
         "error_cases_ml_path": None,
         "error_cases_system_path": None,
         "error_summary_path": None,
@@ -482,7 +529,7 @@ def main() -> None:
         classes = error_pipeline.named_steps["clf"].classes_
         records = build_error_records(x_val, y_val, val_proba, classes, best.threshold, best.margin)
         ml_errors = [record for record in records if record["ml_pred_label"] != record["true_label"]]
-        system_errors = [record for record in records if record["system_pred_label"] != record["true_label"]]
+        system_errors = build_system_disagreement_cases(records)
 
         ml_errors = cap_error_cases(ml_errors)
         system_errors = cap_error_cases(system_errors)
@@ -502,13 +549,14 @@ def main() -> None:
             {
                 "ml_error_count": len(ml_errors),
                 "system_error_count": len(system_errors),
+                "system_disagreement_count": len(system_errors),
                 "error_cases_ml_path": str(ml_error_path),
                 "error_cases_system_path": str(system_error_path),
                 "error_summary_path": str(summary_path),
             }
         )
         LOGGER.info(
-            "Wrote %s ML errors and %s SYSTEM errors to %s",
+            "Wrote %s ML errors and %s SYSTEM-vs-ML disagreements to %s",
             len(ml_errors),
             len(system_errors),
             args.out,

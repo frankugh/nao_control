@@ -395,6 +395,7 @@ def main() -> None:
     error_export = {
         "ml_error_count": 0,
         "system_error_count": 0,
+        "system_disagreement_count": 0,
         "error_cases_ml_path": None,
         "error_cases_system_path": None,
         "error_summary_path": None,
@@ -411,7 +412,7 @@ def main() -> None:
         classes = error_pipeline.named_steps["clf"].classes_
         records = train_mod.build_error_records(x_val, y_val, val_proba, classes, best.threshold, best.margin)
         ml_errors = [record for record in records if record["ml_pred_label"] != record["true_label"]]
-        system_errors = [record for record in records if record["system_pred_label"] != record["true_label"]]
+        system_errors = train_mod.build_system_disagreement_cases(records)
 
         ml_errors = train_mod.cap_error_cases(ml_errors)
         system_errors = train_mod.cap_error_cases(system_errors)
@@ -431,13 +432,14 @@ def main() -> None:
             {
                 "ml_error_count": len(ml_errors),
                 "system_error_count": len(system_errors),
+                "system_disagreement_count": len(system_errors),
                 "error_cases_ml_path": str(ml_error_path),
                 "error_cases_system_path": str(system_error_path),
                 "error_summary_path": str(summary_path),
             }
         )
         LOGGER.info(
-            "Wrote %s ML errors and %s SYSTEM errors to %s",
+            "Wrote %s ML errors and %s SYSTEM-vs-ML disagreements to %s",
             len(ml_errors),
             len(system_errors),
             args.out,

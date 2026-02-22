@@ -30,6 +30,7 @@ import subprocess
 import socket
 import sys
 import math
+import unicodedata
 from pathlib import Path
 import signal
 from urllib.parse import urlparse
@@ -2011,7 +2012,36 @@ def create_app(
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def _normalize_key(text: str) -> str:
-        return " ".join((text or "").split()).strip().casefold()
+        raw = (text or "").casefold()
+        if not raw:
+            return ""
+        # Treat punctuation/symbol-only differences as duplicates in AL datasets.
+        cleaned_chars: List[str] = []
+        for ch in raw:
+            cat = unicodedata.category(ch)
+            if cat.startswith("P") or cat.startswith("S"):
+                cleaned_chars.append(" ")
+            else:
+                cleaned_chars.append(ch)
+        return " ".join("".join(cleaned_chars).split()).strip()
+
+    def _dedupe_al_text_entries(entries: List[Dict[str, Any]], *, keep: str = "newest") -> List[Dict[str, Any]]:
+        keep_newest = str(keep or "newest").strip().lower() != "oldest"
+        src = reversed(entries) if keep_newest else iter(entries)
+        out: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for entry in src:
+            if not isinstance(entry, dict):
+                continue
+            key = _normalize_key(entry.get("text", ""))
+            if key:
+                if key in seen:
+                    continue
+                seen.add(key)
+            out.append(entry)
+        if keep_newest:
+            out.reverse()
+        return out
 
     def _al_state_path() -> str:
         return os.path.join(al_dir, "retrain_state.json")
@@ -3257,7 +3287,10 @@ def create_app(
         auto_train_path = os.path.join(al_dir, "auto_train.jsonl")
         auto_queue_path = os.path.join(al_dir, "auto_train_queue.jsonl")
         with al_lock:
-            reviewed_count = len(_load_jsonl(reviewed_path))
+            reviewed_entries = _dedupe_al_text_entries(_load_jsonl(reviewed_path), keep="newest")
+            if reviewed_entries:
+                _write_jsonl(reviewed_entries, reviewed_path)
+            reviewed_count = len(reviewed_entries)
             auto_count = len(_load_jsonl(auto_train_path))
             auto_queue_count = len(_load_jsonl(auto_queue_path))
         auto_sample = int(math.floor(0.5 * reviewed_count))
@@ -3398,6 +3431,7 @@ def create_app(
             offset, limit = 0, 20
         reviewed_path = os.path.join(al_dir, "reviewed.jsonl")
         entries = _load_jsonl(reviewed_path)
+        entries = _dedupe_al_text_entries(entries, keep="newest")
         entries = list(reversed(entries))
         page, total = _paginate(entries, offset, limit)
         return jsonify({"ok": True, "items": page, "total": total, "offset": offset, "limit": limit})
@@ -3477,6 +3511,7 @@ def create_app(
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with al_lock:
             source_entries = _load_jsonl(source_path)
+            source_entries = _dedupe_al_text_entries(source_entries, keep="newest")
             base_entry = None
             if entry_id:
                 for entry in source_entries:
@@ -3506,6 +3541,7 @@ def create_app(
             suggested = str(suggested).strip().upper() or "NONE"
 
             queue_entries = _load_jsonl(queue_path)
+            queue_entries = _dedupe_al_text_entries(queue_entries, keep="newest")
             queue_keys = {_normalize_key(entry.get("text", "")) for entry in queue_entries}
             key = _normalize_key(text)
 
@@ -3597,6 +3633,7 @@ def create_app(
 
         with al_lock:
             reviewed_entries = _load_jsonl(reviewed_path)
+            reviewed_entries = _dedupe_al_text_entries(reviewed_entries, keep="newest")
             reviewed_keys = {_normalize_key(entry.get("text", "")) for entry in reviewed_entries}
             key = _normalize_key(text)
             added_reviewed = False
@@ -3614,6 +3651,7 @@ def create_app(
 
             if gold_candidate:
                 gold_entries = _load_jsonl(gold_candidates_path)
+                gold_entries = _dedupe_al_text_entries(gold_entries, keep="newest")
                 gold_keys = {_normalize_key(entry.get("text", "")) for entry in gold_entries}
                 if key and key not in gold_keys:
                     gold_entries.append({"text": text, "label": label, "source": "al_gold_candidate"})
@@ -3653,6 +3691,7 @@ def create_app(
 
         with al_lock:
             queue_entries = _load_jsonl(queue_path)
+            queue_entries = _dedupe_al_text_entries(queue_entries, keep="newest")
             base_entry = None
             if rid:
                 for entry in queue_entries:
@@ -3690,6 +3729,7 @@ def create_app(
             added_reviewed = False
             if keep:
                 reviewed_entries = _load_jsonl(reviewed_path)
+                reviewed_entries = _dedupe_al_text_entries(reviewed_entries, keep="newest")
                 reviewed_keys = {_normalize_key(entry.get("text", "")) for entry in reviewed_entries}
                 key = _normalize_key(text)
                 if key and key not in reviewed_keys:
@@ -3704,6 +3744,7 @@ def create_app(
 
                 if gold_candidate:
                     gold_entries = _load_jsonl(gold_candidates_path)
+                    gold_entries = _dedupe_al_text_entries(gold_entries, keep="newest")
                     gold_keys = {_normalize_key(entry.get("text", "")) for entry in gold_entries}
                     if key and key not in gold_keys:
                         gold_entries.append({"text": text, "label": reviewed_label, "source": "al_gold_candidate"})
