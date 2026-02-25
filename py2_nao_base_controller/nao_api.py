@@ -1403,14 +1403,25 @@ def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
     proxy = get_proxy(module_name)
     method = getattr(proxy, method_name)
 
-    # 2) args/kwargs als bytes/str voor NAOqi
+    # 2) args/kwargs recursief converteren naar NAOqi-veilige types.
+    # NAOqi 2.1 verwacht bytes (std::string) in nested ALValue structs.
     def ensure_naoqi_arg(x):
         if isinstance(x, unicode_type):
             return x.encode("utf-8")  # unicode -> bytes
-        return x                     # str/bytes/nummers etc. laten staan
+        if isinstance(x, list):
+            return [ensure_naoqi_arg(v) for v in x]
+        if isinstance(x, tuple):
+            return tuple(ensure_naoqi_arg(v) for v in x)
+        if isinstance(x, dict):
+            out = {}
+            for k, v in x.items():
+                kk = k.encode("utf-8") if isinstance(k, unicode_type) else k
+                out[kk] = ensure_naoqi_arg(v)
+            return out
+        return x  # str/bytes/nummers etc. laten staan
 
     args = [ensure_naoqi_arg(a) for a in args]
-    kwargs = {k: ensure_naoqi_arg(v) for (k, v) in kwargs.items()}
+    kwargs = {ensure_naoqi_arg(k): ensure_naoqi_arg(v) for (k, v) in kwargs.items()}
 
     return method(*args, **kwargs)
 

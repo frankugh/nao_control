@@ -44,6 +44,8 @@ def test_runtime_config_defaults_include_ui_preferences(monkeypatch):
     cfg = data["config"]
     assert cfg["listen_mode"] == "ptt"
     assert cfg["ui_active_tab"] == "prompt"
+    assert cfg["locomotion_frequency"] == 0.2
+    assert cfg["locomotion_arms_enabled"] is True
 
 
 def test_runtime_config_ui_preferences_persist_and_are_cleaned(monkeypatch):
@@ -74,6 +76,33 @@ def test_runtime_config_ui_preferences_persist_and_are_cleaned(monkeypatch):
     assert data2["ok"] is True
     assert data2["config"]["listen_mode"] == "ptt"
     assert data2["config"]["ui_active_tab"] == "prompt"
+    assert data2["config"]["locomotion_frequency"] == 0.2
+    assert data2["config"]["locomotion_arms_enabled"] is True
+
+
+def test_runtime_config_locomotion_values_are_clamped(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    high_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"locomotion_frequency": 9.0, "locomotion_arms_enabled": False}},
+    )
+    assert high_resp.status_code == 200
+    high_data = high_resp.get_json()
+    assert high_data["ok"] is True
+    assert high_data["config"]["locomotion_frequency"] == 1.0
+    assert high_data["config"]["locomotion_arms_enabled"] is False
+
+    low_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"locomotion_frequency": -1.0, "locomotion_arms_enabled": True}},
+    )
+    assert low_resp.status_code == 200
+    low_data = low_resp.get_json()
+    assert low_data["ok"] is True
+    assert low_data["config"]["locomotion_frequency"] == 0.05
+    assert low_data["config"]["locomotion_arms_enabled"] is True
 
 
 def test_runtime_config_defaults_read_output_router_params(monkeypatch):
@@ -114,3 +143,28 @@ def test_runtime_config_robot_name_defaults_and_cleaning(monkeypatch):
     clear_data = clear_resp.get_json()
     assert clear_data["ok"] is True
     assert clear_data["config"]["robot_name"] == ""
+
+
+def test_runtime_config_rejects_urls_that_point_to_webapp_itself(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    base_resp = client.post(
+        "/api/runtime_config",
+        base_url="http://127.0.0.1:5102",
+        json={"config": {"nao_base_url": "http://127.0.0.1:5102"}},
+    )
+    assert base_resp.status_code == 400
+    base_data = base_resp.get_json()
+    assert base_data["ok"] is False
+    assert base_data["field"] == "nao_base_url"
+
+    behavior_resp = client.post(
+        "/api/runtime_config",
+        base_url="http://127.0.0.1:5102",
+        json={"config": {"behavior_manager_url": "http://127.0.0.1:5102"}},
+    )
+    assert behavior_resp.status_code == 400
+    behavior_data = behavior_resp.get_json()
+    assert behavior_data["ok"] is False
+    assert behavior_data["field"] == "behavior_manager_url"

@@ -121,7 +121,7 @@
         "robot_name": "Renee",
         "nao_ip": "192.168.68.102",
         "nao_ip_enabled": true,
-        "nao_base_url": "http://127.0.0.1:5102",
+        "nao_base_url": "http://127.0.0.1:5103",
         "behavior_manager_url": "http://127.0.0.1:5202",
         "base_enabled": true,
         "behavior_enabled": false,

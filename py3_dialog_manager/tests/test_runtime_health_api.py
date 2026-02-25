@@ -215,3 +215,37 @@ def test_runtime_health_respects_base_and_behavior_enable_flags(monkeypatch):
         "http://behavior:5001/ping",
         "http://behavior:5001/nao/is_awake",
     ]
+
+
+def test_runtime_health_flags_conflict_when_base_url_points_to_webapp(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    get_calls = []
+
+    def fake_get(url, timeout=0, **_kwargs):  # pragma: no cover
+        get_calls.append((url, timeout))
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.socket, "create_connection", lambda *_a, **_k: _ConnOk())
+
+    resp = client.post(
+        "/api/runtime_health",
+        base_url="http://127.0.0.1:5102",
+        json={
+            "nao_base_url": "http://127.0.0.1:5102",
+            "behavior_manager_url": "http://behavior:5202",
+            "base_enabled": True,
+            "behavior_enabled": False,
+            "nao_ip_enabled": False,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["base"]["ping"] is False
+    assert data["base"]["nao_ping"] is False
+    assert data["base"]["conflict"] is True
+    assert data["behavior"]["conflict"] is False
+    assert get_calls == []

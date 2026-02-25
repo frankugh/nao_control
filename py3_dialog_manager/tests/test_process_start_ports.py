@@ -137,6 +137,7 @@ def test_process_start_base_defaults_to_5000_when_nao_base_url_has_no_port(monke
 
     cfg_resp = client.post(
         "/api/runtime_config",
+        base_url="http://127.0.0.1:5102",
         json={
             "config": {
                 "nao_base_url": "http://127.0.0.1",
@@ -147,7 +148,7 @@ def test_process_start_base_defaults_to_5000_when_nao_base_url_has_no_port(monke
     )
     assert cfg_resp.status_code == 200
 
-    resp = client.post("/api/process_start", json={"name": "base"})
+    resp = client.post("/api/process_start", base_url="http://127.0.0.1:5102", json={"name": "base"})
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
@@ -206,6 +207,7 @@ def test_process_start_behavior_defaults_when_urls_missing_ports(monkeypatch):
 
     cfg_resp = client.post(
         "/api/runtime_config",
+        base_url="http://127.0.0.1:5102",
         json={
             "config": {
                 "behavior_manager_url": "http://127.0.0.1",
@@ -215,7 +217,7 @@ def test_process_start_behavior_defaults_when_urls_missing_ports(monkeypatch):
     )
     assert cfg_resp.status_code == 200
 
-    resp = client.post("/api/process_start", json={"name": "behavior"})
+    resp = client.post("/api/process_start", base_url="http://127.0.0.1:5102", json={"name": "behavior"})
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
@@ -315,3 +317,36 @@ def test_process_start_behavior_accepts_payload_url_overrides(monkeypatch):
     assert runtime["ok"] is True
     assert runtime["config"]["behavior_manager_url"] == "http://127.0.0.1:5201"
     assert runtime["config"]["nao_base_url"] == "http://127.0.0.1:5101"
+
+
+def test_process_start_base_rejects_webapp_port_conflict(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        base_url="http://127.0.0.1:5102",
+        json={
+            "config": {
+                "nao_base_url": "http://127.0.0.1:5101",
+                "nao_ip": "192.168.68.101",
+                "nao_ip_enabled": True,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    def fake_popen(_cmd, **_kwargs):  # pragma: no cover
+        raise AssertionError("process start should be rejected before spawning a process")
+
+    monkeypatch.setattr(webapp_server.subprocess, "Popen", fake_popen)
+
+    resp = client.post(
+        "/api/process_start",
+        base_url="http://127.0.0.1:5102",
+        json={"name": "base", "nao_base_url": "http://127.0.0.1:5102"},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert data["field"] == "nao_base_url"

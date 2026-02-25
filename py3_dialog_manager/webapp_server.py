@@ -127,6 +127,11 @@ _UI_COLOR_SCHEME_VALUES = {
     "dark",
     "night",
 }
+_LOCOMOTION_FREQUENCY_MIN = 0.05
+_LOCOMOTION_FREQUENCY_MAX = 1.0
+_LOCOMOTION_FREQUENCY_DEFAULT = 0.2
+_LOCOMOTION_COLLISION_TANGENTIAL_M = 0.10
+_LOCOMOTION_COLLISION_ORTHOGONAL_M = 0.40
 _CONTINUOUS_PHASE_LOG_LIMIT = 40
 _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN = "until_next_user_turn"
 _CUSTOM_LIFE_LOCK_UNTIL_STOP = "until_stop"
@@ -397,6 +402,17 @@ def _clean_llm_top_k(raw: Any) -> Optional[int]:
     return int(value)
 
 
+def _clean_locomotion_frequency(raw: Any, *, default: float = _LOCOMOTION_FREQUENCY_DEFAULT) -> float:
+    try:
+        value = float(raw)
+    except Exception:
+        value = float(default)
+    if math.isnan(value) or math.isinf(value):
+        value = float(default)
+    value = max(_LOCOMOTION_FREQUENCY_MIN, min(_LOCOMOTION_FREQUENCY_MAX, value))
+    return float(value)
+
+
 def _continuous_capture_timeout_s(
     start_timeout_s: float,
     *,
@@ -473,6 +489,66 @@ def _url_port(raw_url: Optional[str], default_port: int) -> int:
     return int(default_port)
 
 
+def _url_host_port(raw_url: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    normalized = _normalize_url(raw_url)
+    if not normalized:
+        return None, None
+    try:
+        parsed = urlparse(normalized)
+    except Exception:
+        return None, None
+    host = (parsed.hostname or "").strip().lower() or None
+    if parsed.port:
+        return host, int(parsed.port)
+    scheme = (parsed.scheme or "http").lower()
+    return host, (443 if scheme == "https" else 80)
+
+
+def _host_header_host_port(raw_host: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    value = str(raw_host or "").strip()
+    if not value:
+        return None, None
+    try:
+        parsed = urlparse("http://" + value)
+    except Exception:
+        return None, None
+    host = (parsed.hostname or "").strip().lower() or None
+    if parsed.port:
+        return host, int(parsed.port)
+    return host, 80
+
+
+def _local_host_aliases() -> set:
+    aliases = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    names = [socket.gethostname(), socket.getfqdn()]
+    for name in names:
+        clean = str(name or "").strip().lower()
+        if not clean:
+            continue
+        aliases.add(clean)
+        try:
+            for addr in socket.gethostbyname_ex(clean)[2]:
+                addr_clean = str(addr or "").strip().lower()
+                if addr_clean:
+                    aliases.add(addr_clean)
+        except Exception:
+            pass
+    return aliases
+
+
+def _url_conflicts_with_webapp(raw_url: Optional[str], request_host_header: Optional[str]) -> bool:
+    target_host, target_port = _url_host_port(raw_url)
+    web_host, web_port = _host_header_host_port(request_host_header)
+    if not target_host or target_port is None or web_port is None:
+        return False
+    if int(target_port) != int(web_port):
+        return False
+    if web_host and target_host == web_host:
+        return True
+    local_hosts = _local_host_aliases()
+    return bool(web_host and target_host in local_hosts and web_host in local_hosts)
+
+
 def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     nao_conn = cfg_src.get("nao_connection", {}) or {}
     primary = nao_conn.get("primary", {}) or {}
@@ -546,6 +622,11 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "listen_mode": _clean_listen_mode(cfg_src.get("listen_mode", "ptt")),
         "ui_active_tab": _clean_ui_active_tab(cfg_src.get("ui_active_tab", "prompt")),
         "ui_color_scheme": _clean_ui_color_scheme(cfg_src.get("ui_color_scheme", "default")),
+        "locomotion_frequency": _clean_locomotion_frequency(
+            cfg_src.get("locomotion_frequency", _LOCOMOTION_FREQUENCY_DEFAULT),
+            default=_LOCOMOTION_FREQUENCY_DEFAULT,
+        ),
+        "locomotion_arms_enabled": bool(cfg_src.get("locomotion_arms_enabled", True)),
         "cmdrec": cfg_src.get("cmdrec", "latest"),
         "ptt_use_vad": bool(cfg_src.get("ptt_use_vad", False)),
         "llm_type": llm_cfg.get("type", "echo"),
@@ -894,6 +975,11 @@ def create_app(
         cfg_obj["llm_temperature"] = _clean_llm_temperature(cfg_obj.get("llm_temperature"))
         cfg_obj["llm_top_p"] = _clean_llm_top_p(cfg_obj.get("llm_top_p"))
         cfg_obj["llm_top_k"] = _clean_llm_top_k(cfg_obj.get("llm_top_k"))
+        cfg_obj["locomotion_frequency"] = _clean_locomotion_frequency(
+            cfg_obj.get("locomotion_frequency", _LOCOMOTION_FREQUENCY_DEFAULT),
+            default=_LOCOMOTION_FREQUENCY_DEFAULT,
+        )
+        cfg_obj["locomotion_arms_enabled"] = bool(cfg_obj.get("locomotion_arms_enabled", True))
         return cfg_obj
 
     def _runtime_cfg_snapshot() -> JsonLike:
@@ -1003,6 +1089,7 @@ def create_app(
                 "custom_life_pause_mode": None,
                 "command_stop_available": False,
                 "command_stop_label": None,
+                "motion_last_seq": None,
             },
         )
         if "custom_life_lock_mode" not in state:
@@ -1019,6 +1106,8 @@ def create_app(
             state["command_stop_available"] = False
         if "command_stop_label" not in state:
             state["command_stop_label"] = None
+        if "motion_last_seq" not in state:
+            state["motion_last_seq"] = None
         return state
 
     def _get_continuous_state(sid: str) -> Dict[str, Any]:
@@ -4639,6 +4728,36 @@ def create_app(
             if llm_type != "echo" and not llm_model:
                 return jsonify({"ok": False, "error": "LLM model ontbreekt."}), 400
 
+        web_host, web_port = _host_header_host_port(request.host)
+        if _url_conflicts_with_webapp(candidate.get("nao_base_url"), request.host):
+            port_hint = f":{web_port}" if web_port is not None else ""
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        f"nao_base_url wijst naar de dialog manager zelf (poort {port_hint or 'onbekend'}). "
+                        "Kies een andere poort voor de base controller."
+                    ),
+                    "field": "nao_base_url",
+                    "web_host": web_host,
+                    "web_port": web_port,
+                }
+            ), 400
+        if _url_conflicts_with_webapp(candidate.get("behavior_manager_url"), request.host):
+            port_hint = f":{web_port}" if web_port is not None else ""
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        f"behavior_manager_url wijst naar de dialog manager zelf (poort {port_hint or 'onbekend'}). "
+                        "Kies een andere poort voor de behavior manager."
+                    ),
+                    "field": "behavior_manager_url",
+                    "web_host": web_host,
+                    "web_port": web_port,
+                }
+            ), 400
+
         merged = _apply_runtime_overrides(base_cfg, candidate)
         with runtime_cfg_lock:
             runtime_cfg_global.clear()
@@ -4678,17 +4797,19 @@ def create_app(
         nao_ping = _check_tcp(nao_host, nao_port) if nao_ip_enabled else False
         # Only probe /is_awake when NAO checks are explicitly enabled and TCP is up.
         probe_nao_via_services = bool(nao_ip_enabled and nao_ping)
-        base_ping = _check_ping(base_url, "/ping") if base_enabled else False
+        base_conflict = _url_conflicts_with_webapp(base_url, request.host) if base_enabled else False
+        behavior_conflict = _url_conflicts_with_webapp(behavior_url, request.host) if behavior_enabled else False
+        base_ping = _check_ping(base_url, "/ping") if (base_enabled and not base_conflict) else False
         base_nao_ping = _check_ping(base_url, "/is_awake") if (base_enabled and base_ping and probe_nao_via_services) else False
-        behavior_ping = _check_ping(behavior_url, "/ping") if behavior_enabled else False
+        behavior_ping = _check_ping(behavior_url, "/ping") if (behavior_enabled and not behavior_conflict) else False
         behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/is_awake") if (
             behavior_enabled and behavior_ping and probe_nao_via_services
         ) else False
         return jsonify(
             {
                 "ok": True,
-                "base": {"ping": base_ping, "nao_ping": base_nao_ping},
-                "behavior": {"ping": behavior_ping, "nao_ping": behavior_nao_ping},
+                "base": {"ping": base_ping, "nao_ping": base_nao_ping, "conflict": base_conflict},
+                "behavior": {"ping": behavior_ping, "nao_ping": behavior_nao_ping, "conflict": behavior_conflict},
                 "nao": {"ping": nao_ping},
             }
         )
@@ -4727,6 +4848,68 @@ def create_app(
             payload = data.get("data") if isinstance(data.get("data"), dict) else {}
             return {"ok": True, "mode": mode, "status": status or "ok", "details": payload}
         return {"ok": True, "mode": mode}
+
+    def _iter_nao_motion_candidates(runtime_cfg: JsonLike) -> List[Tuple[str, str]]:
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        candidates: List[Tuple[str, str]] = []
+        if behavior_enabled and behavior_url:
+            candidates.append((behavior_url, "behavior"))
+        if base_enabled and base_url:
+            candidates.append((base_url, "base"))
+        return candidates
+
+    def _naoqi_call_on_endpoint(
+        endpoint_base_url: str,
+        mode: str,
+        *,
+        module: str,
+        method: str,
+        args: Optional[List[Any]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        timeout_s: float = 3.0,
+    ) -> Dict[str, Any]:
+        path = "/nao/naoqi/call" if mode == "behavior" else "/naoqi/call"
+        url = endpoint_base_url.rstrip("/") + path
+        payload = {
+            "module": module,
+            "method": method,
+            "args": list(args or []),
+            "kwargs": dict(kwargs or {}),
+        }
+        resp = requests.post(url, json=payload, timeout=timeout_s)
+        if not resp.ok:
+            body = (resp.text or "").strip()
+            raise RuntimeError(f"{method} failed: upstream status {resp.status_code} ({body or 'no body'})")
+        data = resp.json() if resp.content else {}
+        if isinstance(data, dict):
+            status = str(data.get("status") or "").strip().lower()
+            if status == "error":
+                raise RuntimeError(str(data.get("error") or f"{method} failed"))
+            return data
+        return {}
+
+    def _stop_move_on_endpoint(
+        endpoint_base_url: str,
+        mode: str,
+        *,
+        timeout_s: float = 3.0,
+    ) -> Dict[str, Any]:
+        path = "/nao/stop_move" if mode == "behavior" else "/stop_move"
+        url = endpoint_base_url.rstrip("/") + path
+        resp = requests.post(url, json={}, timeout=timeout_s)
+        if not resp.ok:
+            body = (resp.text or "").strip()
+            raise RuntimeError(f"stop_move failed: upstream status {resp.status_code} ({body or 'no body'})")
+        data = resp.json() if resp.content else {}
+        if isinstance(data, dict):
+            status = str(data.get("status") or "").strip().lower()
+            if status == "error":
+                raise RuntimeError(str(data.get("error") or "stop_move failed"))
+            return data
+        return {}
 
     def _apply_custom_life(sid: str, runtime_cfg: JsonLike) -> None:
         enabled = bool(runtime_cfg.get("custom_life_enabled", False))
@@ -5098,6 +5281,144 @@ def create_app(
             code = 400 if "ontbreekt" in str(result.get("error") or "").lower() else 502
             return jsonify({"ok": False, "error": result.get("error"), "mode": result.get("mode")}), code
         return jsonify({"ok": True, "mode": result.get("mode"), "status": result.get("status", "ok"), "details": result.get("details") or {}})
+
+    @app.post("/api/nao_move_toward")
+    def api_nao_move_toward():
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        runtime_state = _get_runtime_state(sid)
+
+        def _parse_required_axis(name: str) -> float:
+            if name not in payload:
+                raise ValueError(f"Missing '{name}'.")
+            try:
+                value = float(payload.get(name))
+            except Exception:
+                raise ValueError(f"Ongeldige '{name}' waarde.")
+            if math.isnan(value) or math.isinf(value):
+                raise ValueError(f"Ongeldige '{name}' waarde.")
+            value = max(-1.0, min(1.0, value))
+            return float(value)
+
+        raw_seq = payload.get("seq", None)
+        seq: Optional[int] = None
+        if raw_seq is not None:
+            try:
+                seq = int(raw_seq)
+            except Exception:
+                return jsonify({"ok": False, "error": "Ongeldige 'seq' waarde."}), 400
+            try:
+                last_seq_raw = runtime_state.get("motion_last_seq", None)
+                last_seq = int(last_seq_raw) if last_seq_raw is not None else None
+            except Exception:
+                last_seq = None
+            if last_seq is not None and seq <= last_seq:
+                return jsonify({"ok": True, "ignored": True, "seq": seq, "mode": "stale"})
+            runtime_state["motion_last_seq"] = seq
+
+        try:
+            x = _parse_required_axis("x")
+            y = _parse_required_axis("y")
+            theta = _parse_required_axis("theta")
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        default_frequency = _clean_locomotion_frequency(
+            runtime_cfg.get("locomotion_frequency", _LOCOMOTION_FREQUENCY_DEFAULT),
+            default=_LOCOMOTION_FREQUENCY_DEFAULT,
+        )
+        frequency = _clean_locomotion_frequency(payload.get("frequency", default_frequency), default=default_frequency)
+        arms_enabled = bool(payload.get("arms_enabled", runtime_cfg.get("locomotion_arms_enabled", True)))
+
+        candidates = _iter_nao_motion_candidates(runtime_cfg)
+        if not candidates:
+            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+        _touch_activity()
+
+        last_error: Optional[str] = None
+        for endpoint_base_url, mode in candidates:
+            try:
+                _naoqi_call_on_endpoint(
+                    endpoint_base_url,
+                    mode,
+                    module="ALMotion",
+                    method="setExternalCollisionProtectionEnabled",
+                    args=["Move", True],
+                )
+                _naoqi_call_on_endpoint(
+                    endpoint_base_url,
+                    mode,
+                    module="ALMotion",
+                    method="setTangentialSecurityDistance",
+                    args=[_LOCOMOTION_COLLISION_TANGENTIAL_M],
+                )
+                _naoqi_call_on_endpoint(
+                    endpoint_base_url,
+                    mode,
+                    module="ALMotion",
+                    method="setOrthogonalSecurityDistance",
+                    args=[_LOCOMOTION_COLLISION_ORTHOGONAL_M],
+                )
+                _naoqi_call_on_endpoint(
+                    endpoint_base_url,
+                    mode,
+                    module="ALMotion",
+                    method="setMoveArmsEnabled",
+                    args=[arms_enabled, arms_enabled],
+                )
+                _naoqi_call_on_endpoint(
+                    endpoint_base_url,
+                    mode,
+                    module="ALMotion",
+                    method="moveToward",
+                    args=[x, y, theta, [["Frequency", frequency]]],
+                )
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            out = {
+                "ok": True,
+                "mode": mode,
+                "ignored": False,
+                "applied": {
+                    "x": x,
+                    "y": y,
+                    "theta": theta,
+                    "frequency": frequency,
+                    "arms_enabled": arms_enabled,
+                    "collision": {
+                        "move": True,
+                        "tangential_m": _LOCOMOTION_COLLISION_TANGENTIAL_M,
+                        "orthogonal_m": _LOCOMOTION_COLLISION_ORTHOGONAL_M,
+                    },
+                },
+            }
+            if seq is not None:
+                out["seq"] = seq
+            return jsonify(out)
+
+        return jsonify({"ok": False, "error": last_error or "moveToward failed"}), 502
+
+    @app.post("/api/nao_stop_move")
+    def api_nao_stop_move():
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        candidates = _iter_nao_motion_candidates(runtime_cfg)
+        if not candidates:
+            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+        _touch_activity()
+
+        last_error: Optional[str] = None
+        for endpoint_base_url, mode in candidates:
+            try:
+                _stop_move_on_endpoint(endpoint_base_url, mode)
+                return jsonify({"ok": True, "mode": mode})
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+        return jsonify({"ok": False, "error": last_error or "stop_move failed"}), 502
 
     @app.post("/api/nao_set_eye_color")
     def api_nao_set_eye_color():
@@ -5772,6 +6093,20 @@ def create_app(
             payload_nao_ip = (payload.get("nao_ip") or "").strip()
             nao_ip = payload_nao_ip or (runtime_cfg.get("nao_ip") or "").strip()
             nao_ip_enabled = bool(payload.get("nao_ip_enabled", runtime_cfg.get("nao_ip_enabled", False)))
+            effective_nao_base_url = payload_nao_base_url or _normalize_url(runtime_cfg.get("nao_base_url"))
+            if _url_conflicts_with_webapp(effective_nao_base_url, request.host):
+                _web_host, web_port = _host_header_host_port(request.host)
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"nao_base_url wijst naar de dialog manager zelf op poort {web_port}. "
+                            "Kies een andere poort voor de base controller."
+                        ),
+                        "field": "nao_base_url",
+                        "web_port": web_port,
+                    }
+                ), 400
             changed = False
             if payload_nao_ip:
                 runtime_cfg["nao_ip"] = payload_nao_ip
@@ -5790,6 +6125,34 @@ def create_app(
             cmd, cwd, err = _base_controller_cmd(nao_ip, base_port)
         else:
             runtime_cfg = _get_runtime_cfg(_get_sid())
+            effective_nao_base_url = payload_nao_base_url or _normalize_url(runtime_cfg.get("nao_base_url"))
+            effective_behavior_url = payload_behavior_url or _normalize_url(runtime_cfg.get("behavior_manager_url"))
+            if _url_conflicts_with_webapp(effective_nao_base_url, request.host):
+                _web_host, web_port = _host_header_host_port(request.host)
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"nao_base_url wijst naar de dialog manager zelf op poort {web_port}. "
+                            "Kies een andere poort voor de base controller."
+                        ),
+                        "field": "nao_base_url",
+                        "web_port": web_port,
+                    }
+                ), 400
+            if _url_conflicts_with_webapp(effective_behavior_url, request.host):
+                _web_host, web_port = _host_header_host_port(request.host)
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"behavior_manager_url wijst naar de dialog manager zelf op poort {web_port}. "
+                            "Kies een andere poort voor de behavior manager."
+                        ),
+                        "field": "behavior_manager_url",
+                        "web_port": web_port,
+                    }
+                ), 400
             changed = False
             if payload_nao_base_url:
                 runtime_cfg["nao_base_url"] = payload_nao_base_url
