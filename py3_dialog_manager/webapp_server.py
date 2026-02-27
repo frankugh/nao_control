@@ -1606,6 +1606,81 @@ def create_app(
     def _append_confirm_card(history: History, payload: Dict[str, Any]) -> None:
         history.append(payload)
 
+    _CMD_STATE_KEEP = object()
+
+    def _clip_for_log(value: Any, max_len: int = 120) -> str:
+        text = str(value or "").strip()
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 3] + "..."
+
+    def _log_state_event(
+        sid: str,
+        *,
+        event: str,
+        reason: str,
+        command_label: Optional[str] = None,
+        text: Optional[str] = None,
+        confidence: Optional[float] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        state = _get_cmdrec_state(sid)
+        payload: Dict[str, Any] = {
+            "sid": sid,
+            "event": event,
+            "reason": reason,
+            "mode": str(state.get("mode") or ""),
+            "active_behavior": str(state.get("active_behavior") or ""),
+        }
+        if command_label:
+            payload["command"] = str(command_label)
+        if text:
+            payload["text"] = _clip_for_log(text)
+        if confidence is not None:
+            payload["confidence"] = round(float(confidence), 4)
+        if isinstance(extra, dict):
+            for key, value in extra.items():
+                payload[str(key)] = value
+        try:
+            encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            encoded = str(payload)
+        _append_proc_log("base", f"[DM][STATE] {encoded}")
+
+    def _set_cmd_state(
+        sid: str,
+        state: Dict[str, Any],
+        *,
+        mode: Any = _CMD_STATE_KEEP,
+        active_behavior: Any = _CMD_STATE_KEEP,
+        reason: str,
+        command_label: Optional[str] = None,
+        text: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> None:
+        prev_mode = str(state.get("mode") or "")
+        prev_active = str(state.get("active_behavior") or "")
+        if mode is not _CMD_STATE_KEEP:
+            state["mode"] = mode
+        if active_behavior is not _CMD_STATE_KEEP:
+            state["active_behavior"] = active_behavior
+        new_mode = str(state.get("mode") or "")
+        new_active = str(state.get("active_behavior") or "")
+        _log_state_event(
+            sid,
+            event="transition" if (prev_mode != new_mode or prev_active != new_active) else "no_change",
+            reason=reason,
+            command_label=command_label,
+            text=text,
+            confidence=confidence,
+            extra={
+                "prev_mode": prev_mode,
+                "prev_active_behavior": prev_active,
+                "new_mode": new_mode,
+                "new_active_behavior": new_active,
+            },
+        )
+
     def _handle_command_decision(
         *,
         sid: str,
@@ -1625,6 +1700,14 @@ def create_app(
 
         state = _get_cmdrec_state(sid)
         cmd = decision.command
+        _log_state_event(
+            sid,
+            event="command_detected",
+            reason="route_decision",
+            command_label=cmd.label,
+            text=text,
+            confidence=cmd.confidence,
+        )
 
         if cmd.label == "STOP":
             _append_user(history, text)
@@ -1641,8 +1724,16 @@ def create_app(
             _clear_command_stop_available(sid)
             _stop_nao_audio_best_effort(runtime_cfg)
             _touch_activity()
-            state["mode"] = "DIALOG"
-            state["active_behavior"] = None
+            _set_cmd_state(
+                sid,
+                state,
+                mode="DIALOG",
+                active_behavior=None,
+                reason="command_stop_executed",
+                command_label=cmd.label,
+                text=text,
+                confidence=cmd.confidence,
+            )
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
             _append_assistant(history, "OK. Uitgevoerd: STOP")
             _al_append(
@@ -1682,6 +1773,14 @@ def create_app(
                 confirm_needed = bool(cmdrec_obj and cmdrec_obj.is_guarded(cmd.label))
 
         if confirm_needed:
+            _log_state_event(
+                sid,
+                event="confirm_required",
+                reason="guarded_command",
+                command_label=cmd.label,
+                text=text,
+                confidence=cmd.confidence,
+            )
             _append_user(history, text)
             confirmation_id = uuid.uuid4().hex
             pending_confirms[sid] = {
@@ -1730,8 +1829,16 @@ def create_app(
             _set_behavior_executor_custom_life_management(behavior_executor, False)
             behavior_executor.execute(cmd)
         _touch_activity()
-        state["mode"] = "PERFORMING"
-        state["active_behavior"] = cmd.label
+        _set_cmd_state(
+            sid,
+            state,
+            mode="PERFORMING",
+            active_behavior=cmd.label,
+            reason="command_executed",
+            command_label=cmd.label,
+            text=text,
+            confidence=cmd.confidence,
+        )
         if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
             _set_command_stop_available(sid, cmd.label)
         else:
@@ -2654,8 +2761,16 @@ def create_app(
                 _release_custom_life_lock(sid, runtime_cfg)
                 _clear_command_stop_available(sid)
                 _stop_nao_audio_best_effort(runtime_cfg)
-                state["mode"] = "DIALOG"
-                state["active_behavior"] = None
+                _set_cmd_state(
+                    sid,
+                    state,
+                    mode="DIALOG",
+                    active_behavior=None,
+                    reason="pending_confirm_stop_executed",
+                    command_label=decision.command.label,
+                    text=text,
+                    confidence=decision.command.confidence,
+                )
                 _set_last_action(
                     sid,
                     _format_action_summary(
@@ -4035,6 +4150,14 @@ def create_app(
         stt_used, stt_edited = _extract_stt_meta(pending.get("input_meta"))
 
         if confirmed:
+            _log_state_event(
+                sid,
+                event="confirm_received",
+                reason="approved",
+                command_label=cmd.label,
+                text=pending.get("input_text"),
+                confidence=pending.get("confidence") or cmd.confidence,
+            )
             lock_mode = _custom_life_lock_mode_for_command(cmd)
             if lock_mode:
                 _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
@@ -4077,7 +4200,21 @@ def create_app(
                     stt_edited=stt_edited,
                 ),
             )
+            _log_state_event(
+                sid,
+                event="confirm_done",
+                reason="approved",
+                command_label=cmd.label,
+            )
         else:
+            _log_state_event(
+                sid,
+                event="confirm_received",
+                reason="declined",
+                command_label=cmd.label,
+                text=pending.get("input_text"),
+                confidence=pending.get("confidence") or cmd.confidence,
+            )
             if _normalize_command_label(cmd.label) == "STOP":
                 _clear_command_stop_available(sid)
             _set_last_action(sid, _format_action_summary("Geannuleerd", cmd.label, cmd.resolved))
@@ -6187,16 +6324,27 @@ def create_app(
 
 
 def main() -> None:
+    def _resolve_web_port(instance_id: Optional[str], explicit_port: Optional[int]) -> int:
+        if explicit_port is not None:
+            return int(explicit_port)
+        defaults = {
+            "alex": 5001,
+            "renee": 5002,
+        }
+        key = str(instance_id or "").strip().casefold()
+        return int(defaults.get(key, 8080))
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", help="Pad naar configs/<file>.json")
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--instance-id", help="Unieke runtime instance id (default: port_<port>).")
     args = ap.parse_args()
 
+    web_port = _resolve_web_port(args.instance_id, args.port)
     config_path = args.config or DEFAULT_CONFIG_PATH
     cfg = _load_json(config_path)
-    instance_id = str(args.instance_id or f"port_{args.port}")
+    instance_id = str(args.instance_id or f"port_{web_port}")
     app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path), instance_id=instance_id)
     def _sig_handler(signum, frame):
         try:
@@ -6212,8 +6360,8 @@ def main() -> None:
         signal.signal(signal.SIGTERM, _sig_handler)
     except Exception:
         pass
-    #app.run(host=args.host, port=args.port, debug=False, threaded=True, ssl_context="adhoc")
-    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+    #app.run(host=args.host, port=web_port, debug=False, threaded=True, ssl_context="adhoc")
+    app.run(host=args.host, port=web_port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

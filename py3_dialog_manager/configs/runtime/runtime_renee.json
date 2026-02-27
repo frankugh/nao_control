@@ -1,5 +1,5 @@
 {
-  "confirm_policy": "when_guarded",
+  "confirm_policy": "never",
   "robot_name": "Renee",
   "nao_base_url": "http://127.0.0.1:5102",
   "behavior_manager_url": "http://127.0.0.1:5202",
@@ -12,32 +12,32 @@
   "input_device": null,
   "stt_type": "azure",
   "mic_params_ptt": {
-    "max_utterance_s": 12,
+    "start_threshold_rms": 400,
+    "stop_silence_ms": 1000,
     "pre_roll_ms": 500,
-    "start_threshold_rms": 500,
-    "stop_silence_ms": 1000
+    "max_utterance_s": 12
   },
   "mic_params_continuous": {
-    "max_utterance_s": 12,
+    "start_threshold_rms": 400,
+    "stop_silence_ms": 1000,
     "pre_roll_ms": 500,
-    "start_threshold_rms": 500,
-    "stop_silence_ms": 1000
+    "max_utterance_s": 12
   },
   "azure_initial_silence_ms": null,
   "azure_end_silence_ms": null,
   "wake_mode": "timeout",
-  "wake_timeout_s": 20,
+  "wake_timeout_s": 60,
   "wake_words": [
     "NAO",
-    "Alex"
+    "Renee"
   ],
-  "listen_mode": "ptt",
-  "ui_active_tab": "runtime",
+  "listen_mode": "continuous",
+  "ui_active_tab": "commands",
   "ui_color_scheme": "brown",
   "locomotion_frequency": 0.2,
   "locomotion_arms_enabled": true,
   "cmdrec": "latest",
-  "ptt_use_vad": false,
+  "ptt_use_vad": true,
   "llm_type": "ollama_cloud",
   "llm_model": "gpt-oss:120b-cloud",
   "llm_temperature": null,
@@ -56,8 +56,8 @@
   "azure_tts_volume_db": 0,
   "custom_life_enabled": false,
   "custom_life_settings": {
-    "background_movement": true,
     "basic_awareness": true,
+    "background_movement": true,
     "breathing": true
   },
   "nao_auto_rest_after_s": 180,

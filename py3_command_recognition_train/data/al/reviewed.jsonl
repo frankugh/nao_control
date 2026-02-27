@@ -88,3 +88,4 @@
 {"text": "oké zet je motoren maar uit", "label": "REST", "source": "al_reviewed"}
 {"text": "Dag robot. Vertel me eens iets belangrijks", "label": "NONE", "source": "al_reviewed"}
 {"text": "Wat is daar dan gebeurt? Lucht je metalen hart joh", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ga eens rechtop.", "label": "STAND\\_UP", "source": "ui_review"}

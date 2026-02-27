@@ -5179,6 +5179,8 @@
           const timeoutWrap = cfgWakeTimeout.closest('.inline-apply');
           if (timeoutWrap) {
             timeoutWrap.style.display = showTimeout ? '' : 'none';
+            // Clear stale inline style from pre-wrapper updates.
+            cfgWakeTimeout.style.display = '';
           } else {
             cfgWakeTimeout.style.display = showTimeout ? '' : 'none';
           }
