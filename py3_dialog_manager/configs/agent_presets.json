@@ -195,7 +195,7 @@
         "behavior_enabled": false,
         "base_autostart": false,
         "behavior_autostart": false,
-        "ui_color_scheme": "slate",
+        "ui_color_scheme": "night_blue",
         "input_device": null,
         "stt_type": "azure",
         "mic_params_ptt": {
@@ -229,7 +229,7 @@
         },
         "nao_auto_rest_after_s": 180,
         "llm_type": "ollama_cloud",
-        "llm_model": "gpt-oss:120b-cloud",
+        "llm_model": "mistral-large-3:675b-cloud",
         "llm_temperature": null,
         "llm_top_p": null,
         "llm_top_k": null,

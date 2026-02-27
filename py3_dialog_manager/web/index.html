@@ -783,10 +783,24 @@
               <select id="logProcess">
                 <option value="base">base controller</option>
                 <option value="behavior">behavior manager</option>
+                <option value="dm_events">dialog manager events</option>
               </select>
               <button id="btnRefreshLogs" type="button">Refresh</button>
               <button id="btnClearLogs" type="button">Clear</button>
-          </div>
+            </div>
+            <div id="dmLogFilters" class="row hidden" style="margin-bottom:8px; gap:6px; flex-wrap:wrap;">
+              <select id="dmLogLevel" style="min-width:110px">
+                <option value="">level: all</option>
+              </select>
+              <select id="dmLogEvent" style="min-width:180px">
+                <option value="">event: all</option>
+              </select>
+              <select id="dmLogSource" style="min-width:150px">
+                <option value="">source: all</option>
+              </select>
+              <input id="dmLogQuery" type="text" placeholder="search" style="min-width:140px; max-width:220px;" />
+              <input id="dmLogLimit" type="number" min="1" max="2000" step="1" value="400" style="width:90px;" />
+            </div>
             <pre id="procLogs" class="debug" style="white-space: pre-wrap;"></pre>
           </div>
         <div id="tab-commands" class="tabpane hidden">
@@ -1531,6 +1545,12 @@
       const logProcess = document.getElementById('logProcess');
         const btnRefreshLogs = document.getElementById('btnRefreshLogs');
         const btnClearLogs = document.getElementById('btnClearLogs');
+      const dmLogFilters = document.getElementById('dmLogFilters');
+      const dmLogLevel = document.getElementById('dmLogLevel');
+      const dmLogEvent = document.getElementById('dmLogEvent');
+      const dmLogSource = document.getElementById('dmLogSource');
+      const dmLogQuery = document.getElementById('dmLogQuery');
+      const dmLogLimit = document.getElementById('dmLogLimit');
       const procLogs = document.getElementById('procLogs');
       const cfgInputDevice = document.getElementById('cfgInputDevice');
       const cfgVadStartRms = document.getElementById('cfgVadStartRms');
@@ -1739,6 +1759,7 @@
       let imagePreviewReturnFocusEl = null;
       let continuousActive = false;
       let continuousPoll = null;
+      let logsPollTimer = null;
       let uiPrefsSyncTimer = null;
       let uiPrefsSyncInFlight = false;
       let pendingUiPrefs = null;
@@ -5034,6 +5055,11 @@
         if (persistRuntime) {
           queueUiPrefsSync();
         }
+        if (isLogs) {
+          syncLogsPolling();
+        } else {
+          stopLogsPolling();
+        }
         if (!changed) {
           return;
         }
@@ -6413,15 +6439,109 @@
         }
       }
 
+      function isDmEventsLogSelected() {
+        return (logProcess?.value || 'base') === 'dm_events';
+      }
+
+      function syncDmLogFilterVisibility() {
+        if (!dmLogFilters) return;
+        dmLogFilters.classList.toggle('hidden', !isDmEventsLogSelected());
+      }
+
+      function rebuildDmSelect(selectEl, values, allLabel) {
+        if (!selectEl) return;
+        const current = selectEl.value || '';
+        const fragment = document.createDocumentFragment();
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = allLabel;
+        fragment.appendChild(allOpt);
+        (values || []).forEach((value) => {
+          const v = String(value || '').trim();
+          if (!v) return;
+          const opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = v;
+          fragment.appendChild(opt);
+        });
+        selectEl.innerHTML = '';
+        selectEl.appendChild(fragment);
+        if ([...selectEl.options].some((opt) => opt.value === current)) {
+          selectEl.value = current;
+        } else {
+          selectEl.value = '';
+        }
+      }
+
+      function formatDmEventLine(evt) {
+        const ts = String(evt?.ts || '').replace('T', ' ').replace('Z', '');
+        const level = String(evt?.level || 'info').toUpperCase();
+        const source = String(evt?.source || '');
+        const event = String(evt?.event || '');
+        const message = String(evt?.message || '');
+        let dataTail = '';
+        try {
+          const rawData = evt?.data && typeof evt.data === 'object' ? evt.data : null;
+          if (rawData && Object.keys(rawData).length) {
+            dataTail = ` ${JSON.stringify(rawData)}`;
+          }
+        } catch (_) {}
+        return `${ts} [${level}] [${source}] ${event} ${message}${dataTail}`.trim();
+      }
+
+      function dmEventsQuery() {
+        const params = new URLSearchParams();
+        const rawLimit = parseInt(dmLogLimit?.value || '400', 10);
+        const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(2000, rawLimit)) : 400;
+        if (dmLogLimit) dmLogLimit.value = String(limit);
+        params.set('limit', String(limit));
+        const level = (dmLogLevel?.value || '').trim();
+        const event = (dmLogEvent?.value || '').trim();
+        const source = (dmLogSource?.value || '').trim();
+        const q = (dmLogQuery?.value || '').trim();
+        if (level) params.set('level', level);
+        if (event) params.set('event', event);
+        if (source) params.set('source', source);
+        if (q) params.set('q', q);
+        return params.toString();
+      }
+
       async function refreshProcessLogs() {
         const name = (logProcess?.value || 'base');
+        syncDmLogFilterVisibility();
         try {
-          const r = await fetch(`/api/process_logs?name=${encodeURIComponent(name)}`);
+          if (name !== 'dm_events') {
+            const r = await fetch(`/api/process_logs?name=${encodeURIComponent(name)}`);
+            const j = await r.json();
+            if (!j.ok) return;
+            const lines = j.lines || [];
+            procLogs.textContent = lines.length ? lines.join('\n') : '(no logs)';
+            return;
+          }
+          const q = dmEventsQuery();
+          const r = await fetch(`/api/dm_events?${q}`);
           const j = await r.json();
           if (!j.ok) return;
-          const lines = j.lines || [];
-          procLogs.textContent = lines.length ? lines.join('\n') : '(no logs)';
+          const meta = j.meta || {};
+          rebuildDmSelect(dmLogLevel, meta.available_levels || [], 'level: all');
+          rebuildDmSelect(dmLogEvent, meta.available_events || [], 'event: all');
+          rebuildDmSelect(dmLogSource, meta.available_sources || [], 'source: all');
+          const events = j.events || [];
+          procLogs.textContent = events.length ? events.map((evt) => formatDmEventLine(evt)).join('\n') : '(no dm events)';
         } catch (_) {}
+      }
+
+      function stopLogsPolling() {
+        if (logsPollTimer) {
+          clearInterval(logsPollTimer);
+          logsPollTimer = null;
+        }
+      }
+
+      function syncLogsPolling() {
+        stopLogsPolling();
+        if (activeTab !== 'logs') return;
+        refreshProcessLogs().catch(() => {});
       }
 
         async function startProcess(name) {
@@ -7043,24 +7163,49 @@
       btnStopBase.addEventListener('click', () => stopProcess('base'));
       btnStartBehavior.addEventListener('click', () => startProcess('behavior'));
       btnStopBehavior.addEventListener('click', () => stopProcess('behavior'));
-        btnRefreshLogs.addEventListener('click', () => refreshProcessLogs());
-        btnClearLogs.addEventListener('click', async () => {
-          const name = (logProcess.value || '').trim().toLowerCase();
-          if (!name) return;
-          try {
-            const r = await fetch('/api/process_logs_clear', {
+      btnRefreshLogs.addEventListener('click', () => refreshProcessLogs());
+      btnClearLogs.addEventListener('click', async () => {
+        const name = (logProcess.value || '').trim().toLowerCase();
+        if (!name) return;
+        try {
+          let r;
+          if (name === 'dm_events') {
+            r = await fetch('/api/dm_events_clear', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+          } else {
+            r = await fetch('/api/process_logs_clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ name })
             });
-            const j = await r.json();
-            if (!j.ok) throw new Error(j.error || 'clear failed');
-            refreshProcessLogs();
-          } catch (e) {
-            setStatus('Clear logs failed: ' + (e?.message || e));
           }
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'clear failed');
+          refreshProcessLogs();
+        } catch (e) {
+          setStatus('Clear logs failed: ' + (e?.message || e));
+        }
+      });
+      logProcess.addEventListener('change', () => {
+        syncDmLogFilterVisibility();
+        refreshProcessLogs();
+        syncLogsPolling();
+      });
+      [dmLogLevel, dmLogEvent, dmLogSource].forEach((el) => {
+        if (!el) return;
+        el.addEventListener('change', () => refreshProcessLogs());
+      });
+      if (dmLogQuery) {
+        dmLogQuery.addEventListener('keydown', (evt) => {
+          if (evt.key === 'Enter') refreshProcessLogs();
         });
-      logProcess.addEventListener('change', () => refreshProcessLogs());
+      }
+      if (dmLogLimit) {
+        dmLogLimit.addEventListener('change', () => refreshProcessLogs());
+      }
 
       btnRefreshCfg.addEventListener('click', async () => {
         await refreshConfigDump();

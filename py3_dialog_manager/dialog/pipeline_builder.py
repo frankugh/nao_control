@@ -484,6 +484,12 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     runtime_context_enabled = _extract_runtime_context_enabled(cfg)
     cmdrec_cfg = _extract_cmdrec_config(cfg)
     nao_conn = _extract_nao_connection(cfg)
+    behavior_timeout_s = cfg.get("behavior_timeout_s", 8.0)
+    if not isinstance(behavior_timeout_s, (int, float)):
+        raise ValueError("behavior_timeout_s moet een getal zijn.")
+    behavior_timeout_s = float(behavior_timeout_s)
+    if behavior_timeout_s <= 0.0:
+        raise ValueError("behavior_timeout_s moet > 0 zijn.")
     api_router = None
     if nao_conn:
         api_router = NaoApiRouter(
@@ -521,6 +527,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
             behavior_executor = ConsoleAndBehaviorExecutor(
                 BehaviorExecutor(
                     api_router=api_router,
+                    timeout_s=behavior_timeout_s,
                     custom_life_enabled=custom_life_enabled,
                     custom_life_settings=custom_life_settings,
                 )

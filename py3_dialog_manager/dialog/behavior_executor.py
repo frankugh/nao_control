@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Optional, Callable
 
 import requests
@@ -36,6 +37,23 @@ class BehaviorExecutor(ICommandExecutor):
             dict(custom_life_settings) if isinstance(custom_life_settings, dict) else None
         )
         self._manage_custom_life = bool(manage_custom_life)
+
+    def _log_exec(
+        self,
+        *,
+        label: str,
+        started_at: float,
+        result: str,
+        behavior: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        elapsed_ms = int(max(0.0, (time.time() - started_at) * 1000.0))
+        msg = f"[NAO][EXEC] label={label} elapsed_ms={elapsed_ms} result={result}"
+        if behavior:
+            msg += f" behavior={behavior}"
+        if error:
+            msg += f" error={error}"
+        print(msg)
 
     def set_custom_life_management_enabled(self, enabled: bool) -> None:
         self._manage_custom_life = bool(enabled)
@@ -93,24 +111,34 @@ class BehaviorExecutor(ICommandExecutor):
             print(f"[NAO] on_finish callback failed: {exc}")
 
     def execute(self, cmd: CommandDecision) -> None:
+        started_at = time.time()
         label = self._normalize_label(cmd.label)
         if label == "STOP":
             self._stop_all(timeout_s=self.timeout_s)
             self._notify_finish(cmd)
+            self._log_exec(label=label, started_at=started_at, result="ok")
             return
         if label == "REST":
             self._rest(timeout_s=self.timeout_s)
             self._notify_finish(cmd)
+            self._log_exec(label=label, started_at=started_at, result="ok")
             return
         if label == "STAND_UP":
             self._wake_up_if_rest(timeout_s=self.timeout_s)
 
         behavior = self._behavior_for_command(cmd)
         if not behavior:
+            self._log_exec(
+                label=label,
+                started_at=started_at,
+                result="error",
+                error=f"Geen behavior mapping voor label {cmd.label!r}.",
+            )
             raise ValueError(f"Geen behavior mapping voor label {cmd.label!r}.")
         payload = {"behavior": behavior}
         pause_state = self._pause_custom_life()
         exec_error: Optional[Exception] = None
+        exec_result = "ok"
         try:
             if self.api_router is not None:
                 resp = self.api_router.post("/do_behavior", json=payload, timeout=self.timeout_s)
@@ -124,20 +152,41 @@ class BehaviorExecutor(ICommandExecutor):
             if isinstance(data, dict) and data.get("status") not in (None, "ok"):
                 status = str(data.get("status") or "").strip().lower() or "error"
                 err = data.get("error")
+                err_txt = str(err or "")
+                if "already running" in err_txt.lower():
+                    exec_result = "already_running"
+                    err = None
                 if not err:
                     payload_data = data.get("data")
                     if isinstance(payload_data, dict):
-                        if payload_data.get("installed") is False:
+                        if payload_data.get("already_running") is True:
+                            exec_result = "already_running"
+                            err = None
+                        elif payload_data.get("installed") is False:
                             err = "Behavior niet geinstalleerd op deze robot."
                         elif payload_data.get("ran") is False:
                             err = "Behavior startte niet."
-                msg = str(err or f"behavior status={status}")
-                exec_error = RuntimeError(msg)
+                if err:
+                    msg = str(err or f"behavior status={status}")
+                    exec_result = "error"
+                    exec_error = RuntimeError(msg)
         except requests.RequestException as exc:
-            exec_error = RuntimeError(str(exc))
+            msg = str(exc)
+            if "already running" in msg.lower():
+                exec_result = "already_running"
+            else:
+                exec_result = "error"
+                exec_error = RuntimeError(msg)
         finally:
             self._restore_custom_life(pause_state)
             self._notify_finish(cmd)
+            self._log_exec(
+                label=label,
+                behavior=behavior,
+                started_at=started_at,
+                result=exec_result,
+                error=str(exec_error) if exec_error is not None else None,
+            )
         if exec_error is not None:
             raise exec_error
 

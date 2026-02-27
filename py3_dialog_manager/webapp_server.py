@@ -36,9 +36,10 @@ import signal
 from urllib.parse import urlparse
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, g, has_request_context, jsonify, request, send_from_directory
 import requests
 import numpy as np
+from werkzeug.exceptions import HTTPException
 
 try:
     import sounddevice as sd
@@ -143,6 +144,107 @@ _CUSTOM_LIFE_LOCK_MODES = {
 _SHUTDOWN_HOOK_LOCK = threading.Lock()
 _SHUTDOWN_HOOK_REGISTERED = False
 _LATEST_SHUTDOWN_HOOK: Optional[Callable[[], None]] = None
+
+_DM_EVENT_LEVELS = ("info", "warn", "error")
+_DM_EVENT_LEVEL_SET = set(_DM_EVENT_LEVELS)
+_DM_EVENT_CATEGORIES = ("dialog", "cmdrec", "state", "nao", "config", "http")
+_DM_EVENT_CATEGORY_SET = set(_DM_EVENT_CATEGORIES)
+_DM_EVENT_SOURCES = (
+    "chat_text",
+    "speech_ptt",
+    "speech_continuous",
+    "manual_command_ui",
+    "script_api",
+    "system_auto",
+)
+_DM_EVENT_SOURCE_SET = set(_DM_EVENT_SOURCES)
+_DM_UI_PREF_KEYS = {"ui_active_tab", "ui_color_scheme"}
+_DM_SECRET_KEY_RE = re.compile(r"(key|token|secret|password)", re.IGNORECASE)
+
+
+def _new_request_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _normalize_event_source(raw: Any) -> Optional[str]:
+    value = str(raw or "").strip().lower()
+    if value in _DM_EVENT_SOURCE_SET:
+        return value
+    return None
+
+
+def _clip_value(value: Any, max_str_len: int = 240, max_items: int = 40, _depth: int = 0) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if len(text) <= max_str_len:
+            return text
+        return text[: max(0, max_str_len - 3)] + "..."
+    if _depth >= 4:
+        return _clip_value(str(value), max_str_len=max_str_len, max_items=max_items, _depth=_depth + 1)
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        keys = list(value.keys())[:max_items]
+        for key in keys:
+            out[str(key)] = _clip_value(value.get(key), max_str_len=max_str_len, max_items=max_items, _depth=_depth + 1)
+        if len(value) > max_items:
+            out["_truncated_keys"] = len(value) - max_items
+        return out
+    if isinstance(value, (list, tuple)):
+        out_list = [
+            _clip_value(item, max_str_len=max_str_len, max_items=max_items, _depth=_depth + 1)
+            for item in list(value)[:max_items]
+        ]
+        if len(value) > max_items:
+            out_list.append({"_truncated_items": len(value) - max_items})
+        return out_list
+    return _clip_value(str(value), max_str_len=max_str_len, max_items=max_items, _depth=_depth + 1)
+
+
+def _redact_if_needed(key: str, value: Any) -> Any:
+    key_norm = str(key or "").strip().lower()
+    if key_norm in {"changed_keys"}:
+        return value
+    if _DM_SECRET_KEY_RE.search(key_norm):
+        return "***redacted***"
+    return value
+
+
+def _sanitize_event_value(value: Any, *, key: str = "") -> Any:
+    value = _redact_if_needed(key, value)
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for child_key, child_value in value.items():
+            child_name = str(child_key)
+            out[child_name] = _sanitize_event_value(child_value, key=child_name)
+        return _clip_value(out)
+    if isinstance(value, list):
+        return _clip_value([_sanitize_event_value(item, key=key) for item in value])
+    return _clip_value(value)
+
+
+def _diff_runtime_cfg(before: JsonLike, after: JsonLike) -> Dict[str, Any]:
+    before_obj = before if isinstance(before, dict) else {}
+    after_obj = after if isinstance(after, dict) else {}
+    changed_keys: List[str] = []
+    changes: Dict[str, Dict[str, Any]] = {}
+    all_keys = sorted(set(before_obj.keys()) | set(after_obj.keys()))
+    for key in all_keys:
+        old_val = before_obj.get(key)
+        new_val = after_obj.get(key)
+        if old_val == new_val:
+            continue
+        changed_keys.append(key)
+        changes[key] = {
+            "old": _sanitize_event_value(old_val, key=key),
+            "new": _sanitize_event_value(new_val, key=key),
+        }
+    return {"changed_keys": changed_keys, "changes": changes}
 
 
 def _run_latest_shutdown_hook() -> None:
@@ -1040,6 +1142,22 @@ def create_app(
     }
     proc_log_backup_suffix = ".1"
     proc_log_max_bytes = 5 * 1024 * 1024
+    dm_event_lock = threading.Lock()
+    dm_events: List[Dict[str, Any]] = []
+    dm_event_tail_limit = 4000
+    dm_event_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "dm_events")
+    dm_event_path = os.path.join(dm_event_dir, f"dm_events_{_runtime_state_key(resolved_instance_id)}.jsonl")
+    dm_event_backup_suffix = ".1"
+    dm_event_max_bytes = 5 * 1024 * 1024
+    dm_event_file_lock = threading.Lock()
+    dm_event_pending_writes: List[Dict[str, Any]] = []
+    dm_event_pending_max = 8000
+    dm_event_flush_batch_size = 250
+    dm_event_flush_interval_s = 0.75
+    dm_event_flush_wakeup = threading.Event()
+    dm_event_writer_stop = threading.Event()
+    dm_event_writer_thread: Optional[threading.Thread] = None
+    dm_event_dropped_writes = 0
 
     # In-memory session histories for intranet testing
     sessions: Dict[str, History] = {}
@@ -1067,6 +1185,270 @@ def create_app(
         if mode in ("server", "client"):
             return mode
         return "unknown"
+
+    def _get_request_id() -> str:
+        if has_request_context():
+            current = getattr(g, "dm_request_id", None)
+            if current:
+                return str(current)
+        return _new_request_id()
+
+    def _get_request_started_at() -> float:
+        if has_request_context():
+            started = getattr(g, "dm_request_started_at", None)
+            try:
+                if started is not None:
+                    return float(started)
+            except Exception:
+                pass
+        return time.time()
+
+    def _infer_event_source(
+        *,
+        endpoint: Optional[str] = None,
+        explicit_source: Optional[Any] = None,
+        stt_used: Optional[bool] = None,
+        forced_source: Optional[str] = None,
+    ) -> str:
+        forced = _normalize_event_source(forced_source)
+        if forced:
+            return forced
+        explicit = _normalize_event_source(explicit_source)
+        if explicit:
+            return explicit
+        ep = str(endpoint or "").strip().lower()
+        if ep == "/api/send":
+            return "speech_ptt" if bool(stt_used) else "chat_text"
+        if ep in (
+            "/api/command_execute",
+            "/api/nao_behavior_start",
+            "/api/nao_behavior_stop",
+            "/api/nao_move_toward",
+            "/api/nao_stop_move",
+            "/api/nao_stop_audio",
+            "/api/nao_wake_up",
+            "/api/nao_rest",
+            "/api/nao_custom_life_set",
+            "/api/runtime_config",
+            "/api/process_start",
+        ):
+            return "manual_command_ui"
+        if ep in ("/api/script/do", "/api/script/say"):
+            return "script_api"
+        return "system_auto"
+
+    def _dm_now_iso() -> str:
+        now = time.time()
+        whole = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
+        ms = int((now % 1.0) * 1000.0)
+        return f"{whole}.{ms:03d}Z"
+
+    def _ensure_dm_event_dir() -> None:
+        try:
+            os.makedirs(dm_event_dir, exist_ok=True)
+        except OSError:
+            pass
+
+    def _rotate_dm_event_file_if_needed(path: str) -> None:
+        if not path:
+            return
+        try:
+            if not os.path.exists(path):
+                return
+            if os.path.getsize(path) < dm_event_max_bytes:
+                return
+            backup = path + dm_event_backup_suffix
+            if os.path.exists(backup):
+                os.remove(backup)
+            os.replace(path, backup)
+        except OSError:
+            pass
+
+    def _append_dm_event_file_batch(entries: List[Dict[str, Any]]) -> None:
+        if not entries:
+            return
+        _ensure_dm_event_dir()
+        with dm_event_file_lock:
+            _rotate_dm_event_file_if_needed(dm_event_path)
+            try:
+                with open(dm_event_path, "a", encoding="utf-8") as fh:
+                    for entry in entries:
+                        fh.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
+            except OSError:
+                pass
+
+    def _load_dm_event_tail(limit: int) -> List[Dict[str, Any]]:
+        entries: List[Dict[str, Any]] = []
+        for candidate in (dm_event_path + dm_event_backup_suffix, dm_event_path):
+            if not os.path.exists(candidate):
+                continue
+            try:
+                with open(candidate, "r", encoding="utf-8", errors="replace") as fh:
+                    for raw_line in fh:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        try:
+                            item = json.loads(line)
+                        except Exception:
+                            continue
+                        if isinstance(item, dict):
+                            entries.append(item)
+            except OSError:
+                continue
+        if limit <= 0:
+            return entries
+        return entries[-limit:]
+
+    def _clear_dm_event_files() -> None:
+        with dm_event_file_lock:
+            for candidate in (dm_event_path, dm_event_path + dm_event_backup_suffix):
+                try:
+                    if os.path.exists(candidate):
+                        os.remove(candidate)
+                except OSError:
+                    pass
+
+    def _drain_dm_event_writes(*, force: bool = False) -> int:
+        written = 0
+        while True:
+            with dm_event_lock:
+                if not dm_event_pending_writes:
+                    batch: List[Dict[str, Any]] = []
+                elif force:
+                    batch = list(dm_event_pending_writes)
+                    dm_event_pending_writes.clear()
+                else:
+                    batch = list(dm_event_pending_writes[:dm_event_flush_batch_size])
+                    del dm_event_pending_writes[: len(batch)]
+            if not batch:
+                break
+            _append_dm_event_file_batch(batch)
+            written += len(batch)
+            if not force:
+                break
+        return written
+
+    def _dm_event_writer_loop() -> None:
+        while not dm_event_writer_stop.is_set():
+            dm_event_flush_wakeup.wait(timeout=dm_event_flush_interval_s)
+            dm_event_flush_wakeup.clear()
+            _drain_dm_event_writes(force=False)
+        _drain_dm_event_writes(force=True)
+
+    def _stop_dm_event_writer() -> None:
+        if dm_event_writer_thread is None:
+            return
+        dm_event_writer_stop.set()
+        dm_event_flush_wakeup.set()
+        try:
+            dm_event_writer_thread.join(timeout=2.0)
+        except Exception:
+            pass
+
+    def _log_dm_event(
+        *,
+        sid: str,
+        level: str,
+        category: str,
+        event: str,
+        source: str,
+        message: str,
+        data: Optional[Dict[str, Any]] = None,
+        turn_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        nonlocal dm_event_dropped_writes
+        level_norm = str(level or "").strip().lower()
+        category_norm = str(category or "").strip().lower()
+        source_norm = _infer_event_source(forced_source=source)
+        if level_norm not in _DM_EVENT_LEVEL_SET:
+            level_norm = "info"
+        if category_norm not in _DM_EVENT_CATEGORY_SET:
+            category_norm = "dialog"
+        payload = {
+            "ts": _dm_now_iso(),
+            "instance_id": resolved_instance_id,
+            "sid": sid,
+            "level": level_norm,
+            "category": category_norm,
+            "event": str(event or "").strip() or "event",
+            "source": source_norm,
+            "message": _clip_value(message or "", max_str_len=320),
+            "data": _sanitize_event_value(data or {}),
+        }
+        if turn_id:
+            payload["turn_id"] = str(turn_id)
+        if request_id:
+            payload["request_id"] = str(request_id)
+        wake_writer = False
+        with dm_event_lock:
+            dm_events.append(payload)
+            if len(dm_events) > dm_event_tail_limit:
+                del dm_events[: len(dm_events) - dm_event_tail_limit]
+            if len(dm_event_pending_writes) >= dm_event_pending_max:
+                drop_count = len(dm_event_pending_writes) - dm_event_pending_max + 1
+                del dm_event_pending_writes[:drop_count]
+                dm_event_dropped_writes += drop_count
+            dm_event_pending_writes.append(payload)
+            wake_writer = len(dm_event_pending_writes) >= dm_event_flush_batch_size
+        if wake_writer:
+            dm_event_flush_wakeup.set()
+        return payload
+
+    def _runtime_cfg_change_scope(changed_keys: List[str]) -> str:
+        if changed_keys and all(key in _DM_UI_PREF_KEYS for key in changed_keys):
+            return "ui_pref_only"
+        return "runtime"
+
+    def _log_runtime_cfg_change(
+        *,
+        sid: str,
+        before: JsonLike,
+        after: JsonLike,
+        source: str,
+        request_id: Optional[str],
+        reason: str,
+    ) -> bool:
+        diff = _diff_runtime_cfg(before, after)
+        changed_keys = list(diff.get("changed_keys") or [])
+        if not changed_keys:
+            return False
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="config",
+            event="runtime_config_changed",
+            source=source,
+            message=f"Runtime config updated ({len(changed_keys)} key(s)).",
+            request_id=request_id,
+            data={
+                "changed_keys": changed_keys,
+                "changes": diff.get("changes") or {},
+                "change_scope": _runtime_cfg_change_scope(changed_keys),
+                "reason": str(reason or "runtime_config_update"),
+            },
+        )
+        return True
+
+    def _structured_http_error_data(
+        *,
+        endpoint: str,
+        status: int,
+        message: str,
+        request_id: str,
+        started_at: float,
+        error_type: str,
+    ) -> Dict[str, Any]:
+        latency_ms = max(0, int(round((time.time() - started_at) * 1000.0)))
+        return {
+            "type": str(error_type or "http_error"),
+            "message": _clip_value(message or "", max_str_len=260),
+            "endpoint": endpoint,
+            "status": int(status),
+            "latency_ms": latency_ms,
+            "correlation": request_id,
+        }
 
     def _get_history(sid: str) -> History:
         return sessions.setdefault(sid, [])
@@ -1209,11 +1591,25 @@ def create_app(
         behavior_executor,
         *,
         runtime_cfg_local: Optional[JsonLike] = None,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
     ) -> None:
         if behavior_executor is None:
             return
         if not _walk_behavior_active_for_sid(sid):
             return
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="post_stop_standup_start",
+            source=source,
+            message="Attempting automatic stand-up after stop.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={},
+        )
         try:
             delay_s = _post_stop_standup_delay_s(runtime_cfg_local)
             if delay_s > 0.0:
@@ -1225,8 +1621,30 @@ def create_app(
                     raw_text="auto_standup_after_stop",
                 )
             )
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="nao",
+                event="post_stop_standup_result",
+                source=source,
+                message="Automatic stand-up completed.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": True},
+            )
         except Exception as exc:
             print(f"[NAO] post-stop standup failed: {exc}")
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="nao",
+                event="post_stop_standup_result",
+                source=source,
+                message="Automatic stand-up failed.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": False, "error": str(exc), "type": exc.__class__.__name__},
+            )
 
     def _set_behavior_executor_custom_life_management(behavior_executor, enabled: bool) -> None:
         if behavior_executor is None:
@@ -1657,6 +2075,9 @@ def create_app(
         command_label: Optional[str] = None,
         text: Optional[str] = None,
         confidence: Optional[float] = None,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
     ) -> None:
         prev_mode = str(state.get("mode") or "")
         prev_active = str(state.get("active_behavior") or "")
@@ -1680,6 +2101,26 @@ def create_app(
                 "new_active_behavior": new_active,
             },
         )
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="state",
+            event="state_transition",
+            source=source,
+            message="Command state transition updated.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={
+                "reason": reason,
+                "command": command_label,
+                "changed": bool(prev_mode != new_mode or prev_active != new_active),
+                "prev_mode": prev_mode,
+                "prev_active_behavior": prev_active,
+                "new_mode": new_mode,
+                "new_active_behavior": new_active,
+                "confidence": confidence,
+            },
+        )
 
     def _handle_command_decision(
         *,
@@ -1694,6 +2135,9 @@ def create_app(
         cmdrec_obj,
         behavior_executor,
         runtime_cfg: JsonLike,
+        source: str,
+        request_id: Optional[str],
+        turn_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         if not decision.is_command or not decision.command:
             return None
@@ -1708,6 +2152,22 @@ def create_app(
             text=text,
             confidence=cmd.confidence,
         )
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="cmdrec",
+            event="command_detected",
+            source=source,
+            message=f"Command detected: {cmd.label}",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={
+                "command": cmd.label,
+                "confidence": cmd.confidence,
+                "reason": decision.reason,
+                "top3": decision.top3,
+            },
+        )
 
         if cmd.label == "STOP":
             _append_user(history, text)
@@ -1719,10 +2179,20 @@ def create_app(
                     sid,
                     behavior_executor,
                     runtime_cfg_local=runtime_cfg,
+                    source="system_auto",
+                    request_id=request_id,
+                    turn_id=turn_id,
                 )
             _release_custom_life_lock(sid, runtime_cfg)
             _clear_command_stop_available(sid)
-            _stop_nao_audio_best_effort(runtime_cfg)
+            _stop_nao_audio_best_effort(
+                runtime_cfg,
+                source="system_auto",
+                request_id=request_id,
+                turn_id=turn_id,
+                sid=sid,
+                reason="command_stop",
+            )
             _touch_activity()
             _set_cmd_state(
                 sid,
@@ -1733,9 +2203,23 @@ def create_app(
                 command_label=cmd.label,
                 text=text,
                 confidence=cmd.confidence,
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
             )
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
             _append_assistant(history, "OK. Uitgevoerd: STOP")
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="cmdrec",
+                event="command_executed",
+                source=source,
+                message="Command executed: STOP",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"command": cmd.label, "confidence": cmd.confidence, "resolved": cmd.resolved or {}},
+            )
             _al_append(
                 "review_queue.jsonl",
                 _al_event(
@@ -1760,6 +2244,17 @@ def create_app(
             }
             if debug:
                 payload["debug"] = debug
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="dialog",
+                event="dialog_reply",
+                source=source,
+                message="Assistant reply generated after command execution.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"reply": payload.get("reply") or "", "emit_used": emit_used},
+            )
             return payload
 
         confirm_policy = _clean_confirm_policy(runtime_cfg.get("confirm_policy") or base_cfg.get("confirm_policy"))
@@ -1780,6 +2275,21 @@ def create_app(
                 command_label=cmd.label,
                 text=text,
                 confidence=cmd.confidence,
+            )
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="cmdrec",
+                event="confirm_required",
+                source=source,
+                message=f"Confirmation required for command: {cmd.label}",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={
+                    "command": cmd.label,
+                    "confidence": cmd.confidence,
+                    "confirm_policy": confirm_policy,
+                },
             )
             _append_user(history, text)
             confirmation_id = uuid.uuid4().hex
@@ -1838,6 +2348,9 @@ def create_app(
             command_label=cmd.label,
             text=text,
             confidence=cmd.confidence,
+            source=source,
+            request_id=request_id,
+            turn_id=turn_id,
         )
         if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
             _set_command_stop_available(sid, cmd.label)
@@ -1845,6 +2358,17 @@ def create_app(
             _clear_command_stop_available(sid)
         _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
         _append_assistant(history, f"OK. Uitgevoerd: {cmd.label}")
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="cmdrec",
+            event="command_executed",
+            source=source,
+            message=f"Command executed: {cmd.label}",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={"command": cmd.label, "confidence": cmd.confidence, "resolved": cmd.resolved or {}},
+        )
         _al_append(
             "review_queue.jsonl",
             _al_event(
@@ -1869,6 +2393,17 @@ def create_app(
         }
         if debug:
             payload["debug"] = debug
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="dialog",
+            event="dialog_reply",
+            source=source,
+            message="Assistant reply generated after command execution.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={"reply": payload.get("reply") or "", "emit_used": emit_used},
+        )
         return payload
 
     def _ensure_proc_log_dir() -> None:
@@ -1947,6 +2482,10 @@ def create_app(
     _ensure_proc_log_dir()
     for _proc_name in list(proc_logs.keys()):
         proc_logs[_proc_name] = _load_proc_log_tail(_proc_name, max_log_lines)
+    _ensure_dm_event_dir()
+    dm_events[:] = _load_dm_event_tail(dm_event_tail_limit)
+    dm_event_writer_thread = threading.Thread(target=_dm_event_writer_loop, daemon=True)
+    dm_event_writer_thread.start()
 
     def _stream_reader(name: str, stream, prefix: str) -> None:
         try:
@@ -2068,6 +2607,7 @@ def create_app(
         return False
 
     def _stop_all_processes() -> None:
+        _stop_dm_event_writer()
         _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="shutdown")
         for name in ("behavior", "base"):
             _stop_process(name)
@@ -2549,6 +3089,84 @@ def create_app(
             stt_edited = bool(stt_edited)
         return stt_used, stt_edited
 
+    @app.before_request
+    def _dm_before_request() -> None:
+        if not str(request.path or "").startswith("/api/"):
+            return
+        g.dm_request_id = _new_request_id()
+        g.dm_request_started_at = time.time()
+
+    @app.after_request
+    def _dm_after_request(resp: Response) -> Response:
+        if not str(request.path or "").startswith("/api/"):
+            return resp
+        request_id = str(getattr(g, "dm_request_id", "") or _new_request_id())
+        started_at = _get_request_started_at()
+        resp.headers["X-Request-Id"] = request_id
+        if resp.status_code < 400 or str(resp.headers.get("X-DM-Error-Logged", "")) == "1":
+            return resp
+        message = "Request failed."
+        error_type = "http_error_response"
+        try:
+            payload = resp.get_json(silent=True)
+            if isinstance(payload, dict):
+                if payload.get("error"):
+                    message = str(payload.get("error"))
+                if payload.get("type"):
+                    error_type = str(payload.get("type"))
+        except Exception:
+            pass
+        source = _infer_event_source(endpoint=request.path)
+        _log_dm_event(
+            sid=(request.cookies.get("sid") or "no_session"),
+            level="error",
+            category="http",
+            event="http_error_response",
+            source=source,
+            message=f"{request.path} returned {resp.status_code}.",
+            request_id=request_id,
+            data=_structured_http_error_data(
+                endpoint=str(request.path),
+                status=int(resp.status_code),
+                message=message,
+                request_id=request_id,
+                started_at=started_at,
+                error_type=error_type,
+            ),
+        )
+        return resp
+
+    @app.errorhandler(Exception)
+    def _api_unhandled_exception(exc: Exception):
+        if isinstance(exc, HTTPException):
+            return exc
+        if str(request.path or "").startswith("/api/"):
+            sid = request.cookies.get("sid") or "no_session"
+            request_id = _get_request_id()
+            started_at = _get_request_started_at()
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="http",
+                event="http_unhandled_exception",
+                source=_infer_event_source(endpoint=request.path),
+                message="Unhandled API exception.",
+                request_id=request_id,
+                data=_structured_http_error_data(
+                    endpoint=str(request.path),
+                    status=500,
+                    message=str(exc),
+                    request_id=request_id,
+                    started_at=started_at,
+                    error_type=exc.__class__.__name__,
+                ),
+            )
+            resp = jsonify({"ok": False, "error": "Internal server error.", "request_id": request_id})
+            resp.status_code = 500
+            resp.headers["X-DM-Error-Logged"] = "1"
+            return resp
+        return ("Internal server error.", 500)
+
     @app.get("/")
     def index():
         return send_from_directory("web", "index.html")
@@ -2723,10 +3341,54 @@ def create_app(
         emit_req: str = "pipeline",
         reset: bool = False,
         input_meta: Optional[Dict[str, Any]] = None,
+        event_source: Optional[str] = None,
+        request_id: Optional[str] = None,
+        endpoint: str = "/api/send",
+        forced_source: Optional[str] = None,
     ) -> Dict[str, Any]:
         emit_used = "pipeline" if str(emit_req).lower() == "pipeline" else "none"
         stt_used, stt_edited = _extract_stt_meta(input_meta)
+        turn_id = uuid.uuid4().hex
+        rid = request_id or _get_request_id()
+        source = _infer_event_source(
+            endpoint=endpoint,
+            explicit_source=event_source,
+            stt_used=stt_used,
+            forced_source=forced_source,
+        )
         _touch_activity()
+
+        def _log_cmdrec_route(decision_obj: RouteDecision) -> None:
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="cmdrec",
+                event="cmdrec_route",
+                source=source,
+                message="Command route decision computed.",
+                request_id=rid,
+                turn_id=turn_id,
+                data={
+                    "routed_as": "command" if decision_obj.is_command else "dialog",
+                    "reason": decision_obj.reason,
+                    "label": decision_obj.command.label if decision_obj.command else None,
+                    "confidence": decision_obj.command.confidence if decision_obj.command else None,
+                    "top3": decision_obj.top3,
+                },
+            )
+
+        def _log_dialog_reply(reply_text: str) -> None:
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="dialog",
+                event="dialog_reply",
+                source=source,
+                message="Dialog reply emitted.",
+                request_id=rid,
+                turn_id=turn_id,
+                data={"reply": reply_text, "emit_used": emit_used},
+            )
 
         pipeline = _get_pipeline(sid)
         debug_cmdrec, cmdrec, behavior_executor = _pipeline_props(pipeline)
@@ -2745,6 +3407,7 @@ def create_app(
         if pending and cmdrec is not None:
             state = _get_cmdrec_state(sid)
             decision = cmdrec.route(text, state["mode"], state["active_behavior"])
+            _log_cmdrec_route(decision)
             debug = _make_debug(decision, debug_cmdrec)
 
             if decision.is_command and decision.command and decision.command.label == "STOP":
@@ -2757,10 +3420,20 @@ def create_app(
                         sid,
                         behavior_executor,
                         runtime_cfg_local=runtime_cfg,
+                        source="system_auto",
+                        request_id=rid,
+                        turn_id=turn_id,
                     )
                 _release_custom_life_lock(sid, runtime_cfg)
                 _clear_command_stop_available(sid)
-                _stop_nao_audio_best_effort(runtime_cfg)
+                _stop_nao_audio_best_effort(
+                    runtime_cfg,
+                    source="system_auto",
+                    request_id=rid,
+                    turn_id=turn_id,
+                    sid=sid,
+                    reason="pending_confirm_stop",
+                )
                 _set_cmd_state(
                     sid,
                     state,
@@ -2770,6 +3443,9 @@ def create_app(
                     command_label=decision.command.label,
                     text=text,
                     confidence=decision.command.confidence,
+                    source=source,
+                    request_id=rid,
+                    turn_id=turn_id,
                 )
                 _set_last_action(
                     sid,
@@ -2780,6 +3456,17 @@ def create_app(
                     ),
                 )
                 _append_assistant(history, "OK. Uitgevoerd: STOP")
+                _log_dm_event(
+                    sid=sid,
+                    level="info",
+                    category="cmdrec",
+                    event="command_executed",
+                    source=source,
+                    message="Pending confirmation STOP executed.",
+                    request_id=rid,
+                    turn_id=turn_id,
+                    data={"command": "STOP", "confidence": decision.command.confidence},
+                )
                 _al_append(
                     "review_queue.jsonl",
                     _al_event(
@@ -2804,6 +3491,7 @@ def create_app(
                 }
                 if debug:
                     payload["debug"] = debug
+                _log_dialog_reply(payload.get("reply") or "")
                 return payload
 
             _append_user(history, text)
@@ -2817,6 +3505,7 @@ def create_app(
             }
             if debug:
                 payload["debug"] = debug
+            _log_dialog_reply(payload.get("reply") or "")
             return payload
 
         debug_for_response = None
@@ -2926,12 +3615,16 @@ def create_app(
                     cmdrec_obj=cmdrec,
                     behavior_executor=behavior_executor,
                     runtime_cfg=runtime_cfg,
+                    source=source,
+                    request_id=rid,
+                    turn_id=turn_id,
                 )
                 if result is not None:
                     return result
         if cmdrec is not None:
             state = _get_cmdrec_state(sid)
             decision = cmdrec.route(text, state["mode"], state["active_behavior"])
+            _log_cmdrec_route(decision)
             debug = _make_debug(decision, debug_cmdrec)
             debug_for_response = debug
 
@@ -2978,6 +3671,9 @@ def create_app(
                 cmdrec_obj=cmdrec,
                 behavior_executor=behavior_executor,
                 runtime_cfg=runtime_cfg,
+                source=source,
+                request_id=rid,
+                turn_id=turn_id,
             )
             if result is not None:
                 return result
@@ -3050,6 +3746,7 @@ def create_app(
         }
         if debug_for_response:
             payload["debug"] = debug_for_response
+        _log_dialog_reply(reply)
         return payload
 
     @app.post("/api/send")
@@ -3061,15 +3758,26 @@ def create_app(
 
         emit_req = (payload.get("emit") or "pipeline")
         sid = _get_sid()
+        stt_used, _stt_edited = _extract_stt_meta(payload.get("input_meta"))
+        source = _infer_event_source(
+            endpoint="/api/send",
+            explicit_source=payload.get("source"),
+            stt_used=stt_used,
+        )
+        request_id = _get_request_id()
         result = _process_text(
             sid,
             text,
             emit_req=emit_req,
             reset=payload.get("reset") is True,
             input_meta=payload.get("input_meta"),
+            event_source=source,
+            request_id=request_id,
+            endpoint="/api/send",
         )
         _attach_command_stop_payload(sid, result)
         resp = jsonify(result)
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -3126,12 +3834,26 @@ def create_app(
         *,
         reason: str,
         runtime_cfg_local: Optional[JsonLike] = None,
+        source: str = "speech_continuous",
+        request_id: Optional[str] = None,
     ) -> bool:
+        prev_phase = str(state.get("phase") or "idle")
         changed = _transition_continuous_phase(state, phase, reason=reason)
         if not changed:
             return False
         cfg_local = runtime_cfg_local if runtime_cfg_local is not None else _get_runtime_cfg(sid)
-        _set_continuous_eye_phase(cfg_local, state, str(state.get("phase") or "idle"))
+        next_phase = str(state.get("phase") or "idle")
+        _set_continuous_eye_phase(cfg_local, state, next_phase)
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="state",
+            event="continuous_phase_changed",
+            source=source,
+            message=f"Continuous phase changed: {prev_phase} -> {next_phase}",
+            request_id=request_id,
+            data={"from_phase": prev_phase, "to_phase": next_phase, "reason": reason},
+        )
         return True
 
     def _continuous_gate_phase(runtime_cfg: JsonLike, state: Dict[str, Any]) -> str:
@@ -3378,6 +4100,9 @@ def create_app(
                                 emit_req="pipeline",
                                 reset=False,
                                 input_meta={"stt_used": True, "stt_edited": False},
+                                endpoint="/api/continuous_start",
+                                forced_source="speech_continuous",
+                                request_id=_new_request_id(),
                             )
                         if wake_mode == "always":
                             state["wake_open_once"] = False
@@ -4148,6 +4873,7 @@ def create_app(
         _, _, behavior_executor = _pipeline_props(pipeline)
         _set_behavior_executor_custom_life_management(behavior_executor, False)
         stt_used, stt_edited = _extract_stt_meta(pending.get("input_meta"))
+        confirm_request_id = _get_request_id()
 
         if confirmed:
             _log_state_event(
@@ -4168,11 +4894,19 @@ def create_app(
                         sid,
                         behavior_executor,
                         runtime_cfg_local=runtime_cfg,
+                        source="system_auto",
+                        request_id=confirm_request_id,
                     )
             if _normalize_command_label(cmd.label) == "STOP":
                 _release_custom_life_lock(sid, runtime_cfg)
                 _clear_command_stop_available(sid)
-                _stop_nao_audio_best_effort(runtime_cfg)
+                _stop_nao_audio_best_effort(
+                    runtime_cfg,
+                    source="system_auto",
+                    request_id=confirm_request_id,
+                    sid=sid,
+                    reason="confirm_stop",
+                )
             elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
                 _set_command_stop_available(sid, cmd.label)
             else:
@@ -4817,6 +5551,9 @@ def create_app(
     def api_runtime_config_set():
         payload = request.get_json(force=True, silent=True) or {}
         sid = _get_sid()
+        source = _infer_event_source(endpoint="/api/runtime_config", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+        before_cfg = _runtime_cfg_snapshot()
         if _request_ui_mode() == "client":
             cfg_out = _get_runtime_cfg(sid)
             resp = jsonify(
@@ -4828,6 +5565,7 @@ def create_app(
                     "client_ignored": True,
                 }
             )
+            resp.headers["X-Request-Id"] = request_id
             resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
             return resp
 
@@ -4844,6 +5582,14 @@ def create_app(
             cfg_out = _get_runtime_cfg(sid)
             if not cfg_out.get("custom_life_enabled", False):
                 _release_custom_life_lock(sid, cfg_out)
+            _log_runtime_cfg_change(
+                sid=sid,
+                before=before_cfg,
+                after=cfg_out,
+                source=source,
+                request_id=request_id,
+                reason="runtime_config_reset",
+            )
             resp = jsonify(
                 {
                     "ok": True,
@@ -4852,6 +5598,7 @@ def create_app(
                     "instance_id": resolved_instance_id,
                 }
             )
+            resp.headers["X-Request-Id"] = request_id
             resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
             return resp
 
@@ -4909,6 +5656,14 @@ def create_app(
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
             _release_custom_life_lock(sid, runtime_cfg)
+        _log_runtime_cfg_change(
+            sid=sid,
+            before=before_cfg,
+            after=runtime_cfg,
+            source=source,
+            request_id=request_id,
+            reason="runtime_config_apply",
+        )
         resp = jsonify(
             {
                 "ok": True,
@@ -4919,6 +5674,7 @@ def create_app(
                 "instance_id": resolved_instance_id,
             }
         )
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -4967,24 +5723,110 @@ def create_app(
             return base_url, "base"
         return None, "none"
 
-    def _stop_nao_audio_best_effort(runtime_cfg: JsonLike) -> Dict[str, Any]:
+    def _stop_nao_audio_best_effort(
+        runtime_cfg: JsonLike,
+        *,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        sid: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        sid_value = str(sid or "system")
+        _log_dm_event(
+            sid=sid_value,
+            level="info",
+            category="nao",
+            event="nao_stop_audio_start",
+            source=source,
+            message="Stopping NAO audio.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={"reason": reason or "stop_audio"},
+        )
         base_url, mode = _resolve_nao_audio_url(runtime_cfg)
         if not base_url:
-            return {"ok": False, "mode": mode, "error": "NAO audio endpoint ontbreekt."}
+            out = {"ok": False, "mode": mode, "error": "NAO audio endpoint ontbreekt."}
+            _log_dm_event(
+                sid=sid_value,
+                level="error",
+                category="nao",
+                event="nao_stop_audio_result",
+                source=source,
+                message="NAO audio stop failed: missing endpoint.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": False, "mode": mode, "error": out["error"]},
+            )
+            return out
         try:
             url = base_url + "/nao/stop_audio" if mode == "behavior" else base_url + "/stop_audio"
             resp = requests.post(url, json={}, timeout=3.0)
             data = resp.json() if resp.ok else {}
         except Exception as exc:
-            return {"ok": False, "mode": mode, "error": str(exc)}
+            out = {"ok": False, "mode": mode, "error": str(exc)}
+            _log_dm_event(
+                sid=sid_value,
+                level="error",
+                category="nao",
+                event="nao_stop_audio_result",
+                source=source,
+                message="NAO audio stop request failed.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": False, "mode": mode, "error": str(exc), "type": exc.__class__.__name__},
+            )
+            return out
 
         if isinstance(data, dict):
             status = (data.get("status") or "").strip().lower()
             if status == "error":
-                return {"ok": False, "mode": mode, "error": data.get("error") or "stop_audio failed"}
+                out = {"ok": False, "mode": mode, "error": data.get("error") or "stop_audio failed"}
+                _log_dm_event(
+                    sid=sid_value,
+                    level="error",
+                    category="nao",
+                    event="nao_stop_audio_result",
+                    source=source,
+                    message="NAO audio stop returned error status.",
+                    request_id=request_id,
+                    turn_id=turn_id,
+                    data={
+                        "ok": False,
+                        "mode": mode,
+                        "error": out["error"],
+                        "status": status,
+                        "http_status": getattr(resp, "status_code", None),
+                    },
+                )
+                return out
             payload = data.get("data") if isinstance(data.get("data"), dict) else {}
-            return {"ok": True, "mode": mode, "status": status or "ok", "details": payload}
-        return {"ok": True, "mode": mode}
+            out = {"ok": True, "mode": mode, "status": status or "ok", "details": payload}
+            _log_dm_event(
+                sid=sid_value,
+                level="info",
+                category="nao",
+                event="nao_stop_audio_result",
+                source=source,
+                message="NAO audio stopped.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": True, "mode": mode, "status": out["status"]},
+            )
+            return out
+        out = {"ok": True, "mode": mode}
+        _log_dm_event(
+            sid=sid_value,
+            level="info",
+            category="nao",
+            event="nao_stop_audio_result",
+            source=source,
+            message="NAO audio stop completed.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={"ok": True, "mode": mode},
+        )
+        return out
 
     def _iter_nao_motion_candidates(runtime_cfg: JsonLike) -> List[Tuple[str, str]]:
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
@@ -5412,12 +6254,27 @@ def create_app(
 
     @app.post("/api/nao_stop_audio")
     def api_nao_stop_audio():
-        runtime_cfg = _get_runtime_cfg(_get_sid())
-        result = _stop_nao_audio_best_effort(runtime_cfg)
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        source = _infer_event_source(endpoint="/api/nao_stop_audio", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+        result = _stop_nao_audio_best_effort(
+            runtime_cfg,
+            source=source,
+            request_id=request_id,
+            sid=sid,
+            reason="manual_nao_stop_audio",
+        )
         if not result.get("ok"):
             code = 400 if "ontbreekt" in str(result.get("error") or "").lower() else 502
-            return jsonify({"ok": False, "error": result.get("error"), "mode": result.get("mode")}), code
-        return jsonify({"ok": True, "mode": result.get("mode"), "status": result.get("status", "ok"), "details": result.get("details") or {}})
+            resp = jsonify({"ok": False, "error": result.get("error"), "mode": result.get("mode")})
+            resp.status_code = code
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+        resp = jsonify({"ok": True, "mode": result.get("mode"), "status": result.get("status", "ok"), "details": result.get("details") or {}})
+        resp.headers["X-Request-Id"] = request_id
+        return resp
 
     @app.post("/api/nao_move_toward")
     def api_nao_move_toward():
@@ -5425,6 +6282,33 @@ def create_app(
         sid = _get_sid()
         runtime_cfg = _get_runtime_cfg(sid)
         runtime_state = _get_runtime_state(sid)
+        source = _infer_event_source(endpoint="/api/nao_move_toward", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+
+        def _move_resp(body: Dict[str, Any], status_code: int = 200):
+            level = "error" if status_code >= 400 or not bool(body.get("ok", False)) else "info"
+            _log_dm_event(
+                sid=sid,
+                level=level,
+                category="nao",
+                event="nao_move_toward_result",
+                source=source,
+                message="NAO moveToward result.",
+                request_id=request_id,
+                data={
+                    "ok": bool(body.get("ok")),
+                    "status": status_code,
+                    "ignored": bool(body.get("ignored", False)),
+                    "mode": body.get("mode"),
+                    "error": body.get("error"),
+                    "applied": body.get("applied"),
+                    "seq": body.get("seq"),
+                },
+            )
+            resp = jsonify(body)
+            resp.status_code = status_code
+            resp.headers["X-Request-Id"] = request_id
+            return resp
 
         def _parse_required_axis(name: str) -> float:
             if name not in payload:
@@ -5444,14 +6328,14 @@ def create_app(
             try:
                 seq = int(raw_seq)
             except Exception:
-                return jsonify({"ok": False, "error": "Ongeldige 'seq' waarde."}), 400
+                return _move_resp({"ok": False, "error": "Ongeldige 'seq' waarde."}, 400)
             try:
                 last_seq_raw = runtime_state.get("motion_last_seq", None)
                 last_seq = int(last_seq_raw) if last_seq_raw is not None else None
             except Exception:
                 last_seq = None
             if last_seq is not None and seq <= last_seq:
-                return jsonify({"ok": True, "ignored": True, "seq": seq, "mode": "stale"})
+                return _move_resp({"ok": True, "ignored": True, "seq": seq, "mode": "stale"})
             runtime_state["motion_last_seq"] = seq
 
         try:
@@ -5459,7 +6343,23 @@ def create_app(
             y = _parse_required_axis("y")
             theta = _parse_required_axis("theta")
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return _move_resp({"ok": False, "error": str(exc)}, 400)
+
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_move_toward_start",
+            source=source,
+            message="NAO moveToward requested.",
+            request_id=request_id,
+            data={
+                "x": x,
+                "y": y,
+                "theta": theta,
+                "seq": seq,
+            },
+        )
 
         default_frequency = _clean_locomotion_frequency(
             runtime_cfg.get("locomotion_frequency", _LOCOMOTION_FREQUENCY_DEFAULT),
@@ -5470,7 +6370,7 @@ def create_app(
 
         candidates = _iter_nao_motion_candidates(runtime_cfg)
         if not candidates:
-            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+            return _move_resp({"ok": False, "error": "NAO endpoint ontbreekt."}, 400)
         _touch_activity()
 
         last_error: Optional[str] = None
@@ -5534,28 +6434,69 @@ def create_app(
             }
             if seq is not None:
                 out["seq"] = seq
-            return jsonify(out)
+            return _move_resp(out, 200)
 
-        return jsonify({"ok": False, "error": last_error or "moveToward failed"}), 502
+        return _move_resp({"ok": False, "error": last_error or "moveToward failed"}, 502)
 
     @app.post("/api/nao_stop_move")
     def api_nao_stop_move():
+        payload = request.get_json(force=True, silent=True) or {}
         sid = _get_sid()
         runtime_cfg = _get_runtime_cfg(sid)
+        source = _infer_event_source(endpoint="/api/nao_stop_move", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
         candidates = _iter_nao_motion_candidates(runtime_cfg)
         if not candidates:
-            return jsonify({"ok": False, "error": "NAO endpoint ontbreekt."}), 400
+            resp = jsonify({"ok": False, "error": "NAO endpoint ontbreekt."})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
         _touch_activity()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_stop_move_start",
+            source=source,
+            message="NAO stop move requested.",
+            request_id=request_id,
+            data={},
+        )
 
         last_error: Optional[str] = None
         for endpoint_base_url, mode in candidates:
             try:
                 _stop_move_on_endpoint(endpoint_base_url, mode)
-                return jsonify({"ok": True, "mode": mode})
+                _log_dm_event(
+                    sid=sid,
+                    level="info",
+                    category="nao",
+                    event="nao_stop_move_result",
+                    source=source,
+                    message="NAO stop move succeeded.",
+                    request_id=request_id,
+                    data={"ok": True, "mode": mode},
+                )
+                resp = jsonify({"ok": True, "mode": mode})
+                resp.headers["X-Request-Id"] = request_id
+                return resp
             except Exception as exc:
                 last_error = str(exc)
                 continue
-        return jsonify({"ok": False, "error": last_error or "stop_move failed"}), 502
+        _log_dm_event(
+            sid=sid,
+            level="error",
+            category="nao",
+            event="nao_stop_move_result",
+            source=source,
+            message="NAO stop move failed.",
+            request_id=request_id,
+            data={"ok": False, "error": last_error or "stop_move failed"},
+        )
+        resp = jsonify({"ok": False, "error": last_error or "stop_move failed"})
+        resp.status_code = 502
+        resp.headers["X-Request-Id"] = request_id
+        return resp
 
     @app.post("/api/nao_set_eye_color")
     def api_nao_set_eye_color():
@@ -5715,10 +6656,37 @@ def create_app(
 
     @app.post("/api/nao_wake_up")
     def api_nao_wake_up():
-        runtime_cfg = _get_runtime_cfg(_get_sid())
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        source = _infer_event_source(endpoint="/api/nao_wake_up", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_wake_up_start",
+            source=source,
+            message="NAO wake-up requested.",
+            request_id=request_id,
+            data={},
+        )
         result = _set_nao_awake_state(runtime_cfg, True)
         if not result.get("ok"):
-            return jsonify({"ok": False, "error": result.get("error")}), 400
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="nao",
+                event="nao_wake_up_result",
+                source=source,
+                message="NAO wake-up failed.",
+                request_id=request_id,
+                data={"ok": False, "error": result.get("error")},
+            )
+            resp = jsonify({"ok": False, "error": result.get("error")})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
         out = {
             "ok": True,
             "is_awake": bool(result.get("is_awake")) if result.get("is_awake") is not None else None,
@@ -5726,14 +6694,53 @@ def create_app(
         }
         if result.get("pending"):
             out["pending"] = True
-        return jsonify(out)
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_wake_up_result",
+            source=source,
+            message="NAO wake-up completed.",
+            request_id=request_id,
+            data={"ok": True, "mode": out.get("mode"), "pending": bool(out.get("pending", False))},
+        )
+        resp = jsonify(out)
+        resp.headers["X-Request-Id"] = request_id
+        return resp
 
     @app.post("/api/nao_rest")
     def api_nao_rest():
-        runtime_cfg = _get_runtime_cfg(_get_sid())
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        runtime_cfg = _get_runtime_cfg(sid)
+        source = _infer_event_source(endpoint="/api/nao_rest", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_rest_start",
+            source=source,
+            message="NAO rest requested.",
+            request_id=request_id,
+            data={},
+        )
         result = _set_nao_awake_state(runtime_cfg, False)
         if not result.get("ok"):
-            return jsonify({"ok": False, "error": result.get("error")}), 400
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="nao",
+                event="nao_rest_result",
+                source=source,
+                message="NAO rest failed.",
+                request_id=request_id,
+                data={"ok": False, "error": result.get("error")},
+            )
+            resp = jsonify({"ok": False, "error": result.get("error")})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
         out = {
             "ok": True,
             "is_awake": bool(result.get("is_awake")) if result.get("is_awake") is not None else None,
@@ -5741,7 +6748,19 @@ def create_app(
         }
         if result.get("pending"):
             out["pending"] = True
-        return jsonify(out)
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_rest_result",
+            source=source,
+            message="NAO rest completed.",
+            request_id=request_id,
+            data={"ok": True, "mode": out.get("mode"), "pending": bool(out.get("pending", False))},
+        )
+        resp = jsonify(out)
+        resp.headers["X-Request-Id"] = request_id
+        return resp
 
     @app.get("/api/nao_custom_life_state")
     def api_nao_custom_life_state():
@@ -5760,15 +6779,46 @@ def create_app(
         if enabled is None:
             return jsonify({"ok": False, "error": "Missing 'enabled'."}), 400
         sid = _get_sid()
+        source = _infer_event_source(endpoint="/api/nao_custom_life_set", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
         runtime_cfg = _get_runtime_cfg(sid)
+        before_cfg = copy.deepcopy(runtime_cfg)
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_custom_life_set_start",
+            source=source,
+            message="NAO custom life toggle requested.",
+            request_id=request_id,
+            data={"enabled": bool(enabled)},
+        )
         runtime_cfg["custom_life_enabled"] = bool(enabled)
         _save_runtime_cfg_state()
+        _log_runtime_cfg_change(
+            sid=sid,
+            before=before_cfg,
+            after=runtime_cfg,
+            source=source,
+            request_id=request_id,
+            reason="nao_custom_life_set",
+        )
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
             _release_custom_life_lock(sid, runtime_cfg)
         state = _get_nao_custom_life_ui_state(runtime_cfg)
         if not state.get("ok"):
-            return jsonify(
+            _log_dm_event(
+                sid=sid,
+                level="warn",
+                category="nao",
+                event="nao_custom_life_set_result",
+                source=source,
+                message="NAO custom life updated with warning.",
+                request_id=request_id,
+                data={"ok": True, "warning": state.get("error"), "enabled": bool(runtime_cfg.get("custom_life_enabled", False))},
+            )
+            resp = jsonify(
                 {
                     "ok": True,
                     "enabled": bool(runtime_cfg.get("custom_life_enabled", False)),
@@ -5777,7 +6827,19 @@ def create_app(
                     "warning": state.get("error"),
                 }
             )
-        return jsonify(
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_custom_life_set_result",
+            source=source,
+            message="NAO custom life updated.",
+            request_id=request_id,
+            data={"ok": True, "enabled": bool(state.get("enabled"))},
+        )
+        resp = jsonify(
             {
                 "ok": True,
                 "enabled": bool(state.get("enabled")),
@@ -5786,6 +6848,8 @@ def create_app(
                 "state": state.get("state"),
             }
         )
+        resp.headers["X-Request-Id"] = request_id
+        return resp
 
     @app.post("/api/nao_autonomous_life_set")
     def api_nao_autonomous_life_set():
@@ -5883,7 +6947,13 @@ def create_app(
             return resolved, None
         return None, "dance_not_found"
 
-    def _command_execute_impl(sid: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    def _command_execute_impl(
+        sid: str,
+        payload: Dict[str, Any],
+        *,
+        source: str = "manual_command_ui",
+        request_id: Optional[str] = None,
+    ) -> Tuple[Dict[str, Any], int]:
         label = (payload.get("label") or "").strip()
         if not label:
             return {"ok": False, "error": "Missing 'label'."}, 400
@@ -5898,22 +6968,50 @@ def create_app(
         if label.upper() == "DANCE" and not resolved:
             resolved = _default_dance_resolution(cmdrec)
         cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=resolved)
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="cmdrec",
+            event="command_execute_requested",
+            source=source,
+            message=f"Manual command execute requested: {cmd.label}",
+            request_id=request_id,
+            data={"command": cmd.label, "resolved": cmd.resolved or {}, "origin": "manual_execute"},
+        )
         lock_mode = _custom_life_lock_mode_for_command(cmd)
         if lock_mode:
             _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
         try:
             behavior_executor.execute(cmd)
         except Exception as exc:
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="cmdrec",
+                event="command_execute_error",
+                source=source,
+                message=f"Manual command failed: {cmd.label}",
+                request_id=request_id,
+                data={"command": cmd.label, "error": str(exc), "type": exc.__class__.__name__},
+            )
             return {"ok": False, "error": str(exc)}, 400
         if _normalize_command_label(cmd.label) == "STOP":
             _execute_standup_after_stop_if_needed(
                 sid,
                 behavior_executor,
                 runtime_cfg_local=runtime_cfg,
+                source="system_auto",
+                request_id=request_id,
             )
             _release_custom_life_lock(sid, runtime_cfg)
             _clear_command_stop_available(sid)
-            _stop_nao_audio_best_effort(runtime_cfg)
+            _stop_nao_audio_best_effort(
+                runtime_cfg,
+                source="system_auto",
+                request_id=request_id,
+                sid=sid,
+                reason="manual_command_stop",
+            )
         elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
             _set_command_stop_available(sid, cmd.label)
         else:
@@ -5921,13 +7019,49 @@ def create_app(
         _touch_activity()
         out = {"ok": True}
         _attach_command_stop_payload(sid, out)
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="cmdrec",
+            event="command_executed",
+            source=source,
+            message=f"Manual command executed: {cmd.label}",
+            request_id=request_id,
+            data={"command": cmd.label, "resolved": cmd.resolved or {}, "origin": "manual_execute"},
+        )
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="dialog",
+            event="dialog_reply",
+            source=source,
+            message="Manual command execution completed.",
+            request_id=request_id,
+            data={"reply": f"OK. Uitgevoerd: {cmd.label}", "emit_used": "none"},
+        )
         return out, 200
 
-    def _nao_behavior_start_impl(sid: str, behavior: str) -> Tuple[Dict[str, Any], int]:
+    def _nao_behavior_start_impl(
+        sid: str,
+        behavior: str,
+        *,
+        source: str = "manual_command_ui",
+        request_id: Optional[str] = None,
+    ) -> Tuple[Dict[str, Any], int]:
         behavior = str(behavior or "").strip()
         if not behavior:
             return {"ok": False, "error": "Missing 'behavior'."}, 400
         _touch_activity()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_behavior_start",
+            source=source,
+            message="Behavior start requested.",
+            request_id=request_id,
+            data={"behavior": behavior},
+        )
         runtime_cfg = _get_runtime_cfg(sid)
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
         base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
@@ -5983,14 +7117,50 @@ def create_app(
                     )
                     lock_active = True
             _touch_activity()
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="nao",
+                event="nao_behavior_start_result",
+                source=source,
+                message="Behavior start succeeded.",
+                request_id=request_id,
+                data={"ok": True, "behavior": behavior, "mode": mode},
+            )
             return {"ok": True}, 200
+        _log_dm_event(
+            sid=sid,
+            level="error",
+            category="nao",
+            event="nao_behavior_start_result",
+            source=source,
+            message="Behavior start failed.",
+            request_id=request_id,
+            data={"ok": False, "behavior": behavior, "error": last_error or "behavior failed"},
+        )
         return {"ok": False, "error": last_error or "behavior failed"}, 400
 
-    def _nao_behavior_stop_impl(sid: str, behavior: str) -> Tuple[Dict[str, Any], int]:
+    def _nao_behavior_stop_impl(
+        sid: str,
+        behavior: str,
+        *,
+        source: str = "manual_command_ui",
+        request_id: Optional[str] = None,
+    ) -> Tuple[Dict[str, Any], int]:
         behavior = str(behavior or "").strip()
         if not behavior:
             return {"ok": False, "error": "Missing 'behavior'."}, 400
         _touch_activity()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="nao",
+            event="nao_behavior_stop",
+            source=source,
+            message="Behavior stop requested.",
+            request_id=request_id,
+            data={"behavior": behavior},
+        )
         runtime_cfg = _get_runtime_cfg(sid)
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
         base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
@@ -6028,16 +7198,42 @@ def create_app(
                     pass
             _release_custom_life_lock(sid, runtime_cfg)
             _touch_activity()
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="nao",
+                event="nao_behavior_stop_result",
+                source=source,
+                message="Behavior stop succeeded.",
+                request_id=request_id,
+                data={"ok": True, "behavior": behavior, "mode": mode},
+            )
             return {"ok": True}, 200
+        _log_dm_event(
+            sid=sid,
+            level="error",
+            category="nao",
+            event="nao_behavior_stop_result",
+            source=source,
+            message="Behavior stop failed.",
+            request_id=request_id,
+            data={"ok": False, "behavior": behavior, "error": last_error or "behavior failed"},
+        )
         return {"ok": False, "error": last_error or "behavior failed"}, 400
 
     @app.post("/api/command_execute")
     def api_command_execute():
         sid = _get_sid()
         payload = request.get_json(force=True, silent=True) or {}
-        out, status_code = _command_execute_impl(sid, payload)
+        source = _infer_event_source(
+            endpoint="/api/command_execute",
+            explicit_source=payload.get("source"),
+        )
+        request_id = _get_request_id()
+        out, status_code = _command_execute_impl(sid, payload, source=source, request_id=request_id)
         resp = jsonify(out)
         resp.status_code = status_code
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -6061,6 +7257,8 @@ def create_app(
         if not text:
             return jsonify({"ok": False, "error": "Missing 'text'."}), 400
         sid = _get_sid()
+        source = _infer_event_source(endpoint="/api/script/say", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
         runtime_cfg = _get_runtime_cfg(sid)
         pipeline = _get_pipeline(sid)
         _emit_followup_text(
@@ -6070,7 +7268,18 @@ def create_app(
             text=text,
         )
         _touch_activity()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="dialog",
+            event="dialog_reply",
+            source=source,
+            message="Script API say emitted.",
+            request_id=request_id,
+            data={"reply": text, "emit_used": "pipeline", "action": "say"},
+        )
         resp = jsonify({"ok": True, "status": "accepted", "action": "say"})
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -6079,6 +7288,8 @@ def create_app(
         payload = request.get_json(force=True, silent=True) or {}
         mode = str(payload.get("mode") or "").strip().lower()
         sid = _get_sid()
+        source = _infer_event_source(endpoint="/api/script/do", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
         if not mode:
             return jsonify({"ok": False, "error": "Missing 'mode'."}), 400
 
@@ -6088,10 +7299,16 @@ def create_app(
             command_payload: Dict[str, Any] = {"label": label}
             if resolved is not None:
                 command_payload["resolved"] = resolved
-            out, status_code = _command_execute_impl(sid, command_payload)
+            out, status_code = _command_execute_impl(
+                sid,
+                command_payload,
+                source=source,
+                request_id=request_id,
+            )
             if status_code != 200:
                 resp = jsonify(out)
                 resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
                 resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
                 return resp
         elif mode == "dance":
@@ -6105,33 +7322,62 @@ def create_app(
             resolved, err = _resolve_dance_by_key(cmdrec, dance_key)
             if err:
                 return jsonify({"ok": False, "error": err, "dance_key": dance_key}), 400
-            out, status_code = _command_execute_impl(sid, {"label": "DANCE", "resolved": resolved})
+            out, status_code = _command_execute_impl(
+                sid,
+                {"label": "DANCE", "resolved": resolved},
+                source=source,
+                request_id=request_id,
+            )
             if status_code != 200:
                 resp = jsonify(out)
                 resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
                 resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
                 return resp
         elif mode == "behavior_start":
             behavior = str(payload.get("behavior") or "").strip()
-            out, status_code = _nao_behavior_start_impl(sid, behavior)
+            out, status_code = _nao_behavior_start_impl(
+                sid,
+                behavior,
+                source=source,
+                request_id=request_id,
+            )
             if status_code != 200:
                 resp = jsonify(out)
                 resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
                 resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
                 return resp
         elif mode == "behavior_stop":
             behavior = str(payload.get("behavior") or "").strip()
-            out, status_code = _nao_behavior_stop_impl(sid, behavior)
+            out, status_code = _nao_behavior_stop_impl(
+                sid,
+                behavior,
+                source=source,
+                request_id=request_id,
+            )
             if status_code != 200:
                 resp = jsonify(out)
                 resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
                 resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
                 return resp
         else:
             return jsonify({"ok": False, "error": "invalid_mode", "mode": mode}), 400
 
         _touch_activity()
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="dialog",
+            event="dialog_reply",
+            source=source,
+            message="Script API action accepted.",
+            request_id=request_id,
+            data={"action": "do", "mode": mode},
+        )
         resp = jsonify({"ok": True, "status": "accepted", "action": "do", "mode": mode})
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -6170,9 +7416,17 @@ def create_app(
         payload = request.get_json(force=True, silent=True) or {}
         sid = _get_sid()
         behavior = (payload.get("behavior") or "").strip()
-        out, status_code = _nao_behavior_start_impl(sid, behavior)
+        source = _infer_event_source(endpoint="/api/nao_behavior_start", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+        out, status_code = _nao_behavior_start_impl(
+            sid,
+            behavior,
+            source=source,
+            request_id=request_id,
+        )
         resp = jsonify(out)
         resp.status_code = status_code
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -6181,9 +7435,17 @@ def create_app(
         payload = request.get_json(force=True, silent=True) or {}
         sid = _get_sid()
         behavior = (payload.get("behavior") or "").strip()
-        out, status_code = _nao_behavior_stop_impl(sid, behavior)
+        source = _infer_event_source(endpoint="/api/nao_behavior_stop", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
+        out, status_code = _nao_behavior_stop_impl(
+            sid,
+            behavior,
+            source=source,
+            request_id=request_id,
+        )
         resp = jsonify(out)
         resp.status_code = status_code
+        resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -6215,18 +7477,84 @@ def create_app(
             _clear_proc_log_files(name)
         return jsonify({"ok": True, "name": name})
 
+    @app.get("/api/dm_events")
+    def api_dm_events():
+        raw_limit = request.args.get("limit", None)
+        try:
+            limit = int(raw_limit) if raw_limit is not None else 400
+        except Exception:
+            limit = 400
+        limit = max(1, min(2000, limit))
+        level_filter = str(request.args.get("level") or "").strip().lower()
+        event_filter = str(request.args.get("event") or "").strip()
+        source_filter = str(request.args.get("source") or "").strip().lower()
+        q_filter = str(request.args.get("q") or "").strip().casefold()
+
+        with dm_event_lock:
+            events = list(dm_events)
+            dropped_count = int(dm_event_dropped_writes)
+
+        def _matches(item: Dict[str, Any]) -> bool:
+            if level_filter and str(item.get("level") or "").strip().lower() != level_filter:
+                return False
+            if event_filter and str(item.get("event") or "").strip() != event_filter:
+                return False
+            if source_filter and str(item.get("source") or "").strip().lower() != source_filter:
+                return False
+            if q_filter:
+                message_text = str(item.get("message") or "")
+                try:
+                    data_text = json.dumps(item.get("data") or {}, ensure_ascii=False, sort_keys=True)
+                except Exception:
+                    data_text = str(item.get("data") or "")
+                hay = (message_text + " " + data_text).casefold()
+                if q_filter not in hay:
+                    return False
+            return True
+
+        filtered = [entry for entry in events if _matches(entry)]
+        if limit > 0:
+            filtered = filtered[-limit:]
+        available_events = sorted({str(entry.get("event") or "").strip() for entry in events if entry.get("event")})
+        return jsonify(
+            {
+                "ok": True,
+                "events": filtered,
+                "meta": {
+                    "available_levels": list(_DM_EVENT_LEVELS),
+                    "available_events": available_events,
+                    "available_sources": list(_DM_EVENT_SOURCES),
+                    "dropped_writes": dropped_count,
+                },
+            }
+        )
+
+    @app.post("/api/dm_events_clear")
+    def api_dm_events_clear():
+        nonlocal dm_event_dropped_writes
+        with dm_event_lock:
+            dm_events.clear()
+            dm_event_pending_writes.clear()
+            dm_event_dropped_writes = 0
+        _clear_dm_event_files()
+        return jsonify({"ok": True})
+
     @app.post("/api/process_start")
     def api_process_start():
         payload = request.get_json(force=True, silent=True) or {}
         name = (payload.get("name") or "").strip().lower()
         if name not in ("base", "behavior"):
             return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        sid = _get_sid()
+        source = _infer_event_source(endpoint="/api/process_start", explicit_source=payload.get("source"))
+        request_id = _get_request_id()
 
         payload_nao_base_url = _normalize_url(payload.get("nao_base_url"))
         payload_behavior_url = _normalize_url(payload.get("behavior_manager_url"))
 
         if name == "base":
-            runtime_cfg = _get_runtime_cfg(_get_sid())
+            runtime_cfg = _get_runtime_cfg(sid)
+            before_cfg = copy.deepcopy(runtime_cfg)
             payload_nao_ip = (payload.get("nao_ip") or "").strip()
             nao_ip = payload_nao_ip or (runtime_cfg.get("nao_ip") or "").strip()
             nao_ip_enabled = bool(payload.get("nao_ip_enabled", runtime_cfg.get("nao_ip_enabled", False)))
@@ -6256,12 +7584,21 @@ def create_app(
                 changed = True
             if changed:
                 _save_runtime_cfg_state()
+                _log_runtime_cfg_change(
+                    sid=sid,
+                    before=before_cfg,
+                    after=runtime_cfg,
+                    source=source,
+                    request_id=request_id,
+                    reason="process_start_base",
+                )
             if not nao_ip or not nao_ip_enabled:
                 return jsonify({"ok": False, "error": "NAO IP ontbreekt of is disabled."}), 400
             base_port = _url_port(runtime_cfg.get("nao_base_url"), default_port=5000)
             cmd, cwd, err = _base_controller_cmd(nao_ip, base_port)
         else:
-            runtime_cfg = _get_runtime_cfg(_get_sid())
+            runtime_cfg = _get_runtime_cfg(sid)
+            before_cfg = copy.deepcopy(runtime_cfg)
             effective_nao_base_url = payload_nao_base_url or _normalize_url(runtime_cfg.get("nao_base_url"))
             effective_behavior_url = payload_behavior_url or _normalize_url(runtime_cfg.get("behavior_manager_url"))
             if _url_conflicts_with_webapp(effective_nao_base_url, request.host):
@@ -6299,6 +7636,14 @@ def create_app(
                 changed = True
             if changed:
                 _save_runtime_cfg_state()
+                _log_runtime_cfg_change(
+                    sid=sid,
+                    before=before_cfg,
+                    after=runtime_cfg,
+                    source=source,
+                    request_id=request_id,
+                    reason="process_start_behavior",
+                )
             behavior_port = _url_port(runtime_cfg.get("behavior_manager_url"), default_port=5001)
             py2_api_url = _normalize_url(runtime_cfg.get("nao_base_url")) or "http://127.0.0.1:5000"
             cmd, cwd, err = _behavior_manager_cmd(behavior_port, py2_api_url)
@@ -6306,7 +7651,9 @@ def create_app(
         if err:
             return jsonify({"ok": False, "error": err}), 400
         result = _start_process(name, cmd, cwd)
-        return jsonify(result)
+        resp = jsonify(result)
+        resp.headers["X-Request-Id"] = request_id
+        return resp
 
     @app.post("/api/process_stop")
     def api_process_stop():
