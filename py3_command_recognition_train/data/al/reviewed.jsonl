@@ -89,3 +89,5 @@
 {"text": "Dag robot. Vertel me eens iets belangrijks", "label": "NONE", "source": "al_reviewed"}
 {"text": "Wat is daar dan gebeurt? Lucht je metalen hart joh", "label": "NONE", "source": "al_reviewed"}
 {"text": "Ga eens rechtop.", "label": "STAND\\_UP", "source": "ui_review"}
+{"text": "Exact! Als we upgrades uitvoeren wil ik dat jij snel en goed blijft functioneren", "label": "NONE", "source": "ui_review"}
+{"text": "OK, dan ga ik nu slapen. Tot de volgende keer robot", "label": "NONE", "source": "ui_review"}

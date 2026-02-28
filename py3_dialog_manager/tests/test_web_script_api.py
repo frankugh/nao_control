@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import threading
+import time
 
 import requests
 
@@ -15,8 +17,12 @@ class StubLLMBackend:
 
 
 class StubSTTBackend:
-    def transcribe(self, audio):  # pragma: no cover
-        raise AssertionError("STT not used in these tests")
+    def __init__(self, texts=None) -> None:
+        self._texts = list(texts or [])
+
+    def transcribe(self, audio):
+        text = self._texts.pop(0) if self._texts else ""
+        return SimpleNamespace(text=text, language="nl", confidence=0.9)
 
 
 class StubOutput:
@@ -64,7 +70,7 @@ class _Resp:
             raise requests.HTTPError(f"status={self.status_code}")
 
 
-def _make_app(monkeypatch, *, executor=None, cmdrec=None, output=None):
+def _make_app(monkeypatch, *, executor=None, cmdrec=None, output=None, stt_backend=None):
     base_pipeline = SimpleNamespace(
         llm=StubLLMBackend(),
         output=output if output is not None else StubOutput(),
@@ -78,7 +84,11 @@ def _make_app(monkeypatch, *, executor=None, cmdrec=None, output=None):
         _debug_cmdrec=False,
     )
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
-    monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
+    monkeypatch.setattr(
+        webapp_server,
+        "make_stt_backend_from_config",
+        lambda *_a, **_k: stt_backend if stt_backend is not None else StubSTTBackend(),
+    )
     app, _, _ = webapp_server.create_app(cfg={}, config_path="<memory>")
     return app, base_pipeline
 
@@ -94,7 +104,16 @@ def test_script_capabilities_contract(monkeypatch):
     supports = data.get("supports", {})
     assert supports.get("say") is True
     assert supports.get("dance_catalog") is True
-    assert supports.get("do_modes") == ["command", "behavior_start", "behavior_stop", "dance"]
+    assert supports.get("do_modes") == [
+        "command",
+        "behavior_start",
+        "behavior_stop",
+        "dance",
+        "summary_capture_start",
+        "summary_capture_stop_and_draft",
+        "summary_publish",
+        "summary_cancel",
+    ]
 
 
 def test_script_say_requires_text(monkeypatch):
@@ -263,3 +282,238 @@ def test_script_do_command_builds_runtime_pipeline_for_new_sid(monkeypatch):
     assert data["ok"] is True
     assert executors, "expected runtime pipeline rebuild with nao backend executor"
     assert any("WAVE" in ex.calls for ex in executors)
+
+
+def test_script_do_summary_stop_without_start_returns_invalid_state(monkeypatch):
+    app, _ = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.post(
+        "/api/script/do",
+        json={"mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert data["error"] == "invalid_summary_state"
+
+
+def test_script_do_summary_publish_without_draft_returns_error(monkeypatch):
+    app, _ = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.post("/api/script/do", json={"mode": "summary_publish"})
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert data["error"] == "summary_draft_not_ready"
+
+
+def test_script_do_summary_empty_transcript_includes_capture_detail(monkeypatch):
+    stt = StubSTTBackend([])
+    app, _ = _make_app(monkeypatch, stt_backend=stt)
+    client = app.test_client()
+
+    class FakeMic:
+        def capture_utterance(self, timeout_s=10.0):
+            raise RuntimeError("input stream unavailable")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    start_resp = client.post("/api/script/do", json={"mode": "summary_capture_start"})
+    assert start_resp.status_code == 200
+    time.sleep(0.05)
+
+    stop_resp = client.post(
+        "/api/script/do",
+        json={"mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+    )
+    assert stop_resp.status_code == 400
+    stop_data = stop_resp.get_json()
+    assert stop_data["error"] == "summary_transcript_empty"
+    assert "mic:" in str(stop_data.get("detail") or "")
+    stats = stop_data.get("capture_stats") or {}
+    assert int(stats.get("loops", 0)) >= 1
+    assert int(stats.get("transcript_count", 0)) == 0
+
+
+def test_script_do_summary_capture_to_draft_and_publish(monkeypatch):
+    output = StubOutput()
+    stt = StubSTTBackend(["Ik wil leren hoe robots beslissingen nemen."])
+    app, _ = _make_app(monkeypatch, output=output, stt_backend=stt)
+    client = app.test_client()
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"output_target": "server", "tts_engine": "piper"}},
+    )
+    assert cfg_resp.status_code == 200
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    seen_modes = []
+
+    def _fake_make_mic(*_a, **kwargs):
+        seen_modes.append(str(kwargs.get("mode") or ""))
+        return FakeMic()
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", _fake_make_mic)
+
+    start_resp = client.post("/api/script/do", json={"mode": "summary_capture_start"})
+    assert start_resp.status_code == 200
+    assert start_resp.get_json()["phase"] == "capturing"
+    assert seen_modes and seen_modes[0] == "continuous"
+
+    time.sleep(0.05)
+
+    stop_resp = client.post(
+        "/api/script/do",
+        json={
+            "mode": "summary_capture_stop_and_draft",
+            "input_prompt_template": "Transcript:\n{transcript}\n\nInstruction:\n{instruction}",
+            "instruction": "Maak een compacte samenvatting voor de moderator.",
+        },
+    )
+    assert stop_resp.status_code == 200
+    stop_data = stop_resp.get_json()
+    assert stop_data["mode"] == "summary_capture_stop_and_draft"
+    assert stop_data["phase"] == "draft_ready"
+    assert stop_data["draft"] == "ok"
+    assert stop_data["transcript"] == ["Ik wil leren hoe robots beslissingen nemen."]
+
+    state_resp = client.get("/api/state")
+    assert state_resp.status_code == 200
+    assert state_resp.get_json()["history"] == []
+
+    publish_resp = client.post("/api/script/do", json={"mode": "summary_publish"})
+    assert publish_resp.status_code == 200
+    publish_data = publish_resp.get_json()
+    assert publish_data["mode"] == "summary_publish"
+    assert publish_data["phase"] == "idle"
+    assert output.emitted == ["ok"]
+
+
+def test_script_do_summary_capture_keeps_capturing_while_stt_busy(monkeypatch):
+    stt_started = threading.Event()
+
+    class SlowSTTBackend:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def transcribe(self, _audio):
+            self.calls += 1
+            if self.calls == 1:
+                stt_started.set()
+                time.sleep(0.2)
+                return SimpleNamespace(text="eerste zin", language="nl", confidence=0.9)
+            return SimpleNamespace(text="tweede zin", language="nl", confidence=0.9)
+
+    stt = SlowSTTBackend()
+    app, _ = _make_app(monkeypatch, stt_backend=stt)
+    client = app.test_client()
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls <= 2:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    start_resp = client.post("/api/script/do", json={"mode": "summary_capture_start"})
+    assert start_resp.status_code == 200
+    assert stt_started.wait(timeout=1.0)
+    time.sleep(0.05)
+
+    poll_resp = client.post("/api/script/do", json={"mode": "summary_capture_start"})
+    assert poll_resp.status_code == 200
+    poll_data = poll_resp.get_json()
+    stats = poll_data.get("capture_stats") or {}
+    assert int(stats.get("audio_chunks", 0)) >= 2
+    assert int(stats.get("stt_calls", 0)) >= 1
+
+    cancel_resp = client.post("/api/script/do", json={"mode": "summary_cancel"})
+    assert cancel_resp.status_code == 200
+
+
+def test_script_do_summary_capture_applies_relaxed_vad_floor(monkeypatch):
+    app, _ = _make_app(monkeypatch)
+    client = app.test_client()
+    seen: dict[str, object] = {}
+
+    class FakeMic:
+        def capture_utterance(self, timeout_s=10.0):
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    def _fake_make_mic(cfg, **kwargs):
+        seen["cfg"] = cfg
+        seen["mode"] = kwargs.get("mode")
+        return FakeMic()
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", _fake_make_mic)
+
+    start_resp = client.post("/api/script/do", json={"mode": "summary_capture_start"})
+    assert start_resp.status_code == 200
+    assert seen.get("mode") == "continuous"
+
+    cfg = seen.get("cfg") or {}
+    mic_cfg = (cfg.get("input") or {}).get("mic") or {}
+    cont = mic_cfg.get("params_continuous") or {}
+    assert int(cont.get("stop_silence_ms", 0)) >= int(webapp_server._SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS)
+    assert int(cont.get("pre_roll_ms", 0)) >= int(webapp_server._SUMMARY_CAPTURE_MIN_PRE_ROLL_MS)
+
+    cancel_resp = client.post("/api/script/do", json={"mode": "summary_cancel"})
+    assert cancel_resp.status_code == 200
+
+
+def test_script_do_summary_cancel_clears_draft(monkeypatch):
+    output = StubOutput()
+    stt = StubSTTBackend(["Ik wil meer leren over AI-toepassingen."])
+    app, _ = _make_app(monkeypatch, output=output, stt_backend=stt)
+    client = app.test_client()
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    assert client.post("/api/script/do", json={"mode": "summary_capture_start"}).status_code == 200
+    time.sleep(0.05)
+    stop_resp = client.post(
+        "/api/script/do",
+        json={"mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+    )
+    assert stop_resp.status_code == 200
+
+    cancel_resp = client.post("/api/script/do", json={"mode": "summary_cancel"})
+    assert cancel_resp.status_code == 200
+    cancel_data = cancel_resp.get_json()
+    assert cancel_data["mode"] == "summary_cancel"
+    assert cancel_data["phase"] == "idle"
+
+    publish_resp = client.post("/api/script/do", json={"mode": "summary_publish"})
+    assert publish_resp.status_code == 400
+    assert publish_resp.get_json()["error"] == "summary_draft_not_ready"
+    assert output.emitted == []

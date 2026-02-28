@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5302",
+      "runtime_config": {
+        "mic_params_continuous": {
+          "pre_roll_ms": 1000
+        }
+      }
+    }
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "summary_capture_start",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "do",
+        "mode": "summary_capture_start",
+        "hold_until_continue": true
+      }
+    },
+    {
+      "id": "create_summary_from_transcript",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "do",
+        "mode": "summary_capture_stop_and_draft",
+        "system_prompt_file": "master_prompts/workshop_summary_system.txt",
+        "input_prompt_template": "Hieronder staat transcriptie van antwoorden op de vraag: 'Wat zou je vandaag willen leren over AI en/of robotica?'.\n\nTranscriptie:\n{transcript}\n\nExtra opdracht:\n{instruction}\n\nGeef nu de definitieve gesproken tekst die de robot hardop kan uitspreken.",
+        "instruction": "Houd het kort, natuurlijk en spreekbaar. Geen bullets of kopjes. Benoem de belangrijkste leerwensen, noem kort eventuele zorgen, en eindig met een korte brugzin naar de volgende stap in de workshop."
+      }
+    },
+    {
+      "id": "tts_summary",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "request_timeout_s": 120,
+      "action": {
+        "type": "do",
+        "mode": "summary_publish"
+      }
+    }
+  ]
+}

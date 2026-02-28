@@ -462,6 +462,54 @@ def test_error_prompt_next_skips_failed_step(tmp_path):
     assert any("Step failed" in p for p in prompts)
 
 
+def test_timeout_error_defaults_to_next_without_prompt(tmp_path):
+    prompts: List[str] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True}
+
+        def runtime_effective(self, timeout_s=None):
+            return {"ok": True, "runtime_config": {}}
+
+        def script_say(self, text: str, timeout_s=None):
+            raise DMClientError("Read timed out. (read timeout=45.0)")
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "will timeout"},
+        }
+    ]
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return ""
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=_input,
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 0
+    assert all("Step failed. Choose" not in prompt for prompt in prompts)
+
+
 def test_error_prompt_abort_stops_run(tmp_path):
     call_count = {"say": 0}
 
@@ -613,6 +661,379 @@ def test_multi_robot_steps_route_to_correct_dm_urls(tmp_path):
     assert calls[1][1] == "http://dm-nao2:5302"
     assert calls[1][2]["mode"] == "dance"
     assert calls[1][2]["dance_key"] == "happy"
+
+
+def test_summary_stop_and_draft_builds_payload(tmp_path):
+    calls: List[Tuple[str, Dict[str, Any]]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append((self.base_url, dict(payload)))
+            if payload.get("mode") == "summary_capture_stop_and_draft":
+                return {"ok": True, "draft": "samenvatting", "transcript": ["een", "twee"]}
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": False},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {
+                "type": "do",
+                "mode": "summary_capture_stop_and_draft",
+                "input_prompt_template": "Transcript:\n{transcript}\nInstruction:\n{instruction}",
+                "instruction": "Maak een compacte samenvatting",
+                "system_prompt_file": "master_prompts/workshop_summary_system.txt",
+            },
+        },
+    ]
+
+    def _input(prompt: str) -> str:
+        if prompt.startswith("[SUMMARY] Draft review"):
+            return "p"
+        if prompt.startswith("Step failed. Choose"):
+            return "n"
+        return ""
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=_input,
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 2
+    assert calls[0][1]["mode"] == "summary_capture_start"
+    assert calls[1][1]["mode"] == "summary_capture_stop_and_draft"
+    assert calls[1][1]["input_prompt_template"].startswith("Transcript:")
+    assert calls[1][1]["instruction"] == "Maak een compacte samenvatting"
+    assert calls[1][1]["system_prompt_file"] == "master_prompts/workshop_summary_system.txt"
+
+
+def test_summary_draft_is_logged_before_publish_prompt(tmp_path):
+    prompts: List[str] = []
+    draft_logged_before_prompt: List[bool] = []
+    runner_holder: Dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            if payload.get("mode") == "summary_capture_stop_and_draft":
+                return {"ok": True, "draft": "samenvatting voor review", "transcript": ["een", "twee"]}
+            return {"ok": True}
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        if prompt.startswith("[SUMMARY] Draft review"):
+            runner = runner_holder["runner"]
+            log_text = runner.log_path.read_text(encoding="utf-8")
+            draft_logged_before_prompt.append("[SUMMARY] Draft:" in log_text and "[SUMMARY] samenvatting voor review" in log_text)
+            return "p"
+        return ""
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": False},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {
+                "type": "do",
+                "mode": "summary_capture_stop_and_draft",
+                "input_prompt_template": "Transcript:\n{transcript}",
+            },
+        },
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=_input,
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    runner_holder["runner"] = runner
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 2
+    assert any(p.startswith("[SUMMARY] Draft review") for p in prompts)
+    assert draft_logged_before_prompt == [True]
+
+
+def test_summary_capture_start_holds_until_operator_continue(tmp_path):
+    calls: List[Dict[str, Any]] = []
+    answers = iter(["x", ""])
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append(dict(payload))
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_start"},
+        }
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: next(answers),
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert calls == [{"mode": "summary_capture_start"}]
+
+
+def test_summary_decision_cancel_after_draft_skips_publish_step(tmp_path):
+    calls: List[Dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append(dict(payload))
+            if payload.get("mode") == "summary_capture_stop_and_draft":
+                return {"ok": True, "draft": "samenvatting", "transcript": ["een", "twee"]}
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": False},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {
+                "type": "do",
+                "mode": "summary_capture_stop_and_draft",
+                "input_prompt_template": "Transcript:\n{transcript}",
+            },
+        },
+        {
+            "id": "s3",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_publish"},
+        },
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "c",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 3
+    assert calls == [
+        {"mode": "summary_capture_start"},
+        {"mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+        {"mode": "summary_cancel"},
+    ]
+
+
+def test_summary_decision_publish_after_draft_runs_publish_step(tmp_path):
+    calls: List[Dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append(dict(payload))
+            if payload.get("mode") == "summary_capture_stop_and_draft":
+                return {"ok": True, "draft": "samenvatting", "transcript": ["een", "twee"]}
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": False},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {
+                "type": "do",
+                "mode": "summary_capture_stop_and_draft",
+                "input_prompt_template": "Transcript:\n{transcript}",
+            },
+        },
+        {
+            "id": "s3",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_publish"},
+        },
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 3
+    assert calls == [
+        {"mode": "summary_capture_start"},
+        {"mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+        {"mode": "summary_publish"},
+    ]
+
+
+def test_summary_publish_prompt_cancel_routes_to_summary_cancel(tmp_path):
+    calls: List[Dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append(dict(payload))
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_publish"},
+        }
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "c",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert calls == [{"mode": "summary_cancel"}]
+
+
+def test_summary_publish_prompt_publish_keeps_summary_publish_mode(tmp_path):
+    calls: List[Dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append(dict(payload))
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_publish"},
+        }
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "p",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert calls == [{"mode": "summary_publish"}]
 
 
 def test_with_prev_mode_executes_without_sleep(tmp_path):

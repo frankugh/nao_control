@@ -40,6 +40,10 @@ class DMClient:
             raise DMClientError(f"{method} {url} returned non-JSON response (status={resp.status_code})") from exc
         if resp.status_code >= 400:
             err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(data, dict):
+                detail = str(data.get("detail") or "").strip()
+                if detail:
+                    err = f"{err}: {detail}" if err else detail
             raise DMClientError(f"{method} {url} failed (status={resp.status_code}): {err or data}")
         if isinstance(data, dict) and data.get("ok") is False:
             err = data.get("error") or "unknown_error"

@@ -18,6 +18,7 @@ import io
 import atexit
 import copy
 import json
+import queue
 import os
 import re
 import secrets
@@ -160,6 +161,22 @@ _DM_EVENT_SOURCES = (
 _DM_EVENT_SOURCE_SET = set(_DM_EVENT_SOURCES)
 _DM_UI_PREF_KEYS = {"ui_active_tab", "ui_color_scheme"}
 _DM_SECRET_KEY_RE = re.compile(r"(key|token|secret|password)", re.IGNORECASE)
+_SUMMARY_CAPTURE_JOIN_TIMEOUT_S = 15.0
+_SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S = 2.0
+_SUMMARY_CAPTURE_TIMEOUT_MAX_S = 5.0
+_SUMMARY_LIVE_TRANSCRIPT_MAX_ITEMS = 500
+_SUMMARY_STT_QUEUE_MAX_ITEMS = 16
+_SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS = 1800
+_SUMMARY_CAPTURE_MIN_PRE_ROLL_MS = 800
+_SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK = (
+    "Je bent de workshop-assistent robot in een AI-geletterdheidsworkshop. "
+    "De transcriptie bevat antwoorden op de vraag: "
+    "'Wat zou je vandaag willen leren over AI en/of robotica?'. "
+    "Jouw output wordt hardop uitgesproken via TTS. "
+    "Maak daarom een korte, natuurlijk klinkende gesproken samenvatting zonder bullets, kopjes of markdown, "
+    "met terugkerende leerwensen, eventuele zorgen, en een korte brug naar de volgende workshopstap. "
+    "Gebruik alleen informatie uit de transcriptie."
+)
 
 
 def _new_request_id() -> str:
@@ -991,6 +1008,55 @@ def _resolve_start_timeout(params: Dict[str, Any], *, default: float) -> float:
     return value_f
 
 
+def _summary_capture_mic_config(cfg: JsonLike) -> JsonLike:
+    """
+    Maak summary-capture iets minder agressief met segmentatie:
+    - langere stilte nodig om utterance te sluiten
+    - ruimere pre-roll voor eerste woorden
+    """
+    out = copy.deepcopy(cfg)
+    input_cfg = out.setdefault("input", {}) or {}
+    if not isinstance(input_cfg, dict):
+        input_cfg = {}
+        out["input"] = input_cfg
+    mic_cfg = input_cfg.setdefault("mic", {}) or {}
+    if not isinstance(mic_cfg, dict):
+        mic_cfg = {}
+        input_cfg["mic"] = mic_cfg
+
+    base_params = mic_cfg.get("params")
+    if not isinstance(base_params, dict):
+        base_params = {}
+    cont_params = mic_cfg.get("params_continuous")
+    if not isinstance(cont_params, dict):
+        cont_params = {}
+
+    base_params = dict(base_params)
+    cont_params = dict(cont_params)
+
+    def _int_or_none(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    stop_silence_ms = _int_or_none(cont_params.get("stop_silence_ms"))
+    if stop_silence_ms is None:
+        stop_silence_ms = _int_or_none(base_params.get("stop_silence_ms"))
+    if stop_silence_ms is None or stop_silence_ms < _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS:
+        cont_params["stop_silence_ms"] = _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS
+
+    pre_roll_ms = _int_or_none(cont_params.get("pre_roll_ms"))
+    if pre_roll_ms is None:
+        pre_roll_ms = _int_or_none(base_params.get("pre_roll_ms"))
+    if pre_roll_ms is None or pre_roll_ms < _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS:
+        cont_params["pre_roll_ms"] = _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS
+
+    mic_cfg["params"] = base_params
+    mic_cfg["params_continuous"] = cont_params
+    return out
+
+
 def _load_json(path: str) -> JsonLike:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -1168,6 +1234,8 @@ def create_app(
     stt_by_sid: Dict[str, Any] = {}
     continuous_state: Dict[str, Dict[str, Any]] = {}
     ptt_state: Dict[str, Dict[str, Any]] = {}
+    summary_state_by_sid: Dict[str, Dict[str, Any]] = {}
+    summary_state_lock = threading.RLock()
     last_activity = {"ts": time.time()}
     activity_lock = threading.Lock()
 
@@ -1502,6 +1570,144 @@ def create_app(
             sid,
             {"running": False, "stop": None, "thread": None, "last_error": None, "audio": None, "vad_cfg": None},
         )
+
+    def _new_summary_state() -> Dict[str, Any]:
+        return {
+            "phase": "idle",
+            "capture_thread": None,
+            "stt_thread": None,
+            "stop_event": None,
+            "audio_queue": None,
+            "transcripts": [],
+            "draft_text": None,
+            "last_prompt_meta": None,
+            "last_error": None,
+            "capture_stats": {
+                "loops": 0,
+                "timeouts": 0,
+                "audio_chunks": 0,
+                "dropped_audio_chunks": 0,
+                "stt_calls": 0,
+                "transcript_count": 0,
+                "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
+                "stt_queue_size": 0,
+                "started_at": None,
+                "last_audio_at": None,
+                "last_transcript_at": None,
+            },
+        }
+
+    def _get_summary_state(sid: str) -> Dict[str, Any]:
+        with summary_state_lock:
+            state = summary_state_by_sid.setdefault(sid, _new_summary_state())
+            if "phase" not in state:
+                state["phase"] = "idle"
+            if "capture_thread" not in state:
+                state["capture_thread"] = None
+            if "stt_thread" not in state:
+                state["stt_thread"] = None
+            if "stop_event" not in state:
+                state["stop_event"] = None
+            if "audio_queue" not in state:
+                state["audio_queue"] = None
+            if "transcripts" not in state or not isinstance(state.get("transcripts"), list):
+                state["transcripts"] = []
+            if "draft_text" not in state:
+                state["draft_text"] = None
+            if "last_prompt_meta" not in state:
+                state["last_prompt_meta"] = None
+            if "last_error" not in state:
+                state["last_error"] = None
+            if "capture_stats" not in state or not isinstance(state.get("capture_stats"), dict):
+                state["capture_stats"] = {
+                    "loops": 0,
+                    "timeouts": 0,
+                    "audio_chunks": 0,
+                    "dropped_audio_chunks": 0,
+                    "stt_calls": 0,
+                    "transcript_count": 0,
+                    "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
+                    "stt_queue_size": 0,
+                    "started_at": None,
+                    "last_audio_at": None,
+                    "last_transcript_at": None,
+                }
+            return state
+
+    def _summary_clear_state(state: Dict[str, Any]) -> None:
+        state["phase"] = "idle"
+        state["capture_thread"] = None
+        state["stt_thread"] = None
+        state["stop_event"] = None
+        state["audio_queue"] = None
+        state["transcripts"] = []
+        state["draft_text"] = None
+        state["last_prompt_meta"] = None
+        state["last_error"] = None
+        state["capture_stats"] = {
+            "loops": 0,
+            "timeouts": 0,
+            "audio_chunks": 0,
+            "dropped_audio_chunks": 0,
+            "stt_calls": 0,
+            "transcript_count": 0,
+            "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
+            "stt_queue_size": 0,
+            "started_at": None,
+            "last_audio_at": None,
+            "last_transcript_at": None,
+        }
+
+    def _summary_stop_capture(state: Dict[str, Any], *, join_timeout_s: float = _SUMMARY_CAPTURE_JOIN_TIMEOUT_S) -> bool:
+        with summary_state_lock:
+            stop_event = state.get("stop_event")
+            capture_thread = state.get("capture_thread")
+            stt_thread = state.get("stt_thread")
+        if stop_event is not None:
+            try:
+                stop_event.set()
+            except Exception:
+                pass
+        if capture_thread is not None and hasattr(capture_thread, "is_alive"):
+            try:
+                if capture_thread.is_alive():
+                    capture_thread.join(timeout=join_timeout_s)
+            except Exception:
+                pass
+        if stt_thread is not None and hasattr(stt_thread, "is_alive"):
+            try:
+                if stt_thread.is_alive():
+                    stt_thread.join(timeout=join_timeout_s)
+            except Exception:
+                pass
+        capture_alive = bool(capture_thread is not None and hasattr(capture_thread, "is_alive") and capture_thread.is_alive())
+        stt_alive = bool(stt_thread is not None and hasattr(stt_thread, "is_alive") and stt_thread.is_alive())
+        alive = bool(capture_alive or stt_alive)
+        if not alive:
+            with summary_state_lock:
+                state["capture_thread"] = None
+                state["stt_thread"] = None
+                state["stop_event"] = None
+                state["audio_queue"] = None
+                stats = state.get("capture_stats")
+                if isinstance(stats, dict):
+                    stats["stt_queue_size"] = 0
+        return not alive
+
+    def _summary_cleanup_sid(sid: str) -> None:
+        with summary_state_lock:
+            state = summary_state_by_sid.get(sid)
+        if state is None:
+            return
+        _summary_stop_capture(state)
+        with summary_state_lock:
+            summary_state_by_sid.pop(sid, None)
+
+    def _summary_cleanup_all() -> None:
+        with summary_state_lock:
+            sid_keys = list(summary_state_by_sid.keys())
+        for sid_key in sid_keys:
+            _summary_cleanup_sid(sid_key)
 
     def _set_last_action(sid: str, summary: Optional[str]) -> None:
         _get_runtime_state(sid)["last_action"] = summary
@@ -2608,6 +2814,7 @@ def create_app(
 
     def _stop_all_processes() -> None:
         _stop_dm_event_writer()
+        _summary_cleanup_all()
         _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="shutdown")
         for name in ("behavior", "base"):
             _stop_process(name)
@@ -4984,6 +5191,7 @@ def create_app(
     @app.post("/api/reset")
     def api_reset():
         sid = _get_sid()
+        _summary_cleanup_sid(sid)
         sessions[sid] = []
         _set_last_action(sid, None)
         _clear_command_stop_available(sid)
@@ -5575,6 +5783,7 @@ def create_app(
                 runtime_cfg_global.update(copy.deepcopy(runtime_cfg_default))
                 _sanitize_runtime_cfg_inplace(runtime_cfg_global)
             _save_runtime_cfg_state()
+            _summary_cleanup_all()
             pipeline_by_sid.pop(sid, None)
             stt_by_sid.pop(sid, None)
             pipeline_by_sid.clear()
@@ -7244,7 +7453,16 @@ def create_app(
                 "ok": True,
                 "supports": {
                     "say": True,
-                    "do_modes": ["command", "behavior_start", "behavior_stop", "dance"],
+                    "do_modes": [
+                        "command",
+                        "behavior_start",
+                        "behavior_stop",
+                        "dance",
+                        "summary_capture_start",
+                        "summary_capture_stop_and_draft",
+                        "summary_publish",
+                        "summary_cancel",
+                    ],
                     "dance_catalog": True,
                 },
             }
@@ -7283,6 +7501,389 @@ def create_app(
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
+    def _summary_transcript_text(lines: List[str]) -> str:
+        cleaned: List[str] = []
+        for item in lines:
+            text = str(item or "").strip()
+            if text:
+                cleaned.append(text)
+        return "\n".join(cleaned).strip()
+
+    def _summary_default_system_prompt_text() -> str:
+        try:
+            path = os.path.join(_master_prompts_dir(), "workshop_summary_system.txt")
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read().strip()
+            if text:
+                return text
+        except Exception:
+            pass
+        return _SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK
+
+    def _summary_prompt_from_file(raw_name: Any) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        display_name = _normalize_master_prompt_name(raw_name)
+        if not display_name:
+            return None, None, "invalid_system_prompt_file"
+        abs_path = _master_prompt_abs_path(display_name)
+        if not os.path.exists(abs_path):
+            return None, display_name, "system_prompt_file_not_found"
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                content = fh.read().strip()
+        except OSError as exc:
+            return None, display_name, str(exc)
+        if not content:
+            return None, display_name, "system_prompt_file_empty"
+        return content, display_name, None
+
+    def _summary_resolve_system_prompt(payload_obj: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any], Optional[str]]:
+        inline = str(payload_obj.get("system_prompt") or "").strip()
+        if inline:
+            return inline, {"source": "inline", "name": None}, None
+
+        raw_file = payload_obj.get("system_prompt_file")
+        if raw_file not in (None, ""):
+            text, display_name, err = _summary_prompt_from_file(raw_file)
+            if err:
+                return None, {"source": "file", "name": display_name}, err
+            return text, {"source": "file", "name": display_name}, None
+
+        default_name = "master_prompts/workshop_summary_system.txt"
+        return _summary_default_system_prompt_text(), {"source": "default", "name": default_name}, None
+
+    def _summary_capture_start_impl(sid: str) -> Tuple[Dict[str, Any], int]:
+        state = _get_summary_state(sid)
+        with summary_state_lock:
+            capture_thread = state.get("capture_thread")
+            stt_thread = state.get("stt_thread")
+            running = bool(
+                (capture_thread is not None and hasattr(capture_thread, "is_alive") and capture_thread.is_alive())
+                or (stt_thread is not None and hasattr(stt_thread, "is_alive") and stt_thread.is_alive())
+            )
+        if running:
+            with summary_state_lock:
+                transcript_list = [str(item or "").strip() for item in (state.get("transcripts") or [])]
+                transcript_list = [item for item in transcript_list if item]
+                capture_stats = copy.deepcopy(state.get("capture_stats") or {})
+                last_error = str(state.get("last_error") or "").strip() or None
+            transcript_count = len(transcript_list)
+            return {
+                "ok": True,
+                "status": "accepted",
+                "action": "do",
+                "mode": "summary_capture_start",
+                "phase": "capturing",
+                "transcript_count": transcript_count,
+                "transcript": transcript_list[-_SUMMARY_LIVE_TRANSCRIPT_MAX_ITEMS:],
+                "capture_stats": capture_stats,
+                "last_error": last_error,
+                "already_running": True,
+            }, 200
+
+        runtime_cfg = _get_runtime_cfg(sid)
+        merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
+        capture_cfg = _summary_capture_mic_config(merged)
+        input_cfg = capture_cfg.get("input", {}) or {}
+        if (input_cfg.get("type") or "audio").lower() != "audio":
+            return {"ok": False, "error": "input_not_audio"}, 400
+        try:
+            mic = _make_mic_from_config(capture_cfg, mode="continuous")
+        except Exception as exc:
+            return {"ok": False, "error": "mic_unavailable", "detail": str(exc)}, 400
+        timeout_s = _resolve_start_timeout(
+            (input_cfg.get("params") or {}),
+            default=_SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S,
+        )
+        timeout_s = max(0.25, min(timeout_s, _SUMMARY_CAPTURE_TIMEOUT_MAX_S))
+        stop_event = threading.Event()
+        audio_queue: "queue.Queue[Any]" = queue.Queue(maxsize=_SUMMARY_STT_QUEUE_MAX_ITEMS)
+        started_at = time.time()
+
+        def _update_queue_size() -> None:
+            try:
+                qsize = int(audio_queue.qsize())
+            except Exception:
+                qsize = 0
+            with summary_state_lock:
+                stats = state.get("capture_stats")
+                if isinstance(stats, dict):
+                    stats["stt_queue_size"] = max(0, qsize)
+
+        with summary_state_lock:
+            state["phase"] = "capturing"
+            state["transcripts"] = []
+            state["draft_text"] = None
+            state["last_prompt_meta"] = None
+            state["last_error"] = None
+            state["capture_stats"] = {
+                "loops": 0,
+                "timeouts": 0,
+                "audio_chunks": 0,
+                "dropped_audio_chunks": 0,
+                "stt_calls": 0,
+                "transcript_count": 0,
+                "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
+                "stt_queue_size": 0,
+                "started_at": started_at,
+                "last_audio_at": None,
+                "last_transcript_at": None,
+            }
+            state["stop_event"] = stop_event
+            state["audio_queue"] = audio_queue
+            state["capture_thread"] = None
+            state["stt_thread"] = None
+
+        def _capture_worker() -> None:
+            try:
+                while not stop_event.is_set():
+                    with summary_state_lock:
+                        stats = state.get("capture_stats")
+                        if isinstance(stats, dict):
+                            stats["loops"] = int(stats.get("loops") or 0) + 1
+                    try:
+                        audio = mic.capture_utterance(timeout_s=timeout_s)
+                    except TimeoutError:
+                        with summary_state_lock:
+                            stats = state.get("capture_stats")
+                            if isinstance(stats, dict):
+                                stats["timeouts"] = int(stats.get("timeouts") or 0) + 1
+                        continue
+                    except Exception as exc:
+                        if stop_event.is_set():
+                            break
+                        with summary_state_lock:
+                            state["last_error"] = "mic: " + str(exc)
+                        continue
+                    if stop_event.is_set():
+                        break
+                    with summary_state_lock:
+                        stats = state.get("capture_stats")
+                        if isinstance(stats, dict):
+                            stats["audio_chunks"] = int(stats.get("audio_chunks") or 0) + 1
+                            stats["last_audio_at"] = time.time()
+
+                    enqueued = False
+                    while not stop_event.is_set():
+                        try:
+                            audio_queue.put_nowait(audio)
+                            enqueued = True
+                            break
+                        except queue.Full:
+                            dropped = False
+                            try:
+                                audio_queue.get_nowait()
+                                dropped = True
+                            except queue.Empty:
+                                pass
+                            if dropped:
+                                with summary_state_lock:
+                                    stats = state.get("capture_stats")
+                                    if isinstance(stats, dict):
+                                        stats["dropped_audio_chunks"] = int(stats.get("dropped_audio_chunks") or 0) + 1
+                            else:
+                                break
+                    if enqueued:
+                        _update_queue_size()
+            finally:
+                with summary_state_lock:
+                    current = state.get("capture_thread")
+                    if current is threading.current_thread():
+                        state["capture_thread"] = None
+
+        def _stt_worker() -> None:
+            try:
+                while True:
+                    if stop_event.is_set() and audio_queue.empty():
+                        break
+                    try:
+                        queued_audio = audio_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+
+                    _update_queue_size()
+                    try:
+                        with summary_state_lock:
+                            stats = state.get("capture_stats")
+                            if isinstance(stats, dict):
+                                stats["stt_calls"] = int(stats.get("stt_calls") or 0) + 1
+                        stt_res = _get_stt(sid).transcribe(queued_audio)
+                        text = str(getattr(stt_res, "text", "") or "").strip()
+                    except Exception as exc:
+                        with summary_state_lock:
+                            state["last_error"] = "stt: " + str(exc)
+                        continue
+                    if text:
+                        with summary_state_lock:
+                            transcripts = state.get("transcripts")
+                            if not isinstance(transcripts, list):
+                                transcripts = []
+                                state["transcripts"] = transcripts
+                            transcripts.append(text)
+                            stats = state.get("capture_stats")
+                            if isinstance(stats, dict):
+                                stats["transcript_count"] = len(transcripts)
+                                stats["last_transcript_at"] = time.time()
+            finally:
+                with summary_state_lock:
+                    current = state.get("stt_thread")
+                    if current is threading.current_thread():
+                        state["stt_thread"] = None
+                _update_queue_size()
+
+        capture_thread_obj = threading.Thread(target=_capture_worker, daemon=True)
+        stt_thread_obj = threading.Thread(target=_stt_worker, daemon=True)
+        with summary_state_lock:
+            state["capture_thread"] = capture_thread_obj
+            state["stt_thread"] = stt_thread_obj
+        stt_thread_obj.start()
+        capture_thread_obj.start()
+        with summary_state_lock:
+            start_stats = copy.deepcopy(state.get("capture_stats") or {})
+        return {
+            "ok": True,
+            "status": "accepted",
+            "action": "do",
+            "mode": "summary_capture_start",
+            "phase": "capturing",
+            "transcript_count": 0,
+            "transcript": [],
+            "capture_stats": start_stats,
+            "last_error": None,
+            "capture_timeout_s": timeout_s,
+            "mic_mode": "continuous",
+        }, 200
+
+    def _summary_capture_stop_and_draft_impl(sid: str, payload_obj: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        input_prompt_template = str(payload_obj.get("input_prompt_template") or "").strip()
+        if not input_prompt_template:
+            return {"ok": False, "error": "missing_input_prompt_template"}, 400
+
+        state = _get_summary_state(sid)
+        with summary_state_lock:
+            phase = str(state.get("phase") or "idle").strip().lower()
+        if phase != "capturing":
+            return {"ok": False, "error": "invalid_summary_state", "phase": phase}, 400
+
+        if not _summary_stop_capture(state):
+            return {"ok": False, "error": "summary_capture_stop_timeout"}, 409
+
+        with summary_state_lock:
+            transcripts = [str(item or "").strip() for item in (state.get("transcripts") or [])]
+            transcripts = [item for item in transcripts if item]
+            last_error = str(state.get("last_error") or "").strip()
+            capture_stats = copy.deepcopy(state.get("capture_stats") or {})
+        if not transcripts:
+            with summary_state_lock:
+                state["phase"] = "idle"
+            out: Dict[str, Any] = {
+                "ok": False,
+                "error": "summary_transcript_empty",
+                "phase": "idle",
+                "transcript_count": 0,
+            }
+            if last_error:
+                out["detail"] = last_error
+            if isinstance(capture_stats, dict) and capture_stats:
+                out["capture_stats"] = capture_stats
+            return out, 400
+
+        system_prompt, system_meta, prompt_err = _summary_resolve_system_prompt(payload_obj)
+        if prompt_err:
+            with summary_state_lock:
+                state["phase"] = "idle"
+            return {"ok": False, "error": prompt_err, "system_prompt_meta": system_meta}, 400
+
+        instruction = str(payload_obj.get("instruction") or "").strip()
+        transcript_text = _summary_transcript_text(transcripts)
+        rendered = input_prompt_template.replace("{transcript}", transcript_text).replace("{instruction}", instruction)
+        if "{transcript}" not in input_prompt_template:
+            rendered = (rendered + "\n\nTranscript:\n" + transcript_text).strip()
+        if "{instruction}" not in input_prompt_template and instruction:
+            rendered = (rendered + "\n\nOpdracht:\n" + instruction).strip()
+
+        messages: List[Dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": rendered})
+
+        pipeline = _get_pipeline(sid)
+        try:
+            llm_res = pipeline.llm.generate(messages)
+        except Exception as exc:
+            with summary_state_lock:
+                state["phase"] = "idle"
+                state["last_error"] = "llm: " + str(exc)
+            return {"ok": False, "error": "summary_generation_failed", "detail": str(exc)}, 400
+        draft_text = str(getattr(llm_res, "reply", "") or "").strip()
+        if not draft_text:
+            with summary_state_lock:
+                state["phase"] = "idle"
+                state["last_error"] = "llm: empty reply"
+            return {"ok": False, "error": "summary_generation_empty"}, 400
+
+        prompt_meta = {
+            "system_prompt_source": system_meta.get("source"),
+            "system_prompt_name": system_meta.get("name"),
+            "instruction": instruction,
+            "input_prompt_template": input_prompt_template,
+        }
+        with summary_state_lock:
+            state["phase"] = "draft_ready"
+            state["draft_text"] = draft_text
+            state["last_prompt_meta"] = dict(prompt_meta)
+            state["last_error"] = None
+        return {
+            "ok": True,
+            "status": "accepted",
+            "action": "do",
+            "mode": "summary_capture_stop_and_draft",
+            "phase": "draft_ready",
+            "draft": draft_text,
+            "transcript": transcripts,
+            "transcript_count": len(transcripts),
+            "prompt_meta": prompt_meta,
+        }, 200
+
+    def _summary_publish_impl(sid: str) -> Tuple[Dict[str, Any], int]:
+        state = _get_summary_state(sid)
+        with summary_state_lock:
+            phase = str(state.get("phase") or "idle").strip().lower()
+            draft_text = str(state.get("draft_text") or "").strip()
+        if phase != "draft_ready" or not draft_text:
+            return {"ok": False, "error": "summary_draft_not_ready", "phase": phase}, 400
+
+        runtime_cfg = _get_runtime_cfg(sid)
+        pipeline = _get_pipeline(sid)
+        _emit_followup_text(
+            pipeline=pipeline,
+            emit_used="pipeline",
+            runtime_cfg=runtime_cfg,
+            text=draft_text,
+        )
+        with summary_state_lock:
+            _summary_clear_state(state)
+        return {
+            "ok": True,
+            "status": "accepted",
+            "action": "do",
+            "mode": "summary_publish",
+            "phase": "idle",
+            "published_text": draft_text,
+        }, 200
+
+    def _summary_cancel_impl(sid: str) -> Tuple[Dict[str, Any], int]:
+        state = _get_summary_state(sid)
+        _summary_stop_capture(state)
+        with summary_state_lock:
+            _summary_clear_state(state)
+        return {
+            "ok": True,
+            "status": "accepted",
+            "action": "do",
+            "mode": "summary_cancel",
+            "phase": "idle",
+        }, 200
+
     @app.post("/api/script/do")
     def api_script_do():
         payload = request.get_json(force=True, silent=True) or {}
@@ -7292,6 +7893,7 @@ def create_app(
         request_id = _get_request_id()
         if not mode:
             return jsonify({"ok": False, "error": "Missing 'mode'."}), 400
+        result_payload: Dict[str, Any] = {"ok": True, "status": "accepted", "action": "do", "mode": mode}
 
         if mode == "command":
             label = str(payload.get("label") or "").strip()
@@ -7362,10 +7964,51 @@ def create_app(
                 resp.headers["X-Request-Id"] = request_id
                 resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
                 return resp
+        elif mode == "summary_capture_start":
+            out, status_code = _summary_capture_start_impl(sid)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+            result_payload = out
+        elif mode == "summary_capture_stop_and_draft":
+            out, status_code = _summary_capture_stop_and_draft_impl(sid, payload)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+            result_payload = out
+        elif mode == "summary_publish":
+            out, status_code = _summary_publish_impl(sid)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+            result_payload = out
+        elif mode == "summary_cancel":
+            out, status_code = _summary_cancel_impl(sid)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.headers["X-Request-Id"] = request_id
+                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+            result_payload = out
         else:
             return jsonify({"ok": False, "error": "invalid_mode", "mode": mode}), 400
 
         _touch_activity()
+        event_data: Dict[str, Any] = {"action": "do", "mode": mode}
+        if "phase" in result_payload:
+            event_data["phase"] = result_payload.get("phase")
+        if "transcript_count" in result_payload:
+            event_data["transcript_count"] = result_payload.get("transcript_count")
         _log_dm_event(
             sid=sid,
             level="info",
@@ -7374,9 +8017,9 @@ def create_app(
             source=source,
             message="Script API action accepted.",
             request_id=request_id,
-            data={"action": "do", "mode": mode},
+            data=event_data,
         )
-        resp = jsonify({"ok": True, "status": "accepted", "action": "do", "mode": mode})
+        resp = jsonify(result_payload)
         resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
@@ -7675,8 +8318,8 @@ def main() -> None:
         if explicit_port is not None:
             return int(explicit_port)
         defaults = {
-            "alex": 5001,
-            "renee": 5002,
+            "alex": 5301,
+            "renee": 5302,
         }
         key = str(instance_id or "").strip().casefold()
         return int(defaults.get(key, 8080))
@@ -7685,7 +8328,10 @@ def main() -> None:
     ap.add_argument("--config", help="Pad naar configs/<file>.json")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=None)
-    ap.add_argument("--instance-id", help="Unieke runtime instance id (default: port_<port>).")
+    ap.add_argument(
+        "--instance-id",
+        help="Unieke runtime instance id (alex->5301, renee->5302, anders default: port_<port>).",
+    )
     args = ap.parse_args()
 
     web_port = _resolve_web_port(args.instance_id, args.port)

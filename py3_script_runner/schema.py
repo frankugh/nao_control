@@ -7,7 +7,16 @@ from typing import Any, Dict, List
 
 ALLOWED_START_MODES = {"manual", "after_prev", "with_prev"}
 ALLOWED_ACTION_TYPES = {"say", "do", "pause", "ppt"}
-ALLOWED_DO_MODES = {"command", "behavior_start", "behavior_stop", "dance"}
+ALLOWED_DO_MODES = {
+    "command",
+    "behavior_start",
+    "behavior_stop",
+    "dance",
+    "summary_capture_start",
+    "summary_capture_stop_and_draft",
+    "summary_publish",
+    "summary_cancel",
+}
 ALLOWED_PPT_MODES = {"next_build", "prev_build", "goto"}
 ALLOWED_ON_ERROR = {"prompt", "abort", "continue"}
 
@@ -197,7 +206,10 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
             do_mode = str(action.get("mode") or "").strip().lower()
             if do_mode not in ALLOWED_DO_MODES:
                 _fail(
-                    f"steps[{idx}].action.mode must be one of: command, behavior_start, behavior_stop, dance"
+                    "steps[{idx}].action.mode must be one of: "
+                    "command, behavior_start, behavior_stop, dance, "
+                    "summary_capture_start, summary_capture_stop_and_draft, "
+                    "summary_publish, summary_cancel".format(idx=idx)
                 )
             normalized_step["action"]["mode"] = do_mode
             if do_mode == "command":
@@ -212,6 +224,33 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
                 normalized_step["action"]["dance_key"] = _as_nonempty_str(
                     action.get("dance_key"), f"steps[{idx}].action.dance_key"
                 )
+            elif do_mode == "summary_capture_stop_and_draft":
+                normalized_step["action"]["input_prompt_template"] = _as_nonempty_str(
+                    action.get("input_prompt_template"),
+                    f"steps[{idx}].action.input_prompt_template",
+                )
+                instruction = action.get("instruction")
+                if instruction is not None:
+                    instruction_text = str(instruction).strip()
+                    if instruction_text:
+                        normalized_step["action"]["instruction"] = instruction_text
+                system_prompt = action.get("system_prompt")
+                if system_prompt is not None:
+                    system_prompt_text = str(system_prompt).strip()
+                    if system_prompt_text:
+                        normalized_step["action"]["system_prompt"] = system_prompt_text
+                system_prompt_file = action.get("system_prompt_file")
+                if system_prompt_file is not None:
+                    system_prompt_file_text = str(system_prompt_file).strip()
+                    if system_prompt_file_text:
+                        normalized_step["action"]["system_prompt_file"] = system_prompt_file_text
+            elif do_mode == "summary_capture_start":
+                hold_until_continue = action.get("hold_until_continue", True)
+                if not isinstance(hold_until_continue, bool):
+                    _fail(f"steps[{idx}].action.hold_until_continue must be a boolean")
+                normalized_step["action"]["hold_until_continue"] = bool(hold_until_continue)
+            elif do_mode in {"summary_publish", "summary_cancel"}:
+                pass
             else:
                 normalized_step["action"]["behavior"] = _as_nonempty_str(
                     action.get("behavior"), f"steps[{idx}].action.behavior"

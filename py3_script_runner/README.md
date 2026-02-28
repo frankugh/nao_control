@@ -13,7 +13,7 @@ Console script runner for workshop orchestration across one or more dialog manag
   - `with_prev` (starts in parallel with previous step)
 - Supports step action types:
   - `say`
-  - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`)
+  - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`, `summary_capture_start`, `summary_capture_stop_and_draft`, `summary_publish`, `summary_cancel`)
   - `pause`
   - `ppt` (`next_build`, `prev_build`, `goto`)
 - Uses DM wrapper endpoints:
@@ -77,6 +77,9 @@ python .\cli.py --script .\scripts\example_workshop.json
   - action types:
     - `say`: requires `robot_id`, `action.text`
     - `do`: requires `robot_id`, `action.mode`
+      - `summary_capture_start`: optional `action.hold_until_continue` (bool, default `true`)
+      - `summary_capture_stop_and_draft`: requires `action.input_prompt_template`
+      - optional for `summary_capture_stop_and_draft`: `action.instruction`, `action.system_prompt`, `action.system_prompt_file`
     - `pause`: requires `action.seconds`
     - `ppt`: `action.mode` is `next_build|prev_build|goto`
 
@@ -86,7 +89,7 @@ python .\cli.py --script .\scripts\example_workshop.json
   - `fullscreen_required` (bool, default `true`)
   - `start_capture_on_run` (bool, default `true`)
 
-See `scripts/example_workshop.json` for a complete DM example, and `scripts/example_workshop_ppt.json` for PPT capture usage.
+See `scripts/example_workshop.json` for a complete DM example, `scripts/example_workshop_summary.json` for summary-only testing, and `scripts/example_workshop_ppt.json` for PPT capture usage.
 
 By default, the runner executes against the current runtime config already active on each DM instance.
 
@@ -111,6 +114,16 @@ You can force each DM instance to a known runtime setup at preflight:
 ```
 
 The runner uses a persistent HTTP session per robot, so one stable DM `sid` is reused across all steps.
+
+### Summary flow (3-step)
+
+Use three `do` steps on the same robot:
+
+1. `summary_capture_start`: starts capture and keeps capturing until operator presses ENTER to continue.
+2. `summary_capture_stop_and_draft`: stops capture, returns `draft + transcript`, prints the draft in the runner log, then asks `[p]ublish / [c]ancel` (ENTER defaults to publish).
+3. `summary_publish`: if step 2 chose publish, this step speaks the summary; if step 2 chose cancel, this step is skipped.
+
+For less clipped utterance starts, set a larger continuous mic pre-roll in `robots.<id>.runtime_config.mic_params_continuous.pre_roll_ms` (typically `800-1000` ms).
 
 ### PPT example snippet
 
@@ -144,6 +157,9 @@ Default `on_error` is `prompt`:
 - `r` / `retry`: execute current step again
 - `n` / `next`: skip step and continue
 - `a` / `abort`: stop run
+
+For timeout-like request errors while `on_error=prompt`, the runner defaults to `next` automatically.
+Use per-step `request_timeout_s` for long operations such as `summary_publish`.
 
 ## Startup readiness behavior
 

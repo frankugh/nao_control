@@ -169,3 +169,66 @@ def test_validate_script_rejects_enabled_ppt_without_file():
     script["ppt"] = {"enabled": True}
     with pytest.raises(ScriptSchemaError, match="ppt.file must be a non-empty string"):
         validate_script(script)
+
+
+def test_validate_script_accepts_summary_modes():
+    script = _base_script()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "manual"},
+            "action": {"type": "do", "mode": "summary_capture_start"},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "manual"},
+            "action": {
+                "type": "do",
+                "mode": "summary_capture_stop_and_draft",
+                "input_prompt_template": "Transcript:\n{transcript}\nInstruction:\n{instruction}",
+                "instruction": "Maak een korte samenvatting",
+            },
+        },
+        {
+            "id": "s3",
+            "robot_id": "nao1",
+            "start": {"mode": "manual"},
+            "action": {"type": "do", "mode": "summary_publish"},
+        },
+        {
+            "id": "s4",
+            "robot_id": "nao1",
+            "start": {"mode": "manual"},
+            "action": {"type": "do", "mode": "summary_cancel"},
+        },
+    ]
+    validated = validate_script(script)
+    assert validated["steps"][0]["action"]["hold_until_continue"] is True
+    assert validated["steps"][1]["action"]["mode"] == "summary_capture_stop_and_draft"
+    assert validated["steps"][1]["action"]["input_prompt_template"].startswith("Transcript:")
+
+
+def test_validate_script_rejects_summary_stop_without_input_prompt_template():
+    script = _base_script()
+    script["steps"][0] = {
+        "id": "s1",
+        "robot_id": "nao1",
+        "start": {"mode": "manual"},
+        "action": {"type": "do", "mode": "summary_capture_stop_and_draft"},
+    }
+    with pytest.raises(ScriptSchemaError, match="input_prompt_template"):
+        validate_script(script)
+
+
+def test_validate_script_rejects_non_boolean_summary_capture_hold_flag():
+    script = _base_script()
+    script["steps"][0] = {
+        "id": "s1",
+        "robot_id": "nao1",
+        "start": {"mode": "manual"},
+        "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": "yes"},
+    }
+    with pytest.raises(ScriptSchemaError, match="hold_until_continue"):
+        validate_script(script)
