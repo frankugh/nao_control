@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Script Builder</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Script Builder</h1>
+        <p class="subtitle">Standalone editor voor py3_script_runner scripts.</p>
+      </div>
+      <div class="file-meta">
+        <div>Bestand: <span id="fileLabel">Niet opgeslagen</span></div>
+        <div>Status: <span id="saveState">Clean</span></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="editor-panel">
+        <div class="toolbar">
+          <button id="btnNew" type="button">Nieuw</button>
+          <button id="btnLoad" type="button">Laad</button>
+          <button id="btnSave" type="button">Opslaan</button>
+          <button id="btnSaveAs" type="button">Opslaan als</button>
+        </div>
+
+        <div class="quick-open">
+          <span>Quick open:</span>
+          <button class="btnQuickOpen" type="button" data-example="example_workshop.json">example_workshop.json</button>
+          <button class="btnQuickOpen" type="button" data-example="example_workshop_ppt.json">example_workshop_ppt.json</button>
+          <button class="btnQuickOpen" type="button" data-example="example_workshop_summary.json">example_workshop_summary.json</button>
+        </div>
+
+        <label for="editorJson" class="label">Script JSON</label>
+        <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+      </section>
+
+      <aside class="builder-panel">
+        <h2>Add blok</h2>
+
+        <label for="selCategory" class="label">Categorie</label>
+        <select id="selCategory"></select>
+
+        <label for="selTemplate" class="label">Template</label>
+        <select id="selTemplate"></select>
+
+        <label for="previewJson" class="label">Template preview (bewerkbaar)</label>
+        <textarea id="previewJson" spellcheck="false" autocomplete="off"></textarea>
+
+        <div class="row-actions">
+          <button id="btnCopyTemplate" type="button">Kopieer template</button>
+          <button id="btnInsertTemplate" type="button">Voeg toe aan steps</button>
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <div id="statusMessage" class="status status-info">Laden...</div>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

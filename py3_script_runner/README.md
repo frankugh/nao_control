@@ -13,12 +13,13 @@ Console script runner for workshop orchestration across one or more dialog manag
   - `with_prev` (starts in parallel with previous step)
 - Supports step action types:
   - `say`
-  - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`, `summary_capture_start`, `summary_capture_stop_and_draft`, `summary_publish`, `summary_cancel`)
+  - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`, `nao_set_eye_color`, `summary_capture_start`, `summary_capture_stop_and_draft`, `summary_publish`, `summary_cancel`)
   - `pause`
   - `ppt` (`next_build`, `prev_build`, `goto`)
 - Uses DM wrapper endpoints:
   - `POST /api/script/say`
   - `POST /api/script/do`
+  - `POST /api/nao_set_eye_color`
   - `GET /api/script/capabilities`
  
 ## PPT capture mode (v1)
@@ -59,6 +60,27 @@ Als je al in `py3_script_runner` staat:
 python .\cli.py --script .\scripts\example_workshop.json
 ```
 
+## Script builder webapp
+
+Start de losse script builder (lokale static webapp):
+
+```powershell
+py3_script_runner\venv\Scripts\python.exe -m py3_script_runner.script_builder_app
+```
+
+Default URL:
+
+`http://127.0.0.1:8765/`
+
+Features:
+
+- JSON editor met `Nieuw`, `Laad`, `Opslaan`, `Opslaan als`
+- `Nieuw` zet direct een valide default script
+- Add-blok paneel met templates voor `NAO gedrag`, `PPTX`, `Summary`
+- Bewerkbaar template preview veld met kopieerknop en auto-insert in `steps`
+
+Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Access API (Edge/Chrome).
+
 ## Script format (summary)
 
 - `version` must be `1`
@@ -77,6 +99,7 @@ python .\cli.py --script .\scripts\example_workshop.json
   - action types:
     - `say`: requires `robot_id`, `action.text`
     - `do`: requires `robot_id`, `action.mode`
+      - `nao_set_eye_color`: requires `action.color`, optional `action.duration` (seconds, `>= 0`)
       - `summary_capture_start`: optional `action.hold_until_continue` (bool, default `true`)
       - `summary_capture_stop_and_draft`: requires `action.input_prompt_template`
       - optional for `summary_capture_stop_and_draft`: `action.instruction`, `action.system_prompt`, `action.system_prompt_file`
@@ -124,6 +147,22 @@ Use three `do` steps on the same robot:
 3. `summary_publish`: if step 2 chose publish, this step speaks the summary; if step 2 chose cancel, this step is skipped.
 
 For less clipped utterance starts, set a larger continuous mic pre-roll in `robots.<id>.runtime_config.mic_params_continuous.pre_roll_ms` (typically `800-1000` ms).
+
+### Eye color example snippet
+
+```json
+{
+  "id": "eye_blue",
+  "robot_id": "nao1",
+  "start": { "mode": "after_prev", "delay_s": 0 },
+  "action": {
+    "type": "do",
+    "mode": "nao_set_eye_color",
+    "color": "#00AEEF",
+    "duration": 0.35
+  }
+}
+```
 
 ### PPT example snippet
 

@@ -1351,3 +1351,63 @@ def test_run_with_ppt_on_non_windows_fails_with_clear_message(tmp_path, monkeypa
     )
     with pytest.raises(RuntimeError, match="PPT feature requires Windows \\+ PowerPoint COM"):
         runner.run()
+
+
+def test_do_mode_nao_set_eye_color_uses_nao_endpoint(tmp_path):
+    eye_calls: List[Dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+        def nao_set_eye_color(self, color: str, duration=None, timeout_s=None):
+            eye_calls.append(
+                {
+                    "base_url": self.base_url,
+                    "color": color,
+                    "duration": duration,
+                    "timeout_s": timeout_s,
+                }
+            )
+            return {"ok": True, "status": "accepted", "action": "nao_set_eye_color"}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "eye1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {
+                "type": "do",
+                "mode": "nao_set_eye_color",
+                "color": "#00AEEF",
+                "duration": 0.35,
+            },
+        }
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert eye_calls == [
+        {
+            "base_url": "http://dm-nao1:5301",
+            "color": "#00AEEF",
+            "duration": 0.35,
+            "timeout_s": 12.0,
+        }
+    ]

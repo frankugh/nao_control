@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5301"
+    }
+  },
+  "ppt": {
+    "enabled": false,
+    "file": "C:/workshops/demo.pptx",
+    "fullscreen_required": true,
+    "start_capture_on_run": true
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "intro_welcome",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Welkom bij de workshop."
+      }
+    },
+    {
+      "id": "say_001",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Wat willen jullie leren?"
+      }
+    }
+  ]
+}

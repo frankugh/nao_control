@@ -547,6 +547,14 @@ class ScriptRunner:
                 payload["resolved"] = action.get("resolved")
         elif do_mode == "dance":
             payload["dance_key"] = action.get("dance_key")
+        elif do_mode == "nao_set_eye_color":
+            color = str(action.get("color") or "").strip()
+            if not color:
+                raise RuntimeError("nao_set_eye_color requires action.color")
+            duration = action.get("duration")
+            if duration is None:
+                return client.nao_set_eye_color(color=color, timeout_s=timeout_s)
+            return client.nao_set_eye_color(color=color, duration=float(duration), timeout_s=timeout_s)
         elif do_mode in {"behavior_start", "behavior_stop"}:
             payload["behavior"] = action.get("behavior")
         elif do_mode == "summary_capture_start":

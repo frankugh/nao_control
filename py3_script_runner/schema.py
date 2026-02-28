@@ -12,6 +12,7 @@ ALLOWED_DO_MODES = {
     "behavior_start",
     "behavior_stop",
     "dance",
+    "nao_set_eye_color",
     "summary_capture_start",
     "summary_capture_stop_and_draft",
     "summary_publish",
@@ -207,7 +208,7 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
             if do_mode not in ALLOWED_DO_MODES:
                 _fail(
                     "steps[{idx}].action.mode must be one of: "
-                    "command, behavior_start, behavior_stop, dance, "
+                    "command, behavior_start, behavior_stop, dance, nao_set_eye_color, "
                     "summary_capture_start, summary_capture_stop_and_draft, "
                     "summary_publish, summary_cancel".format(idx=idx)
                 )
@@ -224,6 +225,16 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
                 normalized_step["action"]["dance_key"] = _as_nonempty_str(
                     action.get("dance_key"), f"steps[{idx}].action.dance_key"
                 )
+            elif do_mode == "nao_set_eye_color":
+                normalized_step["action"]["color"] = _as_nonempty_str(
+                    action.get("color"),
+                    f"steps[{idx}].action.color",
+                )
+                if "duration" in action and action.get("duration") is not None:
+                    normalized_step["action"]["duration"] = _as_nonnegative_float(
+                        action.get("duration"),
+                        f"steps[{idx}].action.duration",
+                    )
             elif do_mode == "summary_capture_stop_and_draft":
                 normalized_step["action"]["input_prompt_template"] = _as_nonempty_str(
                     action.get("input_prompt_template"),

@@ -232,3 +232,29 @@ def test_validate_script_rejects_non_boolean_summary_capture_hold_flag():
     }
     with pytest.raises(ScriptSchemaError, match="hold_until_continue"):
         validate_script(script)
+
+
+def test_validate_script_accepts_nao_set_eye_color_mode():
+    script = _base_script()
+    script["steps"][0] = {
+        "id": "s1",
+        "robot_id": "nao1",
+        "start": {"mode": "manual"},
+        "action": {"type": "do", "mode": "nao_set_eye_color", "color": "#00AEEF", "duration": 0.35},
+    }
+    validated = validate_script(script)
+    assert validated["steps"][0]["action"]["mode"] == "nao_set_eye_color"
+    assert validated["steps"][0]["action"]["color"] == "#00AEEF"
+    assert validated["steps"][0]["action"]["duration"] == 0.35
+
+
+def test_validate_script_rejects_nao_set_eye_color_without_color():
+    script = _base_script()
+    script["steps"][0] = {
+        "id": "s1",
+        "robot_id": "nao1",
+        "start": {"mode": "manual"},
+        "action": {"type": "do", "mode": "nao_set_eye_color", "duration": 0.35},
+    }
+    with pytest.raises(ScriptSchemaError, match="action.color"):
+        validate_script(script)

@@ -38,3 +38,26 @@ def test_dm_client_uses_single_persistent_session(monkeypatch):
     assert eff["ok"] is True
     assert len(instances) == 1
     assert len(calls) == 2
+
+
+def test_dm_client_nao_set_eye_color_calls_expected_endpoint(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            return _Resp({"ok": True})
+
+    monkeypatch.setattr("py3_script_runner.client.requests.Session", FakeSession)
+
+    client = DMClient("http://127.0.0.1:5301")
+    out = client.nao_set_eye_color("#00ff00", duration=0.4, timeout_s=9.0)
+
+    assert out["ok"] is True
+    assert calls == [
+        (
+            "POST",
+            "http://127.0.0.1:5301/api/nao_set_eye_color",
+            {"timeout": 9.0, "json": {"color": "#00ff00", "duration": 0.4}},
+        )
+    ]

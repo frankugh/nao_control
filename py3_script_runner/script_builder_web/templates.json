@@ -1,0 +1,238 @@
+{
+  "default_script": {
+    "version": 1,
+    "robots": {
+      "nao1": {
+        "dm_url": "http://127.0.0.1:5301"
+      }
+    },
+    "ppt": {
+      "enabled": false,
+      "file": "C:/workshops/demo.pptx",
+      "fullscreen_required": true,
+      "start_capture_on_run": true
+    },
+    "defaults": {
+      "request_timeout_s": 45,
+      "on_error": "prompt"
+    },
+    "steps": [
+      {
+        "id": "intro_welcome",
+        "robot_id": "nao1",
+        "start": {
+          "mode": "manual"
+        },
+        "action": {
+          "type": "say",
+          "text": "Welkom bij de workshop."
+        }
+      }
+    ]
+  },
+  "catalog": [
+    {
+      "category_key": "nao_behavior",
+      "category_label": "NAO gedrag",
+      "templates": [
+        {
+          "template_key": "nao_say",
+          "template_label": "say",
+          "snippet": {
+            "id": "say_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "say",
+              "text": "Hallo allemaal."
+            }
+          }
+        },
+        {
+          "template_key": "do_command",
+          "template_label": "do.command",
+          "snippet": {
+            "id": "do_command_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "do",
+              "mode": "command",
+              "label": "STAND_UP"
+            }
+          }
+        },
+        {
+          "template_key": "do_behavior_start",
+          "template_label": "do.behavior_start",
+          "snippet": {
+            "id": "do_behavior_start_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "do",
+              "mode": "behavior_start",
+              "behavior": "walkwithme/walkwithme"
+            }
+          }
+        },
+        {
+          "template_key": "do_behavior_stop",
+          "template_label": "do.behavior_stop",
+          "snippet": {
+            "id": "do_behavior_stop_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "after_prev",
+              "delay_s": 0
+            },
+            "action": {
+              "type": "do",
+              "mode": "behavior_stop",
+              "behavior": "walkwithme/walkwithme"
+            }
+          }
+        },
+        {
+          "template_key": "do_dance",
+          "template_label": "do.dance",
+          "snippet": {
+            "id": "do_dance_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "do",
+              "mode": "dance",
+              "dance_key": "happy"
+            }
+          }
+        },
+        {
+          "template_key": "do_nao_set_eye_color",
+          "template_label": "do.nao_set_eye_color",
+          "snippet": {
+            "id": "do_eye_color_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "after_prev",
+              "delay_s": 0
+            },
+            "action": {
+              "type": "do",
+              "mode": "nao_set_eye_color",
+              "color": "#00AEEF",
+              "duration": 0.35
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category_key": "pptx",
+      "category_label": "PPTX",
+      "templates": [
+        {
+          "template_key": "ppt_next_build",
+          "template_label": "ppt.next_build",
+          "snippet": {
+            "id": "ppt_next_001",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "ppt",
+              "mode": "next_build"
+            }
+          }
+        },
+        {
+          "template_key": "ppt_prev_build",
+          "template_label": "ppt.prev_build",
+          "snippet": {
+            "id": "ppt_prev_001",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "ppt",
+              "mode": "prev_build"
+            }
+          }
+        },
+        {
+          "template_key": "ppt_goto",
+          "template_label": "ppt.goto",
+          "snippet": {
+            "id": "ppt_goto_001",
+            "start": {
+              "mode": "manual"
+            },
+            "action": {
+              "type": "ppt",
+              "mode": "goto",
+              "slide": 1,
+              "build": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category_key": "summary",
+      "category_label": "Summary",
+      "templates": [
+        {
+          "template_key": "summary_3_step_flow",
+          "template_label": "3-step flow",
+          "snippet": [
+            {
+              "id": "summary_capture_start_001",
+              "robot_id": "nao1",
+              "start": {
+                "mode": "manual"
+              },
+              "action": {
+                "type": "do",
+                "mode": "summary_capture_start",
+                "hold_until_continue": true
+              }
+            },
+            {
+              "id": "summary_capture_stop_and_draft_001",
+              "robot_id": "nao1",
+              "start": {
+                "mode": "manual"
+              },
+              "action": {
+                "type": "do",
+                "mode": "summary_capture_stop_and_draft",
+                "system_prompt_file": "master_prompts/workshop_summary_system.txt",
+                "input_prompt_template": "Transcriptie:\\n{transcript}\\n\\nOpdracht:\\n{instruction}\\n\\nGeef nu de definitieve gesproken tekst die de robot hardop kan uitspreken.",
+                "instruction": "Houd het kort, natuurlijk en spreekbaar. Geen bullets of kopjes."
+              }
+            },
+            {
+              "id": "summary_publish_001",
+              "robot_id": "nao1",
+              "start": {
+                "mode": "manual"
+              },
+              "action": {
+                "type": "do",
+                "mode": "summary_publish"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

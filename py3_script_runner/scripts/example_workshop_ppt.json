@@ -38,6 +38,20 @@
       }
     },
     {
+      "id": "eye1",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0
+      },
+      "action": {
+        "type": "do",
+        "mode": "nao_set_eye_color",
+        "color": "#00AEEF",
+        "duration": 0.35
+      }
+    },
+    {
       "id": "p2",
       "start": {
         "mode": "after_prev",

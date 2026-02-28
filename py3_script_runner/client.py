@@ -61,6 +61,18 @@ class DMClient:
     def script_do(self, payload: Dict[str, Any], timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/script/do", payload=payload, timeout_s=timeout_s)
 
+    def nao_set_eye_color(
+        self,
+        color: str,
+        *,
+        duration: Optional[float] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"color": str(color or "").strip()}
+        if duration is not None:
+            payload["duration"] = float(duration)
+        return self._request("POST", "/api/nao_set_eye_color", payload=payload, timeout_s=timeout_s)
+
     def set_runtime_config(self, config: Dict[str, Any], timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/runtime_config", payload={"config": dict(config or {})}, timeout_s=timeout_s)
 
