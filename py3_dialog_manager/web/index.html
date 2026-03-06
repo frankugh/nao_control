@@ -1767,12 +1767,14 @@
       let sendStopInFlight = false;
       let activeActionController = null;
       let sendSpeakingTimer = null;
+      const SEND_REQUEST_TIMEOUT_MS = 90000;
       let commandStopAvailable = false;
       let commandStopLabel = null;
       let clientInputMode = 'client';
       let clientOutputMode = 'text';
       let clientSpeechUtterance = null;
       let clientAudioPrefsLoaded = false;
+      let lastHistoryVersion = null;
       let promptEditorLoadedName = '';
       let promptEditorLoadedContent = '';
       let promptEditorDirty = false;
@@ -3763,7 +3765,60 @@
       }
 
 
-      function renderHistory(history, debug) {
+      function _formatLocalTimestamp(valueMs) {
+        const d = new Date(valueMs);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+      }
+
+      function clearOptimisticUserMessage() {
+        if (!chatEl) return;
+        const pending = chatEl.querySelectorAll('.msg.user[data-local-pending="1"]');
+        pending.forEach((node) => node.remove());
+      }
+
+      function appendOptimisticUserMessage(text) {
+        if (!chatEl) return;
+        clearOptimisticUserMessage();
+
+        const msg = document.createElement('div');
+        msg.className = 'msg user';
+        msg.dataset.text = text;
+        msg.dataset.localPending = '1';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'bubblewrap';
+
+        const roleEl = document.createElement('div');
+        roleEl.className = 'role';
+        roleEl.textContent = 'You';
+
+        const ts = document.createElement('span');
+        ts.className = 'timestamp';
+        ts.textContent = _formatLocalTimestamp(Date.now());
+        if (ts.textContent) {
+          roleEl.appendChild(ts);
+        }
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = text;
+
+        wrap.appendChild(roleEl);
+        wrap.appendChild(bubble);
+        msg.appendChild(wrap);
+        chatEl.appendChild(msg);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+
+      function renderHistory(history, debug, opts = {}) {
+        const forceScroll = opts.forceScroll !== false;
+        const prevScrollTop = chatEl.scrollTop;
+        const prevScrollHeight = chatEl.scrollHeight;
+        const prevClientHeight = chatEl.clientHeight;
+        const distanceFromBottom = prevScrollHeight - (prevScrollTop + prevClientHeight);
+        const wasNearBottom = distanceFromBottom <= 24;
+
         chatEl.innerHTML = '';
         let lastAssistantWrap = null;
         const formatTs = (value) => {
@@ -3903,8 +3958,12 @@
           lastAssistantWrap.appendChild(dbg);
         }
 
-        // scroll to bottom
-        chatEl.scrollTop = chatEl.scrollHeight;
+        if (forceScroll || wasNearBottom) {
+          chatEl.scrollTop = chatEl.scrollHeight;
+        } else {
+          const deltaHeight = chatEl.scrollHeight - prevScrollHeight;
+          chatEl.scrollTop = Math.max(0, prevScrollTop + Math.max(0, deltaHeight));
+        }
       }
 
       async function loadReviewLabels() {
@@ -6602,7 +6661,15 @@
           const j = await r.json();
           if (j.ok) {
             syncStopAvailability(j);
-            renderHistory(j.history || []);
+            const version = Number(j.history_version);
+            const hasVersion = Number.isFinite(version);
+            const shouldRenderHistory = !hasVersion || lastHistoryVersion === null || version !== lastHistoryVersion;
+            if (shouldRenderHistory) {
+              renderHistory(j.history || [], null, { forceScroll: false });
+              if (hasVersion) {
+                lastHistoryVersion = version;
+              }
+            }
             renderPrompt(j.system_prompt || '');
             const preserveInput = (document.activeElement === txt) || !!(txt.value && txt.value.trim());
             if (!preserveInput) {
@@ -6946,10 +7013,18 @@
         const sttEdited = sttUsed && text !== lastTranscript;
         const input_meta = { stt_used: sttUsed, stt_edited: sttEdited };
         const emitMode = isClientOutputUsingServerConfig() ? 'pipeline' : 'none';
+        appendOptimisticUserMessage(text);
         setSendBusyPhase('thinking');
         setStatus('LLM + output...');
         setRecState('thinking');
         const controller = createActionController();
+        let requestTimedOut = false;
+        const requestTimeout = setTimeout(() => {
+          if (activeActionController === controller) {
+            requestTimedOut = true;
+            try { controller.abort(); } catch (_) {}
+          }
+        }, SEND_REQUEST_TIMEOUT_MS);
         let speakingWindowStarted = false;
         try {
           const r = await fetch('/api/send', {
@@ -6974,13 +7049,15 @@
             speakingWindowStarted = startClientSpeaking(j.reply || '');
           }
         } catch (e) {
+          clearOptimisticUserMessage();
           if (isAbortError(e)) {
-            setStatus('Verzoek gestopt.');
+            setStatus(requestTimedOut ? 'Verzoek timeout tijdens denken.' : 'Verzoek gestopt.');
           } else {
             console.error(e);
             setStatus('Fout: ' + (e?.message || e));
           }
         } finally {
+          clearTimeout(requestTimeout);
           clearActionController(controller);
           if (!speakingWindowStarted) {
             setSendBusyPhase('');

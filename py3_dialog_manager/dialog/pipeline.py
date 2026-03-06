@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 import threading
+import re
 from typing import Optional, Dict, Any, List
 
 from dialog.interfaces import (
@@ -15,6 +16,24 @@ from dialog.interfaces import (
     LLMResult,
 )
 from dialog.backends.llm_echo import EchoLLMBackend
+
+
+_OUTPUT_STYLE_GUARD = (
+    "## OUTPUT_STIJL (HARD)\n\n"
+    "- Geef alleen spreekbare platte tekst terug (geen markdown).\n"
+    "- Gebruik geen markdown-tekens zoals *, _, #, `, [ ], ( ) of bullets.\n"
+    "- Herhaal geen systeemstatusregels zoals 'Uitgevoerd:', 'Geannuleerd:' of 'Verlopen:'.\n"
+    "- Noem geen interne commandolabels letterlijk (zoals STAND_UP) als statusregel."
+)
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"  # regional indicator symbols (flags)
+    "\U0001F300-\U0001FAFF"  # misc symbols and pictographs + supplemental
+    "\U00002600-\U000027BF"  # misc symbols + dingbats
+    "]",
+    flags=re.UNICODE,
+)
 
 
 def _role(msg: Any) -> Optional[str]:
@@ -99,6 +118,9 @@ class InputLLMOutputPipeline(DialogPipeline):
         last_action_text = last_action or ""
 
         blocks = [
+            "## CONTEXT_GEBRUIK (runtime)\n\n"
+            "Gebruik onderstaande blokken alleen als context. "
+            "Herhaal geen statusregels of commandolabels letterlijk in je antwoord.",
             "## BESCHIKBARE_COMMANDOS (runtime)\n\n" + (available or ""),
             "## DANS_CATALOGUS (runtime)\n\n" + (dances or ""),
             "## LAATSTE_ACTIE (runtime, may be empty)\n\n" + (last_action_text or ""),
@@ -110,13 +132,43 @@ class InputLLMOutputPipeline(DialogPipeline):
         context = self._build_runtime_context_text(
             last_action=self._runtime_last_action if last_action is None else last_action
         )
-        if not base and not context:
+        guard = _OUTPUT_STYLE_GUARD
+        if not base and not context and not guard:
             return None
-        if not context:
-            return base
-        if not base:
-            return context
-        return f"{base}\n\n---\n\n{context}"
+        parts = [part for part in (base, context, guard) if part]
+        return "\n\n---\n\n".join(parts)
+
+    def normalize_output_text(self, text: str) -> str:
+        out = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not out:
+            return ""
+
+        # Guardrail: suppress leading execution status lines in spoken output.
+        status_re = re.compile(r"^\s*(?:ok\.?\s*)?(uitgevoerd|geannuleerd|verlopen)\s*:\s*.+$", re.IGNORECASE)
+        kept_lines: List[str] = []
+        for line in out.split("\n"):
+            if status_re.match(line or ""):
+                continue
+            kept_lines.append(line)
+        out = "\n".join(kept_lines)
+
+        # Strip common markdown constructs that sound awkward in TTS.
+        out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", out)
+        out = re.sub(r"(?<!\\)\*\*(.+?)(?<!\\)\*\*", r"\1", out)
+        out = re.sub(r"(?<!\\)\*(.+?)(?<!\\)\*", r"\1", out)
+        out = re.sub(r"(?<!\\)__(.+?)(?<!\\)__", r"\1", out)
+        out = re.sub(r"(?<!\\)_(.+?)(?<!\\)_", r"\1", out)
+        out = out.replace("`", "")
+        out = out.replace("\\*", "*").replace("\\_", "_").replace("\\`", "`")
+        out = out.replace("*", "")
+        out = re.sub(r"(?<=\w)_(?=\w)", " ", out)
+        out = out.replace("\ufe0f", "").replace("\u200d", "").replace("\u20e3", "")
+        out = _EMOJI_RE.sub("", out)
+        out = re.sub(r"[ \t]{2,}", " ", out)
+        out = re.sub(r"\s+([,.;:!?])", r"\1", out)
+        out = re.sub(r"[ \t]+\n", "\n", out)
+        out = re.sub(r"\n{3,}", "\n\n", out)
+        return out.strip()
 
     def _log_messages(self, messages: History) -> None:
         if not self.log_messages_path:
@@ -319,7 +371,9 @@ class InputLLMOutputPipeline(DialogPipeline):
         llm_res = self.llm.generate(messages_to_send)
 
         self._status("📣 OUTPUT...")
-        self.output.emit(llm_res.reply)
+        spoken_text = self.normalize_output_text(llm_res.reply)
+        if spoken_text:
+            self.output.emit(spoken_text)
 
         turn = DialogTurn(
             user_input=user_in,

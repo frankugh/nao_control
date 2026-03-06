@@ -72,7 +72,7 @@ def _base_cfg():
     }
 
 
-def _make_app(monkeypatch, decisions):
+def _make_app(monkeypatch, decisions, cfg=None):
     executor = StubExecutor()
     base_pipeline = SimpleNamespace(
         llm=StubLLMBackend(reply="hi"),
@@ -88,7 +88,7 @@ def _make_app(monkeypatch, decisions):
     )
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
     monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
-    app, _, _ = webapp_server.create_app(cfg=_base_cfg(), config_path="<memory>")
+    app, _, _ = webapp_server.create_app(cfg=cfg or _base_cfg(), config_path="<memory>")
     return app, executor
 
 
@@ -147,15 +147,59 @@ def test_short_behavior_unlocks_on_next_user_turn(monkeypatch):
 
     resp1 = client.post("/api/send", json={"text": "dans"})
     assert resp1.status_code == 200
+    data1 = resp1.get_json()
+    assert data1["ok"] is True
+    assert data1["command_stop_available"] is True
+    assert data1["command_stop_label"] == "DANCE"
     assert executor.labels == ["DANCE"]
     assert calls == ["http://behavior.local/nao/custom_life_pause"]
 
     resp2 = client.post("/api/send", json={"text": "hallo", "emit": "none"})
     assert resp2.status_code == 200
+    data2 = resp2.get_json()
+    assert data2["command_stop_available"] is False
+    assert data2["command_stop_label"] is None
     assert calls == [
         "http://behavior.local/nao/custom_life_pause",
         "http://behavior.local/nao/custom_life_apply",
     ]
+
+
+def test_short_behavior_stop_state_clears_without_custom_life_lock(monkeypatch):
+    decisions = {
+        "dans": RouteDecision(
+            is_command=True,
+            command=CommandDecision(
+                label="DANCE",
+                confidence=0.9,
+                raw_text="dans",
+                resolved={"dance_key": "happy"},
+            ),
+            top3=[("DANCE", 0.9)],
+        ),
+        "hallo": RouteDecision(is_command=False, reason="disabled"),
+    }
+    cfg = _base_cfg()
+    cfg["custom_life_enabled"] = False
+    app, executor = _make_app(monkeypatch, decisions, cfg=cfg)
+    calls: list[str] = []
+    _patch_requests_post(monkeypatch, calls)
+    client = app.test_client()
+
+    resp1 = client.post("/api/send", json={"text": "dans"})
+    assert resp1.status_code == 200
+    data1 = resp1.get_json()
+    assert data1["command_stop_available"] is True
+    assert data1["command_stop_label"] == "DANCE"
+    assert executor.labels == ["DANCE"]
+    assert calls == []
+
+    resp2 = client.post("/api/send", json={"text": "hallo", "emit": "none"})
+    assert resp2.status_code == 200
+    data2 = resp2.get_json()
+    assert data2["command_stop_available"] is False
+    assert data2["command_stop_label"] is None
+    assert calls == []
 
 
 def test_walk_with_me_stays_locked_until_stop(monkeypatch):
@@ -179,6 +223,10 @@ def test_walk_with_me_stays_locked_until_stop(monkeypatch):
 
     resp1 = client.post("/api/send", json={"text": "loop mee"})
     assert resp1.status_code == 200
+    data1 = resp1.get_json()
+    assert data1["ok"] is True
+    assert data1["command_stop_available"] is True
+    assert data1["command_stop_label"] == "WALK_WITH_ME"
     assert calls == ["http://behavior.local/nao/custom_life_pause"]
 
     resp2 = client.post("/api/send", json={"text": "praat", "emit": "none"})

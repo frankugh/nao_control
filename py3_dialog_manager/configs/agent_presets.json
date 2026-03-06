@@ -63,20 +63,20 @@
         "input_device": null,
         "stt_type": "azure",
         "mic_params_ptt": {
-          "start_threshold_rms": 500,
+          "start_threshold_rms": 200,
           "stop_silence_ms": 1000,
           "pre_roll_ms": 500,
           "max_utterance_s": 12
         },
         "mic_params_continuous": {
-          "start_threshold_rms": 500,
+          "start_threshold_rms": 200,
           "stop_silence_ms": 1000,
           "pre_roll_ms": 500,
           "max_utterance_s": 12
         },
         "ptt_use_vad": false,
-        "wake_mode": "timeout",
-        "wake_timeout_s": 20,
+        "wake_mode": "never",
+        "wake_timeout_s": 60,
         "wake_words": [
           "NAO",
           "Alex"
@@ -84,8 +84,8 @@
         "azure_initial_silence_ms": null,
         "azure_end_silence_ms": null,
         "cmdrec": "latest",
-        "confirm_policy": "when_guarded",
-        "custom_life_enabled": false,
+        "confirm_policy": "never",
+        "custom_life_enabled": true,
         "custom_life_settings": {
           "basic_awareness": true,
           "background_movement": true,
@@ -93,7 +93,7 @@
         },
         "nao_auto_rest_after_s": 180,
         "llm_type": "ollama_cloud",
-        "llm_model": "gpt-oss:120b-cloud",
+        "llm_model": "mistral-large-3:675b-cloud",
         "llm_temperature": null,
         "llm_top_p": null,
         "llm_top_k": null,
@@ -131,29 +131,29 @@
         "input_device": null,
         "stt_type": "azure",
         "mic_params_ptt": {
-          "start_threshold_rms": 500,
+          "start_threshold_rms": 200,
           "stop_silence_ms": 1000,
           "pre_roll_ms": 500,
           "max_utterance_s": 12
         },
         "mic_params_continuous": {
-          "start_threshold_rms": 500,
+          "start_threshold_rms": 200,
           "stop_silence_ms": 1000,
           "pre_roll_ms": 500,
           "max_utterance_s": 12
         },
         "ptt_use_vad": false,
-        "wake_mode": "timeout",
-        "wake_timeout_s": 20,
+        "wake_mode": "never",
+        "wake_timeout_s": 60,
         "wake_words": [
           "NAO",
-          "Alex"
+          "Renee"
         ],
         "azure_initial_silence_ms": null,
         "azure_end_silence_ms": null,
         "cmdrec": "latest",
-        "confirm_policy": "when_guarded",
-        "custom_life_enabled": false,
+        "confirm_policy": "never",
+        "custom_life_enabled": true,
         "custom_life_settings": {
           "basic_awareness": true,
           "background_movement": true,
@@ -161,7 +161,7 @@
         },
         "nao_auto_rest_after_s": 180,
         "llm_type": "ollama_cloud",
-        "llm_model": "gpt-oss:120b-cloud",
+        "llm_model": "mistral-large-3:675b-cloud",
         "llm_temperature": null,
         "llm_top_p": null,
         "llm_top_k": null,
@@ -199,20 +199,20 @@
         "input_device": null,
         "stt_type": "azure",
         "mic_params_ptt": {
-          "start_threshold_rms": 500,
+          "start_threshold_rms": 200,
           "stop_silence_ms": 1000,
           "pre_roll_ms": 500,
           "max_utterance_s": 12
         },
         "mic_params_continuous": {
-          "start_threshold_rms": 500,
+          "start_threshold_rms": 200,
           "stop_silence_ms": 1000,
           "pre_roll_ms": 500,
           "max_utterance_s": 12
         },
         "ptt_use_vad": false,
         "wake_mode": "timeout",
-        "wake_timeout_s": 20,
+        "wake_timeout_s": 60,
         "wake_words": [
           "NAO",
           "Alex"

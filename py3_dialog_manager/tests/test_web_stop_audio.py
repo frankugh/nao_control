@@ -132,7 +132,7 @@ def test_nao_stop_audio_uses_base_endpoint_when_behavior_disabled(monkeypatch):
     assert calls[-1][0] == "http://base:5000/stop_audio"
 
 
-def test_command_execute_marks_dance_as_stoppable(monkeypatch):
+def test_command_execute_dance_is_marked_as_stoppable(monkeypatch):
     executor = StubExecutor()
     app = _make_app(monkeypatch, executor=executor)
     client = app.test_client()
@@ -174,12 +174,13 @@ def test_command_execute_stop_stops_audio_and_clears_stop_state(monkeypatch):
     assert cfg_resp.status_code == 200
 
     # Seed a stoppable command first.
-    dance_resp = client.post(
+    walk_resp = client.post(
         "/api/command_execute",
-        json={"label": "DANCE", "resolved": {"dance_key": "happy", "dance_behavior": "dances/happy"}},
+        json={"label": "WALK_WITH_ME"},
     )
-    assert dance_resp.status_code == 200
-    assert dance_resp.get_json()["command_stop_available"] is True
+    assert walk_resp.status_code == 200
+    assert walk_resp.get_json()["command_stop_available"] is True
+    assert walk_resp.get_json()["command_stop_label"] == "WALK_WITH_ME"
 
     stop_resp = client.post("/api/command_execute", json={"label": "STOP"})
     assert stop_resp.status_code == 200

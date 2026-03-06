@@ -202,6 +202,67 @@ def test_script_do_dance_unknown_key_returns_dance_not_found(monkeypatch):
     assert data["error"] == "dance_not_found"
 
 
+def test_api_dance_catalog_filters_unavailable_behaviors(monkeypatch):
+    def fake_get(url, timeout=0, **_kwargs):
+        if url == "http://base:5000/ping":
+            return _Resp({"status": "ok"})
+        if url == "http://base:5000/list_behaviors":
+            return _Resp({"status": "ok", "data": ["dances/happy"]})
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    app, _ = _make_app(monkeypatch, executor=StubExecutor(), cmdrec=StubCmdrec())
+    client = app.test_client()
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "behavior_enabled": False,
+                "base_enabled": True,
+                "nao_base_url": "http://base:5000",
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.get("/api/dance_catalog")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["dances"] == [{"key": "happy", "behavior": "dances/happy"}]
+
+
+def test_script_do_dance_rejects_unavailable_behavior(monkeypatch):
+    def fake_get(url, timeout=0, **_kwargs):
+        if url == "http://base:5000/ping":
+            return _Resp({"status": "ok"})
+        if url == "http://base:5000/list_behaviors":
+            return _Resp({"status": "ok", "data": ["dances/happy"]})
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    app, _ = _make_app(monkeypatch, executor=StubExecutor(), cmdrec=StubCmdrec())
+    client = app.test_client()
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "behavior_enabled": False,
+                "base_enabled": True,
+                "nao_base_url": "http://base:5000",
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/script/do", json={"mode": "dance", "dance_key": "funky"})
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert data["error"] == "dance_not_found"
+    assert data["dance_key"] == "funky"
+
+
 def test_script_do_behavior_modes_reuse_behavior_endpoints(monkeypatch):
     calls = []
 

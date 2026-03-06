@@ -17,6 +17,7 @@ import argparse
 import io
 import atexit
 import copy
+import hashlib
 import json
 import queue
 import os
@@ -168,6 +169,7 @@ _SUMMARY_LIVE_TRANSCRIPT_MAX_ITEMS = 500
 _SUMMARY_STT_QUEUE_MAX_ITEMS = 16
 _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS = 1800
 _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS = 800
+_NAO_BEHAVIOR_CACHE_TTL_S = 5.0
 _SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK = (
     "Je bent de workshop-assistent robot in een AI-geletterdheidsworkshop. "
     "De transcriptie bevat antwoorden op de vraag: "
@@ -1227,9 +1229,12 @@ def create_app(
 
     # In-memory session histories for intranet testing
     sessions: Dict[str, History] = {}
+    history_version_state: Dict[str, Dict[str, Any]] = {}
     pending_confirms: Dict[str, Dict[str, Any]] = {}
     cmdrec_state: Dict[str, Dict[str, Any]] = {}
     runtime_context_state: Dict[str, Dict[str, Any]] = {}
+    behavior_catalog_cache_lock = threading.Lock()
+    behavior_catalog_cache: Dict[str, Dict[str, Any]] = {}
     pipeline_by_sid: Dict[str, InputLLMOutputPipeline] = {}
     stt_by_sid: Dict[str, Any] = {}
     continuous_state: Dict[str, Dict[str, Any]] = {}
@@ -1521,6 +1526,35 @@ def create_app(
     def _get_history(sid: str) -> History:
         return sessions.setdefault(sid, [])
 
+    def _history_signature(history: History) -> str:
+        try:
+            packed = json.dumps(history or [], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            packed = repr(history or [])
+        return hashlib.sha1(packed.encode("utf-8", errors="replace")).hexdigest()
+
+    _EMPTY_HISTORY_SIGNATURE = _history_signature([])
+
+    def _history_version_for_sid(sid: str, history: History) -> int:
+        meta = history_version_state.setdefault(
+            sid,
+            {"version": 0, "signature": _EMPTY_HISTORY_SIGNATURE},
+        )
+        signature = _history_signature(history)
+        previous_signature = str(meta.get("signature") or "")
+        if signature != previous_signature:
+            meta["signature"] = signature
+            try:
+                current_version = int(meta.get("version", 0))
+            except Exception:
+                current_version = 0
+            meta["version"] = current_version + 1
+        try:
+            return int(meta.get("version", 0))
+        except Exception:
+            meta["version"] = 0
+            return 0
+
     def _get_cmdrec_state(sid: str) -> Dict[str, Any]:
         return cmdrec_state.setdefault(
             sid,
@@ -1539,6 +1573,7 @@ def create_app(
                 "custom_life_pause_mode": None,
                 "command_stop_available": False,
                 "command_stop_label": None,
+                "command_stop_scope": None,
                 "motion_last_seq": None,
             },
         )
@@ -1556,6 +1591,8 @@ def create_app(
             state["command_stop_available"] = False
         if "command_stop_label" not in state:
             state["command_stop_label"] = None
+        if "command_stop_scope" not in state:
+            state["command_stop_scope"] = None
         if "motion_last_seq" not in state:
             state["motion_last_seq"] = None
         return state
@@ -1712,15 +1749,18 @@ def create_app(
     def _set_last_action(sid: str, summary: Optional[str]) -> None:
         _get_runtime_state(sid)["last_action"] = summary
 
-    def _set_command_stop_available(sid: str, label: Optional[str]) -> None:
+    def _set_command_stop_available(sid: str, label: Optional[str], *, scope: Optional[str] = None) -> None:
         state = _get_runtime_state(sid)
         state["command_stop_available"] = True
         state["command_stop_label"] = str(label or "").strip() or None
+        scope_norm = str(scope or "").strip().lower()
+        state["command_stop_scope"] = scope_norm if scope_norm in _CUSTOM_LIFE_LOCK_MODES else None
 
     def _clear_command_stop_available(sid: str) -> None:
         state = _get_runtime_state(sid)
         state["command_stop_available"] = False
         state["command_stop_label"] = None
+        state["command_stop_scope"] = None
 
     def _command_stop_payload(sid: str) -> Dict[str, Any]:
         state = _get_runtime_state(sid)
@@ -1977,6 +2017,7 @@ def create_app(
         state = _get_runtime_state(sid)
         if state.get("custom_life_lock_mode") == _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN:
             _release_custom_life_lock(sid, runtime_cfg_local)
+        if state.get("command_stop_scope") == _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN:
             _clear_command_stop_available(sid)
 
     # runtime pipeline helpers
@@ -2080,13 +2121,117 @@ def create_app(
         stt_cfg["params"] = params
         return make_stt_backend_from_config(wake_cfg)
 
-    def _dance_catalog(cmdrec_obj) -> List[Dict[str, Any]]:
+    def _nao_behavior_cache_key(runtime_cfg: JsonLike) -> str:
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url")) or ""
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url")) or ""
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        return "|".join(
+            [
+                "behavior_enabled=1" if behavior_enabled else "behavior_enabled=0",
+                f"behavior_url={behavior_url}",
+                "base_enabled=1" if base_enabled else "base_enabled=0",
+                f"base_url={base_url}",
+            ]
+        )
+
+    def _resolve_nao_behavior_endpoint(runtime_cfg: JsonLike, *, require_ping: bool = True) -> Tuple[Optional[str], str]:
+        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
+        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+
+        if behavior_enabled and behavior_url:
+            if not require_ping or _check_ping(behavior_url, "/ping"):
+                return behavior_url, "behavior"
+        if base_enabled and base_url:
+            if not require_ping or _check_ping(base_url, "/ping"):
+                return base_url, "base"
+        return None, "none"
+
+    def _fetch_nao_behaviors(runtime_cfg: JsonLike) -> Tuple[Optional[List[str]], str]:
+        base_url, mode = _resolve_nao_behavior_endpoint(runtime_cfg, require_ping=True)
+        if not base_url or mode not in ("behavior", "base"):
+            return None, "endpoint_unavailable"
+        try:
+            url = base_url + "/nao/list_behaviors" if mode == "behavior" else base_url + "/list_behaviors"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+            payload = data.get("data") if isinstance(data, dict) else None
+            behaviors = sorted(_flatten_behaviors(payload))
+            return behaviors, mode
+        except Exception:
+            return None, mode
+
+    def _available_nao_behaviors(runtime_cfg: JsonLike) -> Optional[List[str]]:
+        cache_key = _nao_behavior_cache_key(runtime_cfg)
+        now = time.time()
+        cached_entry = None
+        with behavior_catalog_cache_lock:
+            cached_entry = behavior_catalog_cache.get(cache_key)
+            if cached_entry is not None:
+                ts = float(cached_entry.get("ts") or 0.0)
+                if now - ts <= _NAO_BEHAVIOR_CACHE_TTL_S:
+                    cached_behaviors = cached_entry.get("behaviors")
+                    if isinstance(cached_behaviors, list):
+                        return list(cached_behaviors)
+                    return None
+
+        fetched_behaviors, mode = _fetch_nao_behaviors(runtime_cfg)
+        if fetched_behaviors is None and cached_entry is not None:
+            stale_behaviors = cached_entry.get("behaviors")
+            if isinstance(stale_behaviors, list):
+                return list(stale_behaviors)
+
+        with behavior_catalog_cache_lock:
+            behavior_catalog_cache[cache_key] = {
+                "ts": now,
+                "mode": mode,
+                "behaviors": list(fetched_behaviors) if isinstance(fetched_behaviors, list) else None,
+            }
+
+        if isinstance(fetched_behaviors, list):
+            return list(fetched_behaviors)
+        return None
+
+    def _normalize_behavior_name(value: Any) -> str:
+        return str(value or "").strip().casefold()
+
+    def _filter_dance_catalog(
+        catalog: List[Dict[str, Any]],
+        available_behaviors: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        if not catalog:
+            return []
+        if available_behaviors is None:
+            return list(catalog)
+        allowed = {
+            _normalize_behavior_name(behavior)
+            for behavior in available_behaviors
+            if isinstance(behavior, str) and behavior.strip()
+        }
+
+        filtered: List[Dict[str, Any]] = []
+        for item in catalog:
+            behavior = item.get("behavior")
+            if isinstance(behavior, str) and behavior.strip():
+                if _normalize_behavior_name(behavior) not in allowed:
+                    continue
+            filtered.append(item)
+        return filtered
+
+    def _dance_catalog(cmdrec_obj, runtime_cfg: Optional[JsonLike] = None) -> List[Dict[str, Any]]:
         if cmdrec_obj is None:
             return []
         try:
-            return cmdrec_obj.get_dance_catalog() or []
+            catalog = cmdrec_obj.get_dance_catalog() or []
         except Exception:
             return []
+        if runtime_cfg is None:
+            return list(catalog)
+        available_behaviors = _available_nao_behaviors(runtime_cfg)
+        return _filter_dance_catalog(list(catalog), available_behaviors)
 
     def _dance_followup_policy(cmdrec_obj) -> Dict[str, Any]:
         if cmdrec_obj is not None:
@@ -2139,7 +2284,13 @@ def create_app(
         if not _output_enabled(runtime_cfg):
             return
         try:
-            pipeline.output.emit(text)
+            spoken_text = text
+            normalizer = getattr(pipeline, "normalize_output_text", None)
+            if callable(normalizer):
+                spoken_text = str(normalizer(text) or "")
+            if not spoken_text:
+                return
+            pipeline.output.emit(spoken_text)
             _touch_activity()
         except Exception:
             return
@@ -2151,6 +2302,13 @@ def create_app(
             if isinstance(key, str) and key.strip():
                 keys.append(key.strip())
         return keys
+
+    def _format_dance_catalog_for_runtime_prompt(catalog: List[Dict[str, Any]]) -> str:
+        keys = _dance_keys(catalog)
+        if not keys:
+            return ""
+        lines = [f"- {key}" for key in keys]
+        return "\n".join(lines)
 
     def _resolve_dance_from_text(text: str, catalog: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
         cleaned = _normalize_text(text)
@@ -2182,38 +2340,105 @@ def create_app(
         cleaned = _normalize_text(text)
         return any(phrase.casefold() in cleaned for phrase in _policy_list(policy, "pass_through_phrases"))
 
-    def _default_dance_resolution(cmdrec_obj) -> Dict[str, str]:
+    def _default_dance_resolution(cmdrec_obj, runtime_cfg: Optional[JsonLike] = None) -> Dict[str, str]:
         policy = _dance_followup_policy(cmdrec_obj)
         dance_key = _policy_value(policy, "default_dance_key", "happy")
-        catalog = _dance_catalog(cmdrec_obj)
+        catalog = _dance_catalog(cmdrec_obj, runtime_cfg=runtime_cfg)
         dance_behavior = None
         for item in catalog:
             if (item.get("key") or "").strip() == dance_key:
                 dance_behavior = item.get("behavior")
                 break
+        if not dance_behavior and catalog:
+            first = catalog[0]
+            first_key = first.get("key")
+            if isinstance(first_key, str) and first_key.strip():
+                dance_key = first_key.strip()
+            first_behavior = first.get("behavior")
+            if isinstance(first_behavior, str) and first_behavior.strip():
+                dance_behavior = first_behavior.strip()
         if not dance_behavior and isinstance(dance_key, str) and dance_key.strip():
-            dance_behavior = "dances/" + dance_key.strip()
+            fallback_behavior = "dances/" + dance_key.strip()
+            if runtime_cfg is not None:
+                available_behaviors = _available_nao_behaviors(runtime_cfg)
+                if available_behaviors is not None:
+                    available_set = {
+                        _normalize_behavior_name(name)
+                        for name in available_behaviors
+                        if isinstance(name, str) and name.strip()
+                    }
+                    if _normalize_behavior_name(fallback_behavior) in available_set:
+                        dance_behavior = fallback_behavior
+                else:
+                    dance_behavior = fallback_behavior
+            else:
+                dance_behavior = fallback_behavior
         return {"dance_key": dance_key, "dance_behavior": dance_behavior}  # type: ignore[return-value]
 
-    def _command_behavior_preview(label: str, cmdrec_obj, behavior_executor) -> Optional[str]:
+    def _command_behavior_preview(
+        label: str,
+        cmdrec_obj,
+        behavior_executor,
+        runtime_cfg: Optional[JsonLike] = None,
+    ) -> Optional[str]:
         if not label:
             return None
         if label.upper() == "DANCE":
-            resolved = _default_dance_resolution(cmdrec_obj)
+            resolved = _default_dance_resolution(cmdrec_obj, runtime_cfg=runtime_cfg)
             behavior = resolved.get("dance_behavior")
             return behavior if isinstance(behavior, str) and behavior.strip() else None
         if behavior_executor is not None and hasattr(behavior_executor, "_behavior_for_command"):
             try:
                 cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=None)
                 if label.upper() == "DANCE":
-                    cmd.resolved = _default_dance_resolution(cmdrec_obj)
+                    cmd.resolved = _default_dance_resolution(cmdrec_obj, runtime_cfg=runtime_cfg)
                 return behavior_executor._behavior_for_command(cmd)  # type: ignore[attr-defined]
             except Exception:
                 return None
         return None
 
+    def _sync_runtime_dance_catalog_for_sid(
+        sid: str,
+        *,
+        pipeline,
+        cmdrec_obj,
+        runtime_cfg: JsonLike,
+    ) -> None:
+        runtime_context_enabled = bool(
+            getattr(pipeline, "runtime_context_enabled", False)
+            or getattr(pipeline, "_runtime_context_enabled", False)
+        )
+        if not runtime_context_enabled:
+            return
+        runtime_context_static = getattr(pipeline, "runtime_context_static", None)
+        if runtime_context_static is None:
+            runtime_context_static = getattr(pipeline, "_runtime_context_static", None)
+        if not isinstance(runtime_context_static, dict):
+            runtime_context_static = {}
+
+        catalog = _dance_catalog(cmdrec_obj, runtime_cfg=runtime_cfg)
+        dances_text = _format_dance_catalog_for_runtime_prompt(catalog)
+        current_text = str(runtime_context_static.get("dance_catalog") or "")
+        if current_text == dances_text:
+            return
+
+        updated = dict(runtime_context_static)
+        updated["dance_catalog"] = dances_text
+        if hasattr(pipeline, "runtime_context_static"):
+            pipeline.runtime_context_static = dict(updated)
+        if hasattr(pipeline, "_runtime_context_static"):
+            pipeline._runtime_context_static = dict(updated)
+
     def _system_prompt_for_sid(sid: str) -> str:
         pipeline = _get_pipeline(sid)
+        _, cmdrec, _ = _pipeline_props(pipeline)
+        runtime_cfg = _get_runtime_cfg(sid)
+        _sync_runtime_dance_catalog_for_sid(
+            sid,
+            pipeline=pipeline,
+            cmdrec_obj=cmdrec,
+            runtime_cfg=runtime_cfg,
+        )
         last_action = _get_runtime_state(sid).get("last_action")
         if hasattr(pipeline, "get_system_prompt"):
             sp = pipeline.get_system_prompt(last_action=last_action)
@@ -2559,7 +2784,7 @@ def create_app(
             turn_id=turn_id,
         )
         if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
-            _set_command_stop_available(sid, cmd.label)
+            _set_command_stop_available(sid, cmd.label, scope=lock_mode)
         else:
             _clear_command_stop_available(sid)
         _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
@@ -3402,9 +3627,11 @@ def create_app(
     def api_state():
         sid = _get_sid()
         history = _get_history(sid)
+        history_version = _history_version_for_sid(sid, history)
         payload = {
             "ok": True,
             "history": history,
+            "history_version": history_version,
             "system_prompt": _system_prompt_for_sid(sid),
         }
         _attach_command_stop_payload(sid, payload)
@@ -3600,6 +3827,12 @@ def create_app(
         pipeline = _get_pipeline(sid)
         debug_cmdrec, cmdrec, behavior_executor = _pipeline_props(pipeline)
         runtime_cfg = _get_runtime_cfg(sid)
+        _sync_runtime_dance_catalog_for_sid(
+            sid,
+            pipeline=pipeline,
+            cmdrec_obj=cmdrec,
+            runtime_cfg=runtime_cfg,
+        )
         _set_behavior_executor_custom_life_management(behavior_executor, False)
         _release_custom_life_lock_if_needed_on_user_turn(sid, runtime_cfg)
         if reset:
@@ -3720,7 +3953,7 @@ def create_app(
         # If we are waiting for a dance choice, try to resolve before normal routing.
         state = _get_cmdrec_state(sid)
         if state.get("pending_dance") and cmdrec is not None:
-            catalog = _dance_catalog(cmdrec)
+            catalog = _dance_catalog(cmdrec, runtime_cfg=runtime_cfg)
             policy = _dance_followup_policy(cmdrec)
             if _dance_is_pass_through(text, policy):
                 state["pending_dance"] = None
@@ -3837,11 +4070,22 @@ def create_app(
 
             # DANCE resolved? If not, ask follow-up and mark pending.
             if decision.is_command and decision.command and decision.command.label == "DANCE":
-                resolved = decision.command.resolved or {}
+                resolved = decision.command.resolved if isinstance(decision.command.resolved, dict) else {}
                 dance_key = resolved.get("dance_key")
+                catalog = _dance_catalog(cmdrec, runtime_cfg=runtime_cfg)
+                if catalog and dance_key and str(dance_key).strip().lower() != "unknown":
+                    key_norm = str(dance_key).strip().casefold()
+                    available = any(
+                        isinstance(item.get("key"), str) and item.get("key", "").strip().casefold() == key_norm
+                        for item in catalog
+                    )
+                    if not available:
+                        resolved["dance_key"] = "unknown"
+                        resolved.pop("dance_behavior", None)
+                        decision.command.resolved = resolved
+                        dance_key = "unknown"
                 if not dance_key or str(dance_key).strip().lower() == "unknown":
                     state["pending_dance"] = True
-                    catalog = _dance_catalog(cmdrec)
                     policy = _dance_followup_policy(cmdrec)
                     keys = _dance_keys(catalog)
                     limit = int(_policy_value(policy, "prompt_examples_limit", 6))
@@ -5115,7 +5359,7 @@ def create_app(
                     reason="confirm_stop",
                 )
             elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
-                _set_command_stop_available(sid, cmd.label)
+                _set_command_stop_available(sid, cmd.label, scope=lock_mode)
             else:
                 _clear_command_stop_available(sid)
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
@@ -5788,6 +6032,8 @@ def create_app(
             stt_by_sid.pop(sid, None)
             pipeline_by_sid.clear()
             stt_by_sid.clear()
+            with behavior_catalog_cache_lock:
+                behavior_catalog_cache.clear()
             cfg_out = _get_runtime_cfg(sid)
             if not cfg_out.get("custom_life_enabled", False):
                 _release_custom_life_lock(sid, cfg_out)
@@ -5861,6 +6107,8 @@ def create_app(
         sid_keys.add(sid)
         for sid_key in sid_keys:
             _rebuild_pipeline_for_sid(sid_key, merged)
+        with behavior_catalog_cache_lock:
+            behavior_catalog_cache.clear()
         runtime_cfg = _get_runtime_cfg(sid)
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
@@ -7087,6 +7335,7 @@ def create_app(
         sid = _get_sid()
         pipeline = _get_pipeline(sid)
         _, cmdrec, behavior_executor = _pipeline_props(pipeline)
+        runtime_cfg = _get_runtime_cfg(sid)
         if cmdrec is None:
             return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
         try:
@@ -7097,7 +7346,7 @@ def create_app(
                 label_upper = label.upper()
                 if label_upper in exclude or "LOCOMOTION" in label_upper:
                     continue
-                behavior = _command_behavior_preview(label, cmdrec, behavior_executor)
+                behavior = _command_behavior_preview(label, cmdrec, behavior_executor, runtime_cfg=runtime_cfg)
                 commands.append({"label": label, "behavior": behavior})
             return jsonify({"ok": True, "commands": commands})
         except Exception as exc:
@@ -7123,11 +7372,12 @@ def create_app(
     def api_dance_catalog():
         sid = _get_sid()
         pipeline = _get_pipeline(sid)
+        runtime_cfg = _get_runtime_cfg(sid)
         _, cmdrec, _ = _pipeline_props(pipeline)
         if cmdrec is None:
             return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
         try:
-            catalog = _dance_catalog(cmdrec)
+            catalog = _dance_catalog(cmdrec, runtime_cfg=runtime_cfg)
             dances = []
             for item in catalog:
                 key = item.get("key")
@@ -7138,11 +7388,16 @@ def create_app(
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 500
 
-    def _resolve_dance_by_key(cmdrec_obj: Any, dance_key: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def _resolve_dance_by_key(
+        cmdrec_obj: Any,
+        dance_key: str,
+        *,
+        runtime_cfg: Optional[JsonLike] = None,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         key_norm = str(dance_key or "").strip()
         if not key_norm:
             return None, "missing_dance_key"
-        catalog = _dance_catalog(cmdrec_obj)
+        catalog = _dance_catalog(cmdrec_obj, runtime_cfg=runtime_cfg)
         for item in catalog:
             key = item.get("key")
             if not isinstance(key, str) or not key.strip():
@@ -7174,8 +7429,16 @@ def create_app(
         if behavior_executor is None:
             return {"ok": False, "error": "behavior executor niet beschikbaar."}, 400
         resolved = payload.get("resolved") if isinstance(payload.get("resolved"), dict) else None
-        if label.upper() == "DANCE" and not resolved:
-            resolved = _default_dance_resolution(cmdrec)
+        if label.upper() == "DANCE":
+            if resolved:
+                dance_key = str(resolved.get("dance_key") or "").strip()
+                if dance_key and cmdrec is not None:
+                    resolved_checked, err = _resolve_dance_by_key(cmdrec, dance_key, runtime_cfg=runtime_cfg)
+                    if err:
+                        return {"ok": False, "error": err, "dance_key": dance_key}, 400
+                    resolved = resolved_checked
+            if not resolved:
+                resolved = _default_dance_resolution(cmdrec, runtime_cfg=runtime_cfg)
         cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=resolved)
         _log_dm_event(
             sid=sid,
@@ -7222,7 +7485,7 @@ def create_app(
                 reason="manual_command_stop",
             )
         elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
-            _set_command_stop_available(sid, cmd.label)
+            _set_command_stop_available(sid, cmd.label, scope=lock_mode)
         else:
             _clear_command_stop_available(sid)
         _touch_activity()
@@ -7918,10 +8181,11 @@ def create_app(
             if not dance_key:
                 return jsonify({"ok": False, "error": "missing_dance_key"}), 400
             pipeline = _get_pipeline(sid)
+            runtime_cfg = _get_runtime_cfg(sid)
             _, cmdrec, _ = _pipeline_props(pipeline)
             if cmdrec is None:
                 return jsonify({"ok": False, "error": "cmdrec_unavailable"}), 400
-            resolved, err = _resolve_dance_by_key(cmdrec, dance_key)
+            resolved, err = _resolve_dance_by_key(cmdrec, dance_key, runtime_cfg=runtime_cfg)
             if err:
                 return jsonify({"ok": False, "error": err, "dance_key": dance_key}), 400
             out, status_code = _command_execute_impl(
@@ -8027,32 +8291,13 @@ def create_app(
     @app.get("/api/nao_behaviors")
     def api_nao_behaviors():
         runtime_cfg = _get_runtime_cfg(_get_sid())
-        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-        behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
-        base_enabled = bool(runtime_cfg.get("base_enabled", True))
-        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
-        mode = "none"
-        if behavior_enabled and behavior_url and _check_ping(behavior_url, "/ping"):
-            base_url = behavior_url
-            mode = "behavior"
-        elif base_enabled and base_url and _check_ping(base_url, "/ping"):
-            mode = "base"
-        else:
+        base_url, mode = _resolve_nao_behavior_endpoint(runtime_cfg, require_ping=True)
+        if not base_url or mode not in ("behavior", "base"):
             return jsonify({"ok": False, "error": "Base/behavior manager is down."}), 400
-        try:
-            url = base_url + "/nao/list_behaviors" if mode == "behavior" else base_url + "/list_behaviors"
-            resp = requests.get(url, timeout=3.0)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-
-        payload = data.get("data") if isinstance(data, dict) else None
-        try:
-            behaviors = sorted(_flatten_behaviors(payload))
-            return jsonify({"ok": True, "behaviors": behaviors})
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 500
+        behaviors = _available_nao_behaviors(runtime_cfg)
+        if behaviors is None:
+            return jsonify({"ok": False, "error": "Kon behaviors niet ophalen."}), 400
+        return jsonify({"ok": True, "behaviors": sorted(behaviors), "mode": mode})
 
     @app.post("/api/nao_behavior_start")
     def api_nao_behavior_start():

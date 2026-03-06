@@ -85,3 +85,20 @@ def test_logs_sync_behavior_is_manual_when_logs_tab_is_active(monkeypatch):
 
     assert "refreshProcessLogs().catch(() => {});" in body
     assert "setInterval(" not in body
+
+
+@pytest.mark.ui_contract
+def test_refresh_state_gates_history_render_on_history_version(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    body = _extract_function_body(html, "refreshState")
+
+    assert "let lastHistoryVersion = null;" in html
+    assert "history_version" in body
+    assert "lastHistoryVersion" in body
+    assert "version !== lastHistoryVersion" in body
+    assert "renderHistory(j.history || [], null, { forceScroll: false });" in body

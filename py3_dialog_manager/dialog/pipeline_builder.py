@@ -144,7 +144,11 @@ def _extract_runtime_context_enabled(cfg: JsonLike) -> bool:
     ctx = params.get("context", {}) or {}
     if not isinstance(ctx, dict):
         raise ValueError("llm.params.context moet een object/dict zijn.")
-    return bool(ctx.get("inject_runtime_context", False))
+    # Default ON so prompt contract ("je krijgt soms extra contextblokken")
+    # holds unless explicitly disabled per config.
+    if "inject_runtime_context" not in ctx:
+        return True
+    return bool(ctx.get("inject_runtime_context"))
 
 
 def _format_available_commands(cmdrec_recognizer: Optional[CmdRecRecognizer]) -> str:
