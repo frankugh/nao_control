@@ -32,7 +32,7 @@
     "Renee"
   ],
   "listen_mode": "continuous",
-  "ui_active_tab": "commands",
+  "ui_active_tab": "runtime",
   "ui_color_scheme": "brown",
   "locomotion_frequency": 0.2,
   "locomotion_arms_enabled": true,

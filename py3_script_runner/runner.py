@@ -18,6 +18,7 @@ from .ppt_controller import ComPptController, PPTControllerError, PptControllerP
 ClientFactory = Callable[[str, float], DMClient]
 InputFunc = Callable[[str], str]
 SleepFunc = Callable[[float], None]
+RunnerEventSink = Callable[[Dict[str, Any]], None]
 
 
 class _RunAbortRequested(RuntimeError):
@@ -42,18 +43,49 @@ class ScriptRunner:
         sleep_func: Optional[SleepFunc] = None,
         log_dir: Optional[Path] = None,
         ppt_controller: Optional[PptControllerProtocol] = None,
+        continue_event: Optional[threading.Event] = None,
+        abort_event: Optional[threading.Event] = None,
+        on_error_prompt_policy: str = "prompt",
+        summary_publish_policy: str = "prompt",
+        ppt_mismatch_policy: str = "pause",
+        event_sink: Optional[RunnerEventSink] = None,
     ) -> None:
         self.script = script
         self.client_factory = client_factory or (lambda url, timeout_s: DMClient(url, timeout_s=timeout_s))
         self.input_func = input_func or input
         self.sleep_func = sleep_func or time.sleep
+        self.continue_event = continue_event
+        self.abort_event = abort_event
+        self.event_sink = event_sink
         self.defaults = dict(script.get("defaults") or {})
+        self.on_error_prompt_policy = self._normalize_policy(
+            on_error_prompt_policy,
+            allowed={"prompt", "next", "abort"},
+            default="prompt",
+        )
+        self.summary_publish_policy = self._normalize_policy(
+            summary_publish_policy,
+            allowed={"prompt", "publish", "cancel"},
+            default="prompt",
+        )
+        self.ppt_mismatch_policy = self._normalize_policy(
+            ppt_mismatch_policy,
+            allowed={"pause", "defer_snapback", "abort"},
+            default="pause",
+        )
+        self.control_poll_interval_s = self._parse_positive_float(
+            self.defaults.get("control_poll_interval_s", 0.25),
+            default=0.25,
+        )
         self.ppt_cfg = dict(script.get("ppt") or {})
         self.ppt_enabled = bool(self.ppt_cfg.get("enabled", False))
         self._ppt_controller = ppt_controller
         self._ppt_prepared = False
         self._capture_on = True
         self._last_script_ppt_position: Optional[Dict[str, int]] = None
+        self._pending_snapback = False
+        self._waiting_for_next = False
+        self._waiting_reason = "none"
         self._summary_publish_decision_by_robot: Dict[str, str] = {}
         self.summary_live_poll_interval_s = self._parse_positive_float(
             self.defaults.get("summary_live_poll_interval_s", 0.75),
@@ -104,6 +136,13 @@ class ScriptRunner:
         return float(parsed)
 
     @staticmethod
+    def _normalize_policy(value: Any, *, allowed: set[str], default: str) -> str:
+        raw = str(value or "").strip().lower()
+        if raw in allowed:
+            return raw
+        return str(default)
+
+    @staticmethod
     def _normalize_position(raw: Dict[str, Any]) -> Dict[str, int]:
         slide = max(1, int(raw.get("slide", 1)))
         build = max(0, int(raw.get("build", 0)))
@@ -127,6 +166,82 @@ class ScriptRunner:
         print(line)
         self._log_handle.write(line + "\n")
         self._log_handle.flush()
+        self._emit_event("log", message=line)
+
+    def _emit_event(self, event_type: str, **payload: Any) -> None:
+        sink = self.event_sink
+        if sink is None:
+            return
+        event: Dict[str, Any] = {"type": event_type}
+        event.update(payload)
+        try:
+            sink(event)
+        except Exception:
+            return
+
+    def _abort_requested(self) -> bool:
+        return bool(self.abort_event is not None and self.abort_event.is_set())
+
+    def _raise_if_abort_requested(self, *, context: str = "") -> None:
+        if not self._abort_requested():
+            return
+        message = "Abort requested"
+        if context:
+            message = f"{context}: abort requested"
+        raise _RunAbortRequested(message)
+
+    def _sleep_interruptible(self, duration_s: float) -> None:
+        remaining = max(0.0, float(duration_s))
+        if self.abort_event is None:
+            if remaining > 0:
+                self.sleep_func(remaining)
+            return
+        while remaining > 0:
+            self._raise_if_abort_requested()
+            chunk = min(self.control_poll_interval_s, remaining)
+            self.sleep_func(chunk)
+            remaining -= chunk
+        self._raise_if_abort_requested()
+
+    def _set_waiting_for_next(self, *, reason: str, index: int, total: int, step_id: str) -> None:
+        self._waiting_for_next = True
+        self._waiting_reason = str(reason or "none")
+        self._emit_event(
+            "waiting",
+            waiting_for_next=True,
+            waiting_reason=self._waiting_reason,
+            index=index,
+            total=total,
+            step_id=step_id,
+        )
+
+    def _clear_waiting_for_next(self, *, index: int, total: int, step_id: str) -> None:
+        if not self._waiting_for_next:
+            return
+        self._waiting_for_next = False
+        self._waiting_reason = "none"
+        self._emit_event(
+            "waiting_cleared",
+            waiting_for_next=False,
+            waiting_reason="none",
+            index=index,
+            total=total,
+            step_id=step_id,
+        )
+
+    def _wait_for_continue_signal(self, *, reason: str, index: int, total: int, step_id: str) -> None:
+        if self.continue_event is None:
+            return
+        self._set_waiting_for_next(reason=reason, index=index, total=total, step_id=step_id)
+        try:
+            while True:
+                self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
+                if self.continue_event.is_set():
+                    self.continue_event.clear()
+                    return
+                self._sleep_interruptible(self.control_poll_interval_s)
+        finally:
+            self._clear_waiting_for_next(index=index, total=total, step_id=step_id)
 
     def _runtime_health_payload(self, runtime_cfg: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -272,7 +387,7 @@ class ScriptRunner:
                         poll=self.readiness_poll_interval_s,
                     )
                 )
-            self.sleep_func(self.readiness_poll_interval_s)
+            self._sleep_interruptible(self.readiness_poll_interval_s)
 
     def _get_ppt_controller(self) -> PptControllerProtocol:
         if not self.ppt_enabled:
@@ -357,6 +472,7 @@ class ScriptRunner:
         self._log(f"[PPT] {self._format_position(pos)}")
 
     def _read_control_input(self, prompt: str = "") -> str:
+        self._raise_if_abort_requested()
         try:
             return str(self.input_func(prompt) or "").strip().lower()
         except EOFError as exc:
@@ -387,8 +503,14 @@ class ScriptRunner:
     def _pause_while_capture_off(self) -> None:
         if not self.ppt_enabled:
             return
+        if self.continue_event is not None and not self._capture_on:
+            self._log("[CAPTURE] OFF in web mode -> auto ON")
+            self._capture_on = True
+            self._snapback_to_script_anchor()
+            return
 
         while not self._capture_on:
+            self._raise_if_abort_requested()
             self._log("[CAPTURE] paused (ENTER=next_build, p=prev_build, c=capture ON, q=quit)")
             choice = self._read_control_input("")
             if choice == "":
@@ -411,10 +533,30 @@ class ScriptRunner:
     def _check_capture_sync(self) -> None:
         if not self.ppt_enabled or not self._capture_on or not self._last_script_ppt_position:
             return
+        if self._pending_snapback:
+            return
 
         current = self._get_ppt_position()
         expected = dict(self._last_script_ppt_position)
         if current == expected:
+            return
+
+        if self.ppt_mismatch_policy == "abort":
+            raise _RunAbortRequested(
+                "[SYNC] mismatch detected -> abort (expected {exp}, got {got})".format(
+                    exp=self._format_position(expected),
+                    got=self._format_position(current),
+                )
+            )
+        if self.ppt_mismatch_policy == "defer_snapback":
+            self._pending_snapback = True
+            self._log(
+                "[SYNC] mismatch detected -> defer snapback at next script step "
+                "(expected {exp}, got {got})".format(
+                    exp=self._format_position(expected),
+                    got=self._format_position(current),
+                )
+            )
             return
 
         self._log(
@@ -427,7 +569,15 @@ class ScriptRunner:
         self._log("[CAPTURE] OFF")
         self._pause_while_capture_off()
 
+    def _apply_pending_snapback_if_needed(self) -> None:
+        if not self._pending_snapback:
+            return
+        self._log("[SYNC] applying deferred snapback before next step")
+        self._snapback_to_script_anchor()
+        self._pending_snapback = False
+
     def preflight(self) -> None:
+        self._emit_event("status", status="preflight")
         self._log("Preflight: checking robot DM capabilities...")
         ready_info = self._wait_for_readiness()
         for robot_id in sorted(self.clients.keys()):
@@ -454,8 +604,17 @@ class ScriptRunner:
         step_id = step.get("id", f"step_{index+1}")
 
         if mode == "manual":
-            self._log(f"[{index + 1}/{total}] {step_id}: waiting for ENTER (manual start)")
+            self._log(f"[{index + 1}/{total}] {step_id}: waiting for continue (manual start)")
+            if self.continue_event is not None:
+                self._wait_for_continue_signal(
+                    reason="manual_start",
+                    index=index,
+                    total=total,
+                    step_id=step_id,
+                )
+                return
             while True:
+                self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
                 choice = self._read_control_input("")
                 if choice == "":
                     return
@@ -476,12 +635,13 @@ class ScriptRunner:
             delay_s = float(start.get("delay_s", 0))
             if delay_s > 0:
                 self._log(f"[{index + 1}/{total}] {step_id}: waiting {delay_s:.2f}s before execution")
-                self.sleep_func(delay_s)
+                self._sleep_interruptible(delay_s)
             return
 
         raise RuntimeError(f"unsupported start mode: {mode}")
 
     def _execute_step_action(self, step: Dict[str, Any], *, index: Optional[int] = None, total: Optional[int] = None) -> Dict[str, Any]:
+        self._raise_if_abort_requested()
         action = step.get("action") or {}
         action_type = str(action.get("type") or "").strip().lower()
         timeout_s = float(step.get("request_timeout_s", self.defaults.get("request_timeout_s", 12)))
@@ -493,7 +653,7 @@ class ScriptRunner:
             seconds = float(action.get("seconds", 0))
             self._log(f"Pause: sleeping {seconds:.2f}s")
             if seconds > 0:
-                self.sleep_func(seconds)
+                self._sleep_interruptible(seconds)
             return {"ok": True, "status": "accepted", "action": "pause"}
 
         if action_type == "ppt":
@@ -584,7 +744,7 @@ class ScriptRunner:
                 payload["system_prompt_file"] = system_prompt_file
             result = client.script_do(payload=payload, timeout_s=timeout_s)
             self._log_summary_draft_preview(result)
-            publish_action = self._ask_summary_publish_action(default_on_empty="publish")
+            publish_action = self._resolve_summary_publish_action(default_on_empty="publish")
             self._summary_publish_decision_by_robot[robot_id] = publish_action
             if publish_action == "cancel":
                 cancel_result = client.script_do(payload={"mode": "summary_cancel"}, timeout_s=timeout_s)
@@ -608,7 +768,7 @@ class ScriptRunner:
                 }
             if pending_action == "publish":
                 return client.script_do(payload=payload, timeout_s=timeout_s)
-            publish_action = self._ask_summary_publish_action(default_on_empty="publish")
+            publish_action = self._resolve_summary_publish_action(default_on_empty="publish")
             if publish_action == "cancel":
                 payload = {"mode": "summary_cancel"}
         elif do_mode == "summary_cancel":
@@ -644,6 +804,13 @@ class ScriptRunner:
             if choice in {"c", "cancel"}:
                 return "cancel"
 
+    def _resolve_summary_publish_action(self, *, default_on_empty: Optional[str] = None) -> str:
+        if self.summary_publish_policy == "publish":
+            return "publish"
+        if self.summary_publish_policy == "cancel":
+            return "cancel"
+        return self._ask_summary_publish_action(default_on_empty=default_on_empty)
+
     def _wait_for_summary_capture_continue(
         self,
         *,
@@ -655,23 +822,6 @@ class ScriptRunner:
         initial_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._log(f"[{index + 1}/{total}] {step_id}: capturing... press ENTER when ready for summary draft")
-
-        input_queue: Queue[Any] = Queue()
-        reader_done = threading.Event()
-
-        def _reader() -> None:
-            try:
-                while not reader_done.is_set():
-                    choice = self._read_control_input("")
-                    input_queue.put(("choice", choice))
-                    if choice == "":
-                        return
-            except Exception as exc:
-                input_queue.put(("error", exc))
-
-        reader_thread = threading.Thread(target=_reader, daemon=True)
-        reader_thread.start()
-
         seen_transcript_count = 0
         seen_stt_calls = 0
         last_error: Optional[str] = None
@@ -709,7 +859,46 @@ class ScriptRunner:
         if isinstance(initial_state, dict):
             _consume_state(initial_state)
 
+        if self.continue_event is not None:
+            self._set_waiting_for_next(
+                reason="summary_capture_continue",
+                index=index,
+                total=total,
+                step_id=step_id,
+            )
+            try:
+                while True:
+                    self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
+                    if self.continue_event.is_set():
+                        self.continue_event.clear()
+                        return
+                    try:
+                        state = client.script_do(payload={"mode": "summary_capture_start"}, timeout_s=timeout_s)
+                        _consume_state(state)
+                    except Exception as exc:
+                        self._log(f"[{index + 1}/{total}] {step_id}: WARN live status poll failed ({exc})")
+                    self._sleep_interruptible(self.summary_live_poll_interval_s)
+            finally:
+                self._clear_waiting_for_next(index=index, total=total, step_id=step_id)
+
+        input_queue: Queue[Any] = Queue()
+        reader_done = threading.Event()
+
+        def _reader() -> None:
+            try:
+                while not reader_done.is_set():
+                    choice = self._read_control_input("")
+                    input_queue.put(("choice", choice))
+                    if choice == "":
+                        return
+            except Exception as exc:
+                input_queue.put(("error", exc))
+
+        reader_thread = threading.Thread(target=_reader, daemon=True)
+        reader_thread.start()
+
         while True:
+            self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
             while True:
                 try:
                     item_type, payload = input_queue.get_nowait()
@@ -732,10 +921,11 @@ class ScriptRunner:
             except Exception as exc:
                 self._log(f"[{index + 1}/{total}] {step_id}: WARN live status poll failed ({exc})")
 
-            self.sleep_func(self.summary_live_poll_interval_s)
+            self._sleep_interruptible(self.summary_live_poll_interval_s)
 
     def _ask_error_action(self) -> str:
         while True:
+            self._raise_if_abort_requested()
             try:
                 choice = str(self.input_func("Step failed. Choose: [r]etry / [n]ext / [a]bort: ") or "").strip().lower()
             except EOFError as exc:
@@ -747,13 +937,20 @@ class ScriptRunner:
             if choice in {"a", "abort"}:
                 return "abort"
 
+    def _resolve_prompt_error_action(self) -> str:
+        if self.on_error_prompt_policy == "next":
+            return "next"
+        if self.on_error_prompt_policy == "abort":
+            return "abort"
+        return self._ask_error_action()
+
     def _on_error_action(self, step: Dict[str, Any]) -> str:
         policy = str(step.get("on_error") or self.defaults.get("on_error", "prompt")).strip().lower()
         if policy == "abort":
             return "abort"
         if policy == "continue":
             return "next"
-        return self._ask_error_action()
+        return self._resolve_prompt_error_action()
 
     @staticmethod
     def _is_timeout_error(exc: Exception) -> bool:
@@ -779,8 +976,10 @@ class ScriptRunner:
         step_id = step.get("id", f"step_{index+1}")
         while True:
             try:
+                self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
                 self._pause_while_capture_off()
                 self._check_capture_sync()
+                self._emit_event("step_start", index=index, total=total, step_id=step_id)
                 self._log(f"[{index + 1}/{total}] {step_id}: executing")
                 response = self._execute_step_action(step, index=index, total=total)
                 self._log(f"[{index + 1}/{total}] {step_id}: OK -> {response}")
@@ -788,13 +987,17 @@ class ScriptRunner:
             except _RunAbortRequested:
                 raise
             except Exception as exc:
+                self._emit_event("step_error", index=index, total=total, step_id=step_id, error=str(exc))
                 self._log(f"[{index + 1}/{total}] {step_id}: ERROR -> {exc}")
                 action: str
                 if self._is_timeout_error(exc):
                     timeout_policy = str(step.get("on_error") or self.defaults.get("on_error", "prompt")).strip().lower()
                     if timeout_policy == "prompt":
-                        action = "next"
-                        self._log(f"[{index + 1}/{total}] {step_id}: timeout detected -> default action next")
+                        if self.on_error_prompt_policy == "prompt":
+                            action = "next"
+                            self._log(f"[{index + 1}/{total}] {step_id}: timeout detected -> default action next")
+                        else:
+                            action = self._resolve_prompt_error_action()
                     else:
                         action = self._on_error_action(step)
                 else:
@@ -821,6 +1024,8 @@ class ScriptRunner:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for step_index, step in group:
                 step_id = step.get("id", f"step_{step_index+1}")
+                self._raise_if_abort_requested(context=f"[{step_index + 1}/{total}] {step_id}")
+                self._emit_event("step_start", index=step_index, total=total, step_id=step_id)
                 self._log(f"[{step_index + 1}/{total}] {step_id}: executing (with_prev)")
                 future = executor.submit(self._execute_step_action, step, index=step_index, total=total)
                 future_map[future] = (step_index, step, step_id)
@@ -830,9 +1035,11 @@ class ScriptRunner:
                 try:
                     response = future.result()
                 except Exception as exc:
+                    self._emit_event("step_error", index=step_index, total=total, step_id=step_id, error=str(exc))
                     failures.append((step_index, step, exc))
                     continue
                 self._log(f"[{step_index + 1}/{total}] {step_id}: OK -> {response}")
+                self._emit_event("step_done", index=step_index, total=total, step_id=step_id, status="completed")
                 completed += 1
 
         failures.sort(key=lambda item: item[0])
@@ -847,7 +1054,9 @@ class ScriptRunner:
     ) -> str:
         step_id = step.get("id", f"step_{index+1}")
         self._log(f"[{index + 1}/{total}] {step_id}: ERROR -> {exc}")
+        self._emit_event("step_error", index=index, total=total, step_id=step_id, error=str(exc))
         while True:
+            self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
             action = self._on_error_action(step)
             if action == "retry":
                 self._log(f"[{index + 1}/{total}] {step_id}: retry")
@@ -863,16 +1072,19 @@ class ScriptRunner:
         completed = 0
         total = len(steps)
         aborted = False
+        self._emit_event("status", status="running", completed_steps=0, total_steps=total)
         try:
             self._prepare_ppt_if_needed()
             index = 0
             while index < total:
+                self._raise_if_abort_requested()
                 step = steps[index]
                 self._pause_while_capture_off()
                 self._check_capture_sync()
                 self._wait_for_step_start(step, index, total)
                 self._pause_while_capture_off()
                 self._check_capture_sync()
+                self._apply_pending_snapback_if_needed()
 
                 group: list[tuple[int, Dict[str, Any]]] = [(index, step)]
                 next_index = index + 1
@@ -884,6 +1096,14 @@ class ScriptRunner:
                     status = self._execute_step_with_policy(step, index, total)
                     if status == "completed":
                         completed += 1
+                    self._emit_event(
+                        "step_done",
+                        index=index,
+                        total=total,
+                        step_id=step.get("id", f"step_{index+1}"),
+                        status=status,
+                        completed_steps=completed,
+                    )
                     index = next_index
                     continue
 
@@ -898,13 +1118,24 @@ class ScriptRunner:
                     )
                     if status == "completed":
                         completed += 1
+                    self._emit_event(
+                        "step_done",
+                        index=failed_index,
+                        total=total,
+                        step_id=failed_step.get("id", f"step_{failed_index+1}"),
+                        status=status,
+                        completed_steps=completed,
+                    )
 
                 index = next_index
         except _RunAbortRequested as exc:
             aborted = True
             self._log(str(exc))
+            self._emit_event("status", status="aborted", completed_steps=completed, total_steps=total, error=str(exc))
         finally:
             self._log_handle.close()
+        if not aborted:
+            self._emit_event("status", status="completed", completed_steps=completed, total_steps=total)
 
         return RunResult(
             completed_steps=completed,

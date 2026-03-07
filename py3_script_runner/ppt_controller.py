@@ -53,6 +53,18 @@ class ComPptController:
             ) from exc
         return win32com.client
 
+    @staticmethod
+    def _co_initialize_current_thread() -> None:
+        # COM must be initialized per thread (web runner uses a background thread).
+        try:
+            import pythoncom  # type: ignore[import-not-found]
+        except Exception:
+            return
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            return
+
     def _require_view(self):
         if self._view is None:
             raise PPTControllerError("PowerPoint slideshow is not active.")
@@ -63,20 +75,94 @@ class ComPptController:
             raise PPTControllerError("PowerPoint slideshow window is not available.")
         return self._slide_show_window
 
+    def _refresh_live_refs(self) -> None:
+        app = self._app
+        if app is None:
+            return
+        window = None
+        try:
+            window = app.SlideShowWindows(1)
+        except Exception:
+            try:
+                windows = getattr(app, "SlideShowWindows", None)
+                if windows is not None and hasattr(windows, "Item"):
+                    window = windows.Item(1)
+            except Exception:
+                window = None
+        if window is None:
+            presentation = self._presentation
+            if presentation is not None:
+                try:
+                    window = getattr(presentation, "SlideShowWindow", None)
+                except Exception:
+                    window = None
+        if window is not None:
+            self._slide_show_window = window
+            try:
+                self._view = window.View
+            except Exception:
+                return
+
+    @staticmethod
+    def _find_open_presentation(app, ppt_path: Path):
+        try:
+            count = int(getattr(app.Presentations, "Count", 0))
+        except Exception:
+            return None
+        target = ppt_path.as_posix().lower()
+        for idx in range(count, 0, -1):
+            try:
+                existing = app.Presentations.Item(idx)
+                full_name = str(getattr(existing, "FullName", "") or "").strip()
+                if not full_name:
+                    continue
+                if Path(full_name).expanduser().resolve().as_posix().lower() == target:
+                    return existing
+            except Exception:
+                continue
+        return None
+
     def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
         self._require_windows()
+        self._co_initialize_current_thread()
         ppt_path = Path(file_path).expanduser().resolve()
         if not ppt_path.exists():
             raise PPTControllerError(f"PPT file not found: {ppt_path}")
         win32 = self._win32_client()
         try:
-            app = win32.Dispatch("PowerPoint.Application")
+            dispatch = getattr(win32, "Dispatch", None)
+            if dispatch is None:
+                raise RuntimeError("win32com Dispatch unavailable")
+            app = dispatch("PowerPoint.Application")
             app.Visible = True
-            presentation = app.Presentations.Open(str(ppt_path), WithWindow=True)
+            try:
+                app.DisplayAlerts = 0
+            except Exception:
+                pass
+
+            existing = self._find_open_presentation(app, ppt_path)
+            if existing is not None:
+                presentation = existing
+            else:
+                presentation = app.Presentations.Open(str(ppt_path), WithWindow=True)
             settings = presentation.SlideShowSettings
             # 3 = ppShowTypeKiosk (fullscreen), 2 = ppShowTypeWindow (windowed).
             settings.ShowType = 3 if fullscreen_required else 2
-            window = settings.Run()
+            try:
+                window = settings.Run()
+            except Exception:
+                # Existing presentation can be in a stale state after repeated runs.
+                # Try reopening once as fallback.
+                if existing is None:
+                    raise
+                try:
+                    presentation.Close()
+                except Exception:
+                    pass
+                presentation = app.Presentations.Open(str(ppt_path), WithWindow=True)
+                settings = presentation.SlideShowSettings
+                settings.ShowType = 3 if fullscreen_required else 2
+                window = settings.Run()
             view = window.View if window is not None else app.SlideShowWindows(1).View
         except Exception as exc:
             raise PPTControllerError(f"Could not open PowerPoint slideshow: {exc}") from exc
@@ -93,10 +179,22 @@ class ComPptController:
         view = self._require_view()
         try:
             view.Next()
+            return
+        except Exception:
+            self._refresh_live_refs()
+        view = self._require_view()
+        try:
+            view.Next()
         except Exception as exc:
             raise PPTControllerError(f"PowerPoint next_build failed: {exc}") from exc
 
     def prev_build(self) -> None:
+        view = self._require_view()
+        try:
+            view.Previous()
+            return
+        except Exception:
+            self._refresh_live_refs()
         view = self._require_view()
         try:
             view.Previous()
@@ -110,8 +208,13 @@ class ComPptController:
             raise PPTControllerError("PowerPoint goto requires slide >= 1.")
         try:
             view.GotoSlide(slide_idx)
-        except Exception as exc:
-            raise PPTControllerError(f"PowerPoint goto slide failed: {exc}") from exc
+        except Exception:
+            self._refresh_live_refs()
+            view = self._require_view()
+            try:
+                view.GotoSlide(slide_idx)
+            except Exception as exc:
+                raise PPTControllerError(f"PowerPoint goto slide failed: {exc}") from exc
         if build is None:
             return
         build_idx = int(build)
@@ -120,15 +223,25 @@ class ComPptController:
             return
         try:
             view.GotoClick(build_idx)
-        except Exception as exc:
-            raise PPTControllerError(f"PowerPoint goto build failed: {exc}") from exc
+        except Exception:
+            self._refresh_live_refs()
+            view = self._require_view()
+            try:
+                view.GotoClick(build_idx)
+            except Exception as exc:
+                raise PPTControllerError(f"PowerPoint goto build failed: {exc}") from exc
 
     def get_position(self) -> Dict[str, int]:
         view = self._require_view()
         try:
             slide = int(view.CurrentShowPosition)
-        except Exception as exc:
-            raise PPTControllerError(f"PowerPoint current slide unavailable: {exc}") from exc
+        except Exception:
+            self._refresh_live_refs()
+            view = self._require_view()
+            try:
+                slide = int(view.CurrentShowPosition)
+            except Exception as exc:
+                raise PPTControllerError(f"PowerPoint current slide unavailable: {exc}") from exc
         build = 0
         try:
             build = int(view.GetClickIndex())
@@ -138,7 +251,12 @@ class ComPptController:
 
     def is_fullscreen_slideshow(self) -> bool:
         window = self._require_window()
-        value = getattr(window, "IsFullScreen", True)
+        try:
+            value = getattr(window, "IsFullScreen", True)
+        except Exception:
+            self._refresh_live_refs()
+            window = self._require_window()
+            value = getattr(window, "IsFullScreen", True)
         try:
             return bool(value)
         except Exception:

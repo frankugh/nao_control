@@ -5906,6 +5906,12 @@ def create_app(
             return jsonify({"ok": True, "presets": presets})
         return jsonify({"ok": False, "error": "preset bestaat niet"}), 404
 
+    def _is_cloud_model_name(name: str) -> bool:
+        key = str(name or "").strip().lower()
+        if not key:
+            return False
+        return key.endswith("cloud") or key == "gemini-3-flash-preview" or key.startswith("gemini-3-flash-preview:")
+
     def _split_ollama_models() -> Tuple[List[str], List[str], Optional[str]]:
         if not shutil.which("ollama"):
             return [], [], "ollama cli niet gevonden"
@@ -5930,7 +5936,7 @@ def create_app(
                 if not name:
                     continue
                 key = name.lower()
-                if key.endswith("cloud"):
+                if _is_cloud_model_name(name):
                     if key in seen_cloud:
                         continue
                     seen_cloud.add(key)

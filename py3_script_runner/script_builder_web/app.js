@@ -13,9 +13,16 @@
   const btnSaveAs = document.getElementById("btnSaveAs");
   const btnCopyTemplate = document.getElementById("btnCopyTemplate");
   const btnInsertTemplate = document.getElementById("btnInsertTemplate");
+  const btnRunStart = document.getElementById("btnRunStart");
+  const btnRunNext = document.getElementById("btnRunNext");
+  const btnRunAbort = document.getElementById("btnRunAbort");
   const fileLabel = document.getElementById("fileLabel");
   const saveState = document.getElementById("saveState");
   const statusMessage = document.getElementById("statusMessage");
+  const runStatus = document.getElementById("runStatus");
+  const runProgress = document.getElementById("runProgress");
+  const runStep = document.getElementById("runStep");
+  const runLog = document.getElementById("runLog");
   const quickOpenButtons = Array.from(document.querySelectorAll(".btnQuickOpen"));
 
   let templatesData = null;
@@ -27,6 +34,12 @@
   let currentFileHandle = null;
   let currentFileLabel = PLACEHOLDER_FILE_LABEL;
   let editorDirty = false;
+  let runtimeState = null;
+  let runPollTimer = null;
+  let runRequestInFlight = false;
+  let lastRuntimeError = "";
+  let runPollFailures = 0;
+  let pollPausedByNetworkError = false;
 
   function isObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -77,6 +90,169 @@
     const dirty = options && options.dirty === true;
     editorJson.value = text;
     setDirty(dirty);
+  }
+
+  function isActiveRunStatus(status) {
+    return status === "preflight" || status === "running" || status === "waiting";
+  }
+
+  function setRuntimeButtons(state) {
+    const status = state && state.status ? String(state.status) : "idle";
+    const waiting = !!(state && state.waiting_for_next);
+    btnRunStart.disabled = !(status === "idle" || status === "completed" || status === "aborted" || status === "failed");
+    btnRunNext.disabled = !waiting;
+    btnRunAbort.disabled = !isActiveRunStatus(status);
+  }
+
+  function renderRuntimeState(state) {
+    runtimeState = state || null;
+    const status = state && state.status ? String(state.status) : "idle";
+    const completed = state && typeof state.completed_steps === "number" ? state.completed_steps : 0;
+    const total = state && typeof state.total_steps === "number" ? state.total_steps : 0;
+    const stepLabel = state && state.current_step_id ? String(state.current_step_id) : "-";
+    const logLines = state && Array.isArray(state.log_tail) ? state.log_tail : [];
+    runStatus.textContent = status;
+    runProgress.textContent = String(completed) + " / " + String(total);
+    runStep.textContent = stepLabel;
+    runLog.value = logLines.join("\n");
+    runLog.scrollTop = runLog.scrollHeight;
+    setRuntimeButtons(state);
+  }
+
+  async function fetchJson(url, options) {
+    const response = await fetch(url, options);
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (_err) {
+      payload = {};
+    }
+    if (!response.ok) {
+      const message =
+        payload && typeof payload.error === "string" && payload.error
+          ? payload.error
+          : "HTTP " + String(response.status);
+      throw new Error(message);
+    }
+    return payload;
+  }
+
+  function parseEditorScriptForRun() {
+    const parsed = parseJson(editorJson.value, "Editor");
+    if (!parsed.ok) {
+      return null;
+    }
+    if (!isObject(parsed.value)) {
+      setStatus("Editor root moet een JSON object zijn.", "error");
+      return null;
+    }
+    return parsed.value;
+  }
+
+  async function refreshRunState(options) {
+    if (runRequestInFlight) {
+      return;
+    }
+    const silent = options && options.silent === true;
+    runRequestInFlight = true;
+    try {
+      const state = await fetchJson("/api/run/state", { cache: "no-store" });
+      runPollFailures = 0;
+      if (pollPausedByNetworkError) {
+        pollPausedByNetworkError = false;
+        setStatus("Verbinding met run API hersteld.", "ok");
+      }
+      renderRuntimeState(state);
+      const err = state && typeof state.last_error === "string" ? state.last_error.trim() : "";
+      const status = state && typeof state.status === "string" ? state.status : "";
+      if (err && err !== lastRuntimeError && (status === "failed" || !silent)) {
+        if (status === "failed") {
+          setStatus("Run failed: " + err, "error");
+        } else {
+          setStatus("Run melding: " + err, "warn");
+        }
+        lastRuntimeError = err;
+      }
+      if (!err) {
+        lastRuntimeError = "";
+      }
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      runPollFailures += 1;
+      if (runPollFailures >= 3 && runPollTimer !== null) {
+        window.clearInterval(runPollTimer);
+        runPollTimer = null;
+        pollPausedByNetworkError = true;
+        setStatus(
+          "Geen verbinding met run API. Start script_builder_app opnieuw; polling is gepauzeerd.",
+          "error"
+        );
+        return;
+      }
+      setStatus("Run state ophalen mislukt: " + message, "error");
+    } finally {
+      runRequestInFlight = false;
+    }
+  }
+
+  function ensureRunPolling() {
+    if (runPollTimer !== null) {
+      return;
+    }
+    runPollTimer = window.setInterval(function () {
+      refreshRunState({ silent: true });
+    }, 500);
+  }
+
+  async function startRunFromEditor() {
+    ensureRunPolling();
+    const script = parseEditorScriptForRun();
+    if (!script) {
+      return;
+    }
+    try {
+      const payload = await fetchJson("/api/run/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: script }),
+      });
+      renderRuntimeState(payload);
+      setStatus("Run gestart.", "ok");
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      setStatus("Run starten mislukt: " + message, "error");
+    }
+    await refreshRunState({ silent: true });
+  }
+
+  async function sendNext() {
+    ensureRunPolling();
+    try {
+      const payload = await fetchJson("/api/run/next", {
+        method: "POST",
+      });
+      renderRuntimeState(payload);
+      setStatus("Next verstuurd.", "ok");
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      setStatus("Next mislukt: " + message, "error");
+    }
+    await refreshRunState({ silent: true });
+  }
+
+  async function sendAbort() {
+    ensureRunPolling();
+    try {
+      const payload = await fetchJson("/api/run/abort", {
+        method: "POST",
+      });
+      renderRuntimeState(payload);
+      setStatus("Abort verstuurd.", "warn");
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      setStatus("Abort mislukt: " + message, "error");
+    }
+    await refreshRunState({ silent: true });
   }
 
   function getCategoryByKey(categoryKey) {
@@ -408,6 +584,17 @@
       renderSelectedTemplate(firstCategory, firstTemplate);
 
       applyNewDefaultScript();
+      renderRuntimeState({
+        status: "idle",
+        waiting_for_next: false,
+        waiting_reason: "none",
+        current_step_id: "",
+        completed_steps: 0,
+        total_steps: 0,
+        log_tail: [],
+      });
+      ensureRunPolling();
+      await refreshRunState({ silent: true });
       setStatus("Script Builder klaar.", "ok");
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
@@ -452,6 +639,18 @@
     insertPreviewIntoEditor();
   });
 
+  btnRunStart.addEventListener("click", async function () {
+    await startRunFromEditor();
+  });
+
+  btnRunNext.addEventListener("click", async function () {
+    await sendNext();
+  });
+
+  btnRunAbort.addEventListener("click", async function () {
+    await sendAbort();
+  });
+
   quickOpenButtons.forEach(function (button) {
     button.addEventListener("click", async function () {
       const exampleName = button.getAttribute("data-example");
@@ -471,6 +670,11 @@
     }
     event.preventDefault();
     event.returnValue = "";
+  });
+
+  window.addEventListener("focus", function () {
+    ensureRunPolling();
+    refreshRunState({ silent: true });
   });
 
   updateFileMeta();

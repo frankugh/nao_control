@@ -2,13 +2,13 @@
   "version": 1,
   "robots": {
     "nao1": {
-      "dm_url": "http://127.0.0.1:5301"
+      "dm_url": "http://127.0.0.1:8080"
     }
   },
   "ppt": {
     "enabled": true,
-    "file": "C:/workshops/demo.pptx",
-    "fullscreen_required": true,
+    "file": "C:/NAOqi_fundamentals/NAO_Controller_WebAPI/py3_script_runner/assets/presentations/example_workshop_ppt.pptx",
+    "fullscreen_required": false,
     "start_capture_on_run": true
   },
   "defaults": {

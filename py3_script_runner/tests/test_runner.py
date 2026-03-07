@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+import threading
+import time
 
 import pytest
 
@@ -1411,3 +1413,236 @@ def test_do_mode_nao_set_eye_color_uses_nao_endpoint(tmp_path):
             "timeout_s": 12.0,
         }
     ]
+
+
+def test_on_error_prompt_policy_next_skips_without_stdin_prompt(tmp_path):
+    prompts: List[str] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def runtime_effective(self, timeout_s=None):
+            return {"ok": True, "runtime_config": {}}
+
+        def script_say(self, text: str, timeout_s=None):
+            raise DMClientError("boom")
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "fails"},
+        }
+    ]
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda prompt: prompts.append(prompt) or "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        on_error_prompt_policy="next",
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 0
+    assert prompts == []
+
+
+def test_summary_publish_policy_publish_skips_prompt(tmp_path):
+    calls: List[Dict[str, Any]] = []
+    prompts: List[str] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            calls.append(dict(payload))
+            if payload.get("mode") == "summary_capture_stop_and_draft":
+                return {"ok": True, "draft": "samenvatting", "transcript": ["x"]}
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": False},
+        },
+        {
+            "id": "s2",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+        },
+        {
+            "id": "s3",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "do", "mode": "summary_publish"},
+        },
+    ]
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda prompt: prompts.append(prompt) or "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        summary_publish_policy="publish",
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 3
+    assert calls == [
+        {"mode": "summary_capture_start"},
+        {"mode": "summary_capture_stop_and_draft", "input_prompt_template": "Transcript:\n{transcript}"},
+        {"mode": "summary_publish"},
+    ]
+    assert all(not p.startswith("[SUMMARY] Draft review") for p in prompts)
+
+
+def test_ppt_mismatch_policy_defer_snapback(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    class FakePpt:
+        def __init__(self) -> None:
+            self.position = {"slide": 1, "build": 0}
+            self.position_reads = 0
+            self.goto_calls: List[Tuple[int, int | None]] = []
+
+        def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
+            return None
+
+        def next_build(self) -> None:
+            self.position["build"] += 1
+
+        def prev_build(self) -> None:
+            self.position["build"] = max(0, self.position["build"] - 1)
+
+        def goto(self, slide: int, build=None) -> None:
+            self.goto_calls.append((int(slide), int(build) if build is not None else None))
+            self.position["slide"] = int(slide)
+            self.position["build"] = int(build) if build is not None else 0
+
+        def get_position(self):
+            self.position_reads += 1
+            if self.position_reads == 2:
+                return {"slide": 2, "build": 0}
+            return dict(self.position)
+
+        def is_fullscreen_slideshow(self) -> bool:
+            return True
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": True,
+    }
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        }
+    ]
+    fake_ppt = FakePpt()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        ppt_controller=fake_ppt,
+        ppt_mismatch_policy="defer_snapback",
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert fake_ppt.goto_calls == [(1, 0)]
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert "defer snapback at next script step" in log_text
+    assert "applying deferred snapback before next step" in log_text
+
+
+def test_abort_event_stops_manual_wait_with_continue_event(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["defaults"]["control_poll_interval_s"] = 0.01
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "manual", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        }
+    ]
+    continue_event = threading.Event()
+    abort_event = threading.Event()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=time.sleep,
+        log_dir=tmp_path,
+        continue_event=continue_event,
+        abort_event=abort_event,
+    )
+
+    result_box: Dict[str, Any] = {}
+
+    def _run() -> None:
+        result_box["result"] = runner.run()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    time.sleep(0.05)
+    abort_event.set()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    result = result_box["result"]
+    assert result.aborted is True
+    assert result.completed_steps == 0

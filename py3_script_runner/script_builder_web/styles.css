@@ -123,6 +123,12 @@ button:active {
   transform: translateY(1px);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  border-color: var(--line);
+}
+
 .label {
   margin: 10px 0 6px;
   font-size: 13px;
@@ -152,6 +158,29 @@ textarea {
 #previewJson {
   flex: 1 1 auto;
   min-height: 220px;
+}
+
+.runtime-panel {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.runtime-actions {
+  margin-top: 8px;
+}
+
+.runtime-meta {
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+#runLog {
+  min-height: 150px;
+  flex: 0 0 auto;
 }
 
 footer {

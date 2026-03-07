@@ -54,6 +54,22 @@
           <button id="btnCopyTemplate" type="button">Kopieer template</button>
           <button id="btnInsertTemplate" type="button">Voeg toe aan steps</button>
         </div>
+
+        <section class="runtime-panel">
+          <h2>Run</h2>
+          <div class="row-actions runtime-actions">
+            <button id="btnRunStart" type="button">Start</button>
+            <button id="btnRunNext" type="button" disabled>Next</button>
+            <button id="btnRunAbort" type="button" disabled>Abort</button>
+          </div>
+          <div class="runtime-meta">
+            <div>Status: <span id="runStatus">idle</span></div>
+            <div>Progress: <span id="runProgress">0 / 0</span></div>
+            <div>Stap: <span id="runStep">-</span></div>
+          </div>
+          <label for="runLog" class="label">Run log (tail)</label>
+          <textarea id="runLog" spellcheck="false" autocomplete="off" readonly></textarea>
+        </section>
       </aside>
     </main>
 

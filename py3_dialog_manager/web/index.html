@@ -6068,7 +6068,9 @@
       }
 
       function isCloudModelName(name) {
-        return /cloud$/i.test(String(name || '').trim());
+        const key = String(name || '').trim().toLowerCase();
+        if (!key) return false;
+        return /cloud$/i.test(key) || key === 'gemini-3-flash-preview' || key.startsWith('gemini-3-flash-preview:');
       }
 
       function dedupeModelList(values) {
