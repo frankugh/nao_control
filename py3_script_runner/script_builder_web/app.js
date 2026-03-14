@@ -66,6 +66,7 @@ import {
   const dmStartResults = document.getElementById("dmStartResults");
   const templateInspector = document.getElementById("templateInspector");
   const templateStepCount = document.getElementById("templateStepCount");
+  const commandLabelSuggestions = document.getElementById("commandLabelSuggestions");
   const quickOpenButtons = Array.from(document.querySelectorAll(".btnQuickOpen"));
 
   let templatesData = null;
@@ -103,6 +104,10 @@ import {
   let dragSourceIndex = null;
   let dragOverIndex = null;
   let lastAutoFollowKey = "";
+  let remoteCommandLabelSuggestions = [];
+  let remoteCommandLabelFetchKey = "";
+  let pendingCommandLabelFetchKey = "";
+  let commandLabelLookup = new Map();
 
   function setStatus(message, level) {
     statusMessage.textContent = message;
@@ -184,6 +189,196 @@ import {
     blocksConfigJson.style.height = "auto";
     const nextHeight = Math.max(260, blocksConfigJson.scrollHeight || 0);
     blocksConfigJson.style.height = String(nextHeight) + "px";
+  }
+
+  function restoreScrollPosition(container, previousTop) {
+    if (!(container instanceof HTMLElement) || !Number.isFinite(previousTop)) {
+      return;
+    }
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (maxScrollTop === 0) {
+      container.scrollTop = Math.max(0, previousTop);
+      return;
+    }
+    container.scrollTop = Math.min(maxScrollTop, Math.max(0, previousTop));
+  }
+
+  function normalizeCommandLabelRaw(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\\_/g, "_")
+      .replace(/\s+/g, " ");
+  }
+
+  function commandLabelDisplay(value) {
+    return normalizeCommandLabelRaw(value).replace(/_/g, " ");
+  }
+
+  function commandLabelMatchKey(value) {
+    return commandLabelDisplay(value)
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  }
+
+  function normalizeCommandLabelList(values) {
+    const seen = new Set();
+    const labels = [];
+    (Array.isArray(values) ? values : []).forEach((value) => {
+      const label = normalizeCommandLabelRaw(value);
+      if (!label) {
+        return;
+      }
+      const key = commandLabelMatchKey(label);
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      labels.push(label);
+    });
+    labels.sort((left, right) => commandLabelDisplay(left).localeCompare(commandLabelDisplay(right), "nl", { sensitivity: "base" }));
+    return labels;
+  }
+
+  function resolveCommandLabelValue(rawValue) {
+    const label = normalizeCommandLabelRaw(rawValue);
+    if (!label) {
+      return "";
+    }
+    const key = commandLabelMatchKey(label);
+    if (commandLabelLookup.has(key)) {
+      return commandLabelLookup.get(key);
+    }
+    return label;
+  }
+
+  function collectCommandLabelsFromSteps(steps, target) {
+    if (!Array.isArray(steps) || !(target instanceof Set)) {
+      return;
+    }
+    steps.forEach((step) => {
+      if (!isObject(step)) {
+        return;
+      }
+      if (getStepActionType(step) !== "do" || getActionMode(step) !== "command") {
+        return;
+      }
+      const label = String(step.action && step.action.label ? step.action.label : "").trim();
+      if (label) {
+        target.add(label);
+      }
+    });
+  }
+
+  function collectCommandLabelsFromCatalog(target) {
+    if (!(target instanceof Set)) {
+      return;
+    }
+    catalog.forEach((category) => {
+      if (!isObject(category) || !Array.isArray(category.templates)) {
+        return;
+      }
+      category.templates.forEach((template) => {
+        if (!isObject(template)) {
+          return;
+        }
+        const parsed = parseSnippetForInsert(template.snippet);
+        if (!parsed.ok) {
+          return;
+        }
+        collectCommandLabelsFromSteps(parsed.steps, target);
+      });
+    });
+  }
+
+  function renderCommandLabelSuggestionOptions() {
+    if (!(commandLabelSuggestions instanceof HTMLDataListElement)) {
+      return;
+    }
+    const labels = new Set();
+    if (scriptState && isObject(scriptState.root)) {
+      collectCommandLabelsFromSteps(scriptState.root.steps, labels);
+    }
+    collectCommandLabelsFromSteps(templateDraftSteps, labels);
+    collectCommandLabelsFromCatalog(labels);
+    remoteCommandLabelSuggestions.forEach((label) => {
+      labels.add(label);
+    });
+
+    commandLabelLookup = new Map();
+    const options = normalizeCommandLabelList(Array.from(labels)).map((label) => {
+      const display = commandLabelDisplay(label);
+      commandLabelLookup.set(commandLabelMatchKey(label), label);
+      const option = document.createElement("option");
+      option.value = display;
+      return option;
+    });
+    commandLabelSuggestions.replaceChildren(...options);
+  }
+
+  function commandLabelFetchSourceKey() {
+    if (!scriptState || !isObject(scriptState.root) || !isObject(scriptState.root.robots)) {
+      return "";
+    }
+    const parts = [];
+    Object.keys(scriptState.root.robots)
+      .sort((left, right) => left.localeCompare(right, "nl", { sensitivity: "base" }))
+      .forEach((robotId) => {
+        const robotCfg = scriptState.root.robots[robotId];
+        if (!isObject(robotCfg)) {
+          return;
+        }
+        const dmUrl = String(robotCfg.dm_url || "").trim();
+        if (dmUrl) {
+          parts.push(String(robotId) + ":" + dmUrl);
+        }
+      });
+    return parts.join("|");
+  }
+
+  async function ensureRemoteCommandLabelSuggestions() {
+    const sourceKey = commandLabelFetchSourceKey();
+    if (!sourceKey) {
+      if (remoteCommandLabelSuggestions.length > 0 || remoteCommandLabelFetchKey) {
+        remoteCommandLabelSuggestions = [];
+        remoteCommandLabelFetchKey = "";
+        pendingCommandLabelFetchKey = "";
+        renderCommandLabelSuggestionOptions();
+      }
+      return;
+    }
+    if (sourceKey === remoteCommandLabelFetchKey || sourceKey === pendingCommandLabelFetchKey) {
+      return;
+    }
+    pendingCommandLabelFetchKey = sourceKey;
+    try {
+      const payload = await fetchJson("/api/cmdrec/labels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: scriptState ? scriptState.root : null }),
+      });
+      if (pendingCommandLabelFetchKey !== sourceKey || commandLabelFetchSourceKey() !== sourceKey) {
+        return;
+      }
+      remoteCommandLabelSuggestions = normalizeCommandLabelList(payload.labels);
+      remoteCommandLabelFetchKey = sourceKey;
+    } catch (_err) {
+      if (pendingCommandLabelFetchKey !== sourceKey || commandLabelFetchSourceKey() !== sourceKey) {
+        return;
+      }
+      remoteCommandLabelSuggestions = [];
+      remoteCommandLabelFetchKey = sourceKey;
+    } finally {
+      if (pendingCommandLabelFetchKey === sourceKey) {
+        pendingCommandLabelFetchKey = "";
+      }
+      renderCommandLabelSuggestionOptions();
+    }
+  }
+
+  function ensureCommandLabelSuggestions() {
+    renderCommandLabelSuggestionOptions();
+    void ensureRemoteCommandLabelSuggestions();
   }
 
   function isActiveRunStatus(status) {
@@ -578,6 +773,9 @@ import {
       return { ok: true, value: !!raw, error: "" };
     }
     const text = String(raw || "");
+    if (field === "action.label") {
+      return { ok: true, value: resolveCommandLabelValue(text), error: "" };
+    }
     if (field === "id" || field === "robot_id") {
       return { ok: true, value: text.trim(), error: "" };
     }
@@ -755,7 +953,7 @@ import {
     const parsed = parseAdvancedStepJson(draft);
     if (!parsed.ok) {
       blocksStepErrors.set(index, parsed.error);
-      renderBlocks();
+      renderBlocks({ preserveInspectorScroll: true });
       if (switchToJsonOnError) {
         setViewMode("json");
       }
@@ -764,7 +962,7 @@ import {
     scriptState.root.steps[index] = cloneJson(parsed.value);
     advancedDrafts.set(index, formatJson(parsed.value));
     blocksStepErrors.delete(index);
-    renderBlocks();
+    renderBlocks({ preserveInspectorScroll: true });
     writeEditorFromScriptState(markDirty);
     return true;
   }
@@ -1068,6 +1266,17 @@ import {
     return input;
   }
 
+  function createCommandLabelInput(value, index, field) {
+    const input = createInput("text", commandLabelDisplay(value), index, field);
+    if (commandLabelSuggestions instanceof HTMLDataListElement) {
+      ensureCommandLabelSuggestions();
+      input.setAttribute("list", commandLabelSuggestions.id);
+      input.setAttribute("autocomplete", "off");
+      input.setAttribute("placeholder", "bijv. STAND UP");
+    }
+    return input;
+  }
+
   function createTextarea(value, index, field) {
     const textarea = document.createElement("textarea");
     textarea.setAttribute("data-index", String(index));
@@ -1170,7 +1379,7 @@ import {
         )
       );
       if (actionMode === "command") {
-        grid.appendChild(createField("action.label", createInput("text", step.action && step.action.label, index, "action.label"), false));
+        grid.appendChild(createField("action.label", createCommandLabelInput(step.action && step.action.label, index, "action.label"), false));
       } else if (actionMode === "behavior_start" || actionMode === "behavior_stop") {
         grid.appendChild(createField("action.behavior", createInput("text", step.action && step.action.behavior, index, "action.behavior"), false));
       } else if (actionMode === "dance") {
@@ -1460,10 +1669,14 @@ import {
     return card;
   }
 
-  function renderBlocks() {
+  function renderBlocks(options) {
+    const preserveStepsRailScroll = !(options && options.preserveStepsRailScroll === false);
+    const preserveInspectorScroll = !!(options && options.preserveInspectorScroll);
+    const previousStepsRailScrollTop = preserveStepsRailScroll ? stepsCards.scrollTop : 0;
+    const previousInspectorScrollTop = preserveInspectorScroll ? stepInspector.scrollTop : 0;
     const canRender = blocksSessionActive && scriptState && isObject(scriptState.root);
     syncBlocksConfigOpenState();
-    stepsCards.innerHTML = "";
+    stepsCards.replaceChildren();
     stepInspector.replaceChildren();
     if (!canRender) {
       blocksStepCount.textContent = "0 steps";
@@ -1476,6 +1689,8 @@ import {
       emptyInspector.textContent = "Kies een step om deze hier te bewerken.";
       stepInspector.appendChild(emptyInspector);
       renderBlocksConfigError();
+      restoreScrollPosition(stepsCards, previousStepsRailScrollTop);
+      restoreScrollPosition(stepInspector, previousInspectorScrollTop);
       return;
     }
 
@@ -1502,6 +1717,8 @@ import {
 
     applyRunStepHighlights(runtimeState);
     renderBlocksConfigError();
+    restoreScrollPosition(stepsCards, previousStepsRailScrollTop);
+    restoreScrollPosition(stepInspector, previousInspectorScrollTop);
   }
 
   function renderTemplateCards() {
@@ -1540,7 +1757,7 @@ import {
     advancedDrafts.set(index, formatJson(nextStep));
     blocksStepErrors.delete(index);
     writeEditorFromScriptState(true);
-    renderBlocks();
+    renderBlocks({ preserveInspectorScroll: true });
   }
 
   function maybeWarnWithPrevReorder(from, to) {

@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5301",
+      "instance_id": "alex"
+    }
+  },
+  "ppt": {
+    "enabled": true,
+    "file": "C:/NAOqi_fundamentals/NAO_Controller_WebAPI/py3_script_runner/assets/presentations/20260318 bruisend verkiezingfeestje.pptx",
+    "fullscreen_required": false,
+    "start_capture_on_run": true
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "intro_welcome",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "He! Vergeet mij niet. Ik mag vandaag toch ook meedoen? "
+      }
+    },
+    {
+      "id": "do_command_2",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "STAND_UP"
+      }
+    },
+    {
+      "id": "say_001",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 1
+      },
+      "action": {
+        "type": "say",
+        "text": "Ik ben Alex. Een NAO robot uit het oude Atlantis. Ik vind het heel leuk om hier bij te mogen zijn!"
+      }
+    },
+    {
+      "id": "say_2",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Een NAO robot is een sociale humanoïde robot gemaakt om mensen te helpen. "
+      }
+    },
+    {
+      "id": "say_4",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0.3
+      },
+      "action": {
+        "type": "say",
+        "text": "Ik kan rondlopen, met jullie praten en zelfs een dansje doen. Dat zal ik later vandaag nog wel laten zien. "
+      }
+    },
+    {
+      "id": "say_3",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 0.3
+      },
+      "action": {
+        "type": "say",
+        "text": "Darnaast heb ik sensoren om de wereld om me heen waar te nemen. Zoals camera's, maar ook sensoren voor aanraking zodat ik jullie bijvoorbeeld een box kan geven. Zal ik dat laten zien? "
+      }
+    },
+    {
+      "id": "do_command_001",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 2
+      },
+      "action": {
+        "type": "do",
+        "mode": "command",
+        "label": "BOX"
+      }
+    }
+  ]
+}

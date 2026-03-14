@@ -57,6 +57,16 @@ const TEMPLATE_FIXTURE = {
             },
           ],
         },
+        {
+          template_key: "command_demo",
+          template_label: "command",
+          snippet: {
+            id: "tmpl_command",
+            robot_id: "nao1",
+            start: { mode: "manual" },
+            action: { type: "do", mode: "command", label: "STAND_UP" },
+          },
+        },
       ],
     },
   ],
@@ -116,6 +126,9 @@ async function loadApp(runState) {
         }
       );
     }
+    if (url === "/api/cmdrec/labels") {
+      return makeJsonResponse({ ok: true, labels: ["WAVE", "SIT_DOWN", "STAND\\_UP"] });
+    }
     throw new Error("Unexpected fetch: " + String(url));
   });
 
@@ -151,6 +164,27 @@ describe("studio layout ui", () => {
     expect(document.querySelectorAll('#stepInspector select[data-field="action.mode"]')).toHaveLength(1);
   });
 
+  test("selecting a different step keeps the steps rail scroll position", async () => {
+    const originalReplaceChildren = Element.prototype.replaceChildren;
+    vi.spyOn(Element.prototype, "replaceChildren").mockImplementation(function (...nodes) {
+      const result = originalReplaceChildren.apply(this, nodes);
+      if (this instanceof HTMLElement && this.id === "stepsCards") {
+        this.scrollTop = 0;
+      }
+      return result;
+    });
+
+    await loadApp();
+
+    const stepsCards = document.getElementById("stepsCards");
+    stepsCards.scrollTop = 180;
+
+    document.querySelector('#stepsCards .step-row[data-index="1"]').click();
+    await flushUi();
+
+    expect(stepsCards.scrollTop).toBe(180);
+  });
+
   test("editing in the step inspector updates the editor json and row summary", async () => {
     await loadApp();
 
@@ -163,6 +197,65 @@ describe("studio layout ui", () => {
     expect(document.querySelector('#stepsCards .step-row[data-index="0"] .step-row-summary').textContent).toContain(
       "Nieuwe welkomstzin voor de workshop."
     );
+  });
+
+  test("command label uses a typeable suggestion list in template and step inspectors", async () => {
+    await loadApp();
+
+    const templateSelect = document.getElementById("selTemplate");
+    templateSelect.value = "command_demo";
+    templateSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushUi();
+
+    const templateInput = document.querySelector('#templateInspector input[data-field="action.label"]');
+    expect(templateInput).not.toBeNull();
+    expect(templateInput.getAttribute("list")).toBe("commandLabelSuggestions");
+    expect(templateInput.value).toBe("STAND UP");
+
+    await flushUi();
+
+    const datalistValues = Array.from(document.querySelectorAll("#commandLabelSuggestions option")).map((option) => option.value);
+    expect(datalistValues).toContain("STAND UP");
+    expect(datalistValues).toContain("WAVE");
+    expect(datalistValues).toContain("SIT DOWN");
+    expect(datalistValues.filter((value) => value === "STAND UP")).toHaveLength(1);
+
+    document.getElementById("btnInsertTemplate").click();
+    await flushUi();
+
+    const stepInput = document.querySelector('#stepInspector input[data-field="action.label"]');
+    expect(stepInput).not.toBeNull();
+    expect(stepInput.getAttribute("list")).toBe("commandLabelSuggestions");
+    expect(stepInput.value).toBe("STAND UP");
+
+    stepInput.value = "SIT DOWN";
+    stepInput.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushUi();
+
+    expect(document.getElementById("editorJson").value).toContain('"label": "SIT_DOWN"');
+  });
+
+  test("editing the selected step keeps the inspector scroll position", async () => {
+    const originalReplaceChildren = Element.prototype.replaceChildren;
+    vi.spyOn(Element.prototype, "replaceChildren").mockImplementation(function (...nodes) {
+      const result = originalReplaceChildren.apply(this, nodes);
+      if (this instanceof HTMLElement && this.id === "stepInspector") {
+        this.scrollTop = 0;
+      }
+      return result;
+    });
+
+    await loadApp();
+
+    const stepInspector = document.getElementById("stepInspector");
+    stepInspector.scrollTop = 140;
+
+    const textArea = document.querySelector('#stepInspector textarea[data-field="action.text"]');
+    textArea.value = "Nog een langere gewijzigde tekst.";
+    textArea.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushUi();
+
+    expect(stepInspector.scrollTop).toBe(140);
   });
 
   test("config editor grows to fit its content in blocks mode", async () => {

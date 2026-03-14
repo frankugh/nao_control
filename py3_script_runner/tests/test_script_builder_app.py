@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict
 import time
+from urllib.error import URLError
 
 from py3_script_runner import script_builder_app
 
@@ -296,3 +297,24 @@ def test_start_dialog_managers_skips_targets_that_are_already_occupied(monkeypat
     robot1 = next(item for item in response["results"] if item["robot_id"] == "nao1")
     assert robot1["started"] is False
     assert "Er draait al iets op" in robot1["error"]
+
+
+def test_fetch_cmdrec_labels_uses_local_bundle_fallback_when_dm_is_unavailable(monkeypatch, tmp_path):
+    bundle_dir = tmp_path / "bundle_v999"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "labels.json").write_text('["WAVE", "STAND_UP", "NONE"]', encoding="utf-8")
+
+    monkeypatch.setattr(script_builder_app, "_resolve_cmdrec_bundle_path", lambda cmdrec_value, bundles_dir: bundle_dir)
+
+    def _raise_urlerror(_request, timeout=0):  # noqa: ARG001
+        raise URLError("connection refused")
+
+    monkeypatch.setattr(script_builder_app, "urlopen", _raise_urlerror)
+
+    code, payload = script_builder_app.fetch_cmdrec_labels(_dm_payload())
+
+    assert code == HTTPStatus.OK
+    assert payload["ok"] is True
+    assert payload["labels"] == ["STAND_UP", "WAVE"]
+    assert payload["errors"]
+    assert any("connection refused" in str(item).lower() for item in payload["errors"])

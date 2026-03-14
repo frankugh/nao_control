@@ -32,7 +32,7 @@
     "Alex"
   ],
   "listen_mode": "ptt",
-  "ui_active_tab": "runtime",
+  "ui_active_tab": "commands",
   "ui_color_scheme": "night_blue",
   "locomotion_frequency": 0.2,
   "locomotion_arms_enabled": true,

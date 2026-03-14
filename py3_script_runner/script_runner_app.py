@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -15,7 +16,9 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
+from urllib.request import Request, urlopen
 
 if __package__ in (None, ""):
     _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -252,6 +255,168 @@ def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]
         "started_count": started_count,
         "error_count": error_count,
         "message": message,
+    }
+
+
+def _normalize_cmdrec_labels(raw_labels: Any) -> List[str]:
+    seen = set()
+    labels: List[str] = []
+    if not isinstance(raw_labels, list):
+        return labels
+    for item in raw_labels:
+        label = str(item or "").strip()
+        if not label:
+            continue
+        if label.upper() == "NONE":
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        labels.append(label)
+    labels.sort(key=lambda item: item.casefold())
+    return labels
+
+
+def _candidate_cmdrec_bundle_roots(bundles_dir: str) -> List[Path]:
+    raw = Path(str(bundles_dir or "dist"))
+    if raw.is_absolute():
+        return [raw]
+    return [
+        REPO_ROOT / raw,
+        REPO_ROOT / "py3_command_recognition_train" / raw,
+    ]
+
+
+def _resolve_cmdrec_bundles_dir(bundles_dir: str) -> Path:
+    candidates = _candidate_cmdrec_bundle_roots(bundles_dir)
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate.resolve()
+    return candidates[-1].resolve()
+
+
+def _resolve_cmdrec_bundle_path(cmdrec_value: str, bundles_dir: str) -> Path:
+    bundles_path = _resolve_cmdrec_bundles_dir(bundles_dir)
+    available = [path for path in bundles_path.iterdir()] if bundles_path.exists() else []
+    available_dirs = [path for path in available if path.is_dir()]
+    value = str(cmdrec_value or "latest").strip().lower()
+
+    if value == "latest":
+        versioned = []
+        for path in available_dirs:
+            match = re.match(r"bundle_v(\d+)(?:_(\d{8}))?$", path.name)
+            if not match:
+                continue
+            version = int(match.group(1))
+            date_part = int(match.group(2)) if match.group(2) else 0
+            versioned.append((version, date_part, path))
+        if not versioned:
+            raise ValueError(f"Geen cmdrec bundles gevonden in {bundles_path}.")
+        versioned.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return versioned[0][2].resolve()
+
+    match = re.match(r"^(?:bundle_)?v(\d+)(?:_(\d{8}))?$", value)
+    if match:
+        version = int(match.group(1))
+        date_part = match.group(2)
+        suffix = f"_{date_part}" if date_part else ""
+        candidate = bundles_path / f"bundle_v{version}{suffix}"
+        if candidate.is_dir():
+            return candidate.resolve()
+
+    explicit = Path(cmdrec_value)
+    if explicit.is_dir():
+        return explicit.resolve()
+    if not explicit.is_absolute():
+        for root in [REPO_ROOT, REPO_ROOT / "py3_command_recognition_train", bundles_path]:
+            candidate = (root / explicit).resolve()
+            if candidate.is_dir():
+                return candidate
+
+    raise ValueError(f"Cmdrec bundle niet gevonden voor '{cmdrec_value}' in {bundles_path}.")
+
+
+def _fetch_cmdrec_labels(dm_url: str) -> tuple[List[str], Optional[str]]:
+    base_url = str(dm_url or "").strip().rstrip("/")
+    if not base_url:
+        return [], "dm_url ontbreekt."
+    url = base_url + "/api/cmdrec_labels"
+    request = Request(url, method="GET", headers={"Accept": "application/json"})
+    try:
+        with urlopen(request, timeout=2.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        return [], f"{url} returned HTTP {exc.code}"
+    except URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        return [], f"{url} failed: {reason}"
+    except Exception as exc:
+        return [], f"{url} failed: {exc}"
+    if not isinstance(payload, dict):
+        return [], f"{url} returned ongeldige JSON."
+    if not payload.get("ok"):
+        return [], str(payload.get("error") or f"{url} returned ok=false")
+    return _normalize_cmdrec_labels(payload.get("labels")), None
+
+
+def _load_local_cmdrec_labels(*, cmdrec_value: str = "latest", bundles_dir: str = "dist") -> tuple[List[str], Optional[str]]:
+    try:
+        bundle_path = _resolve_cmdrec_bundle_path(str(cmdrec_value or "latest"), str(bundles_dir or "dist"))
+    except Exception as exc:
+        return [], f"Lokale cmdrec bundle niet gevonden: {exc}"
+    labels_path = Path(bundle_path) / "labels.json"
+    if not labels_path.is_file():
+        return [], f"Lokale labels ontbreken: {labels_path}"
+    try:
+        payload = json.loads(labels_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [], f"Lokale labels lezen mislukt: {exc}"
+    return _normalize_cmdrec_labels(payload), None
+
+
+def fetch_cmdrec_labels(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
+    script_raw = payload.get("script") if isinstance(payload, dict) else None
+    if not isinstance(script_raw, dict):
+        return HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload("Expected JSON body with object field 'script'.")
+    try:
+        script = validate_script(script_raw)
+    except ScriptSchemaError as exc:
+        return HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(f"Schema error: {exc}")
+
+    robots = script.get("robots") or {}
+    dm_urls: List[str] = []
+    seen = set()
+    if isinstance(robots, dict):
+        for robot_cfg in robots.values():
+            if not isinstance(robot_cfg, dict):
+                continue
+            dm_url = str(robot_cfg.get("dm_url") or "").strip()
+            if not dm_url:
+                continue
+            key = dm_url.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            dm_urls.append(dm_url)
+
+    labels: List[str] = []
+    errors: List[str] = []
+    local_labels, local_error = _load_local_cmdrec_labels()
+    labels.extend(local_labels)
+    if local_error:
+        errors.append(local_error)
+    for dm_url in dm_urls:
+        fetched, error = _fetch_cmdrec_labels(dm_url)
+        labels.extend(fetched)
+        if error:
+            errors.append(error)
+
+    return HTTPStatus.OK, {
+        "ok": True,
+        "labels": _normalize_cmdrec_labels(labels),
+        "sources": dm_urls,
+        "errors": errors,
     }
 
 
@@ -511,6 +676,14 @@ class ScriptBuilderHandler(SimpleHTTPRequestHandler):
                 self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
                 return
             status, response = start_dialog_managers(payload)
+            self._send_json(status, response)
+            return
+        if parsed.path == "/api/cmdrec/labels":
+            ok, payload, error = self._read_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            status, response = fetch_cmdrec_labels(payload)
             self._send_json(status, response)
             return
         if parsed.path == "/api/run/start":
