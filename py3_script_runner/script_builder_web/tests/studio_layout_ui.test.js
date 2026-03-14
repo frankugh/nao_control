@@ -165,6 +165,82 @@ describe("studio layout ui", () => {
     );
   });
 
+  test("config editor grows to fit its content in blocks mode", async () => {
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        if (this.id === "blocksConfigJson") {
+          return 420;
+        }
+        return 0;
+      },
+    });
+
+    try {
+      await loadApp();
+
+      document.getElementById("btnTabBlocks").click();
+      await flushUi();
+
+      expect(document.getElementById("blocksConfigJson").style.height).toBe("420px");
+    } finally {
+      if (originalScrollHeight) {
+        Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", originalScrollHeight);
+      } else {
+        delete HTMLTextAreaElement.prototype.scrollHeight;
+      }
+    }
+  });
+
+  test("opening config switches blocks mode into config focus layout", async () => {
+    await loadApp();
+
+    document.getElementById("btnTabBlocks").click();
+    await flushUi();
+
+    const blocksView = document.getElementById("blocksView");
+    const blocksConfigSection = document.getElementById("blocksConfigSection");
+
+    expect(blocksView.classList.contains("is-config-open")).toBe(false);
+
+    blocksConfigSection.open = true;
+    blocksConfigSection.dispatchEvent(new Event("toggle"));
+    await flushUi();
+
+    expect(blocksView.classList.contains("is-config-open")).toBe(true);
+
+    blocksConfigSection.open = false;
+    blocksConfigSection.dispatchEvent(new Event("toggle"));
+    await flushUi();
+
+    expect(blocksView.classList.contains("is-config-open")).toBe(false);
+  });
+
+  test("config summary stays populated when the section is toggled", async () => {
+    await loadApp();
+
+    document.getElementById("btnTabBlocks").click();
+    await flushUi();
+
+    const blocksConfigSection = document.getElementById("blocksConfigSection");
+    const blocksConfigSummary = document.getElementById("blocksConfigSummary");
+    const expectedSummary = blocksConfigSummary.textContent;
+
+    expect(expectedSummary).toContain("1 robot");
+    expect(expectedSummary).toMatch(/PPT (aan|uit)/);
+
+    blocksConfigSection.open = true;
+    blocksConfigSection.dispatchEvent(new Event("toggle"));
+    await flushUi();
+    expect(blocksConfigSummary.textContent).toBe(expectedSummary);
+
+    blocksConfigSection.open = false;
+    blocksConfigSection.dispatchEvent(new Event("toggle"));
+    await flushUi();
+    expect(blocksConfigSummary.textContent).toBe(expectedSummary);
+  });
+
   test("step rows expose move controls directly in the rail", async () => {
     await loadApp();
     vi.spyOn(window, "confirm").mockReturnValue(true);

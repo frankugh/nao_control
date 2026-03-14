@@ -534,6 +534,19 @@ def _clean_locomotion_frequency(raw: Any, *, default: float = _LOCOMOTION_FREQUE
     return float(value)
 
 
+def _clean_nonnegative_int_or_none(raw: Any) -> Optional[int]:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        value = int(float(text))
+    except Exception:
+        return None
+    return max(0, value)
+
+
 def _continuous_capture_timeout_s(
     start_timeout_s: float,
     *,
@@ -1152,6 +1165,9 @@ def create_app(
         cfg_obj["llm_temperature"] = _clean_llm_temperature(cfg_obj.get("llm_temperature"))
         cfg_obj["llm_top_p"] = _clean_llm_top_p(cfg_obj.get("llm_top_p"))
         cfg_obj["llm_top_k"] = _clean_llm_top_k(cfg_obj.get("llm_top_k"))
+        cfg_obj["server_tts_lead_silence_ms"] = _clean_nonnegative_int_or_none(
+            cfg_obj.get("server_tts_lead_silence_ms")
+        )
         cfg_obj["locomotion_frequency"] = _clean_locomotion_frequency(
             cfg_obj.get("locomotion_frequency", _LOCOMOTION_FREQUENCY_DEFAULT),
             default=_LOCOMOTION_FREQUENCY_DEFAULT,

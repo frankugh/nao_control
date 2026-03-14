@@ -65,7 +65,7 @@ class OutputRouterBackend(OutputBackend):
             int(piper_tail_silence_ms) if piper_tail_silence_ms is not None else 500
         )
         self.server_tts_lead_silence_ms = (
-            int(server_tts_lead_silence_ms) if server_tts_lead_silence_ms is not None else 300
+            int(server_tts_lead_silence_ms) if server_tts_lead_silence_ms is not None else 0
         )
         selected_voice = azure_tts_voice if azure_tts_voice is not None else azure_voice
         self.azure_voice = (selected_voice or "").strip() or None

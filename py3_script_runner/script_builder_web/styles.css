@@ -251,6 +251,22 @@ textarea {
   padding-right: 2px;
 }
 
+#blocksView.is-config-open .blocks-studio {
+  display: none;
+}
+
+#blocksView.is-config-open .config-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#blocksView.is-config-open .config-section-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
 .json-shell {
   flex: 1 1 auto;
   min-height: 0;
@@ -275,11 +291,18 @@ textarea {
   list-style: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   padding: 10px 12px;
   cursor: pointer;
   background: linear-gradient(180deg, rgba(245, 250, 255, 0.95) 0%, rgba(234, 242, 251, 0.95) 100%);
+}
+
+.summary-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
 .config-section summary::-webkit-details-marker {
@@ -289,12 +312,16 @@ textarea {
 .summary-title {
   font-size: 13px;
   font-weight: 700;
+  flex: 0 0 auto;
 }
 
 .summary-meta {
-  margin-top: 2px;
   font-size: 12px;
   color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .config-section-body {
@@ -302,8 +329,9 @@ textarea {
 }
 
 #blocksConfigJson {
-  min-height: 180px;
-  max-height: min(34vh, 280px);
+  min-height: 260px;
+  max-height: none;
+  overflow-y: hidden;
 }
 
 .blocks-config-actions {

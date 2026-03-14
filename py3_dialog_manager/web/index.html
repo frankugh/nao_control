@@ -1226,6 +1226,17 @@
                 </select>
                 <div class="small" style="margin-top:6px">Azure gebruikt AZURE_SPEECH_KEY + AZURE_SPEECH_REGION.</div>
               </div>
+              <details id="cfgOutputAdvancedSection" class="collapsible">
+                <summary>Output advanced instellingen</summary>
+                <div class="row" style="margin-top:6px">
+                  <label>Lead silence (ms)
+                    <input id="cfgServerTtsLeadSilence" type="number" min="0" step="50" placeholder="0" title="Extra stilte voor server-TTS playback. Handig als Bluetooth speakers het eerste woord afkappen. 0 = uit." />
+                  </label>
+                </div>
+                <div id="cfgOutputAdvancedNote" class="small" style="margin-top:6px">
+                  Alleen relevant voor <code>Server speakers</code>. Richtwaarde bij Bluetooth clipping: 700-750 ms.
+                </div>
+              </details>
               <details id="cfgAzureTtsSection" style="display:none">
                 <summary>Azure instellingen (geavanceerd)</summary>
                 <div class="row" style="margin-top:6px">
@@ -1512,6 +1523,9 @@
       const cfgOutputDevice = document.getElementById('cfgOutputDevice');
       const cfgOutputDeviceName = document.getElementById('cfgOutputDeviceName');
       const cfgTtsEngine = document.getElementById('cfgTtsEngine');
+      const cfgOutputAdvancedSection = document.getElementById('cfgOutputAdvancedSection');
+      const cfgServerTtsLeadSilence = document.getElementById('cfgServerTtsLeadSilence');
+      const cfgOutputAdvancedNote = document.getElementById('cfgOutputAdvancedNote');
       const cfgAzureTtsSection = document.getElementById('cfgAzureTtsSection');
       const cfgAzureVoice = document.getElementById('cfgAzureVoice');
       const cfgAzureRate = document.getElementById('cfgAzureRate');
@@ -1677,6 +1691,7 @@
         'output_device',
         'tts_engine',
         'piper_model_path',
+        'server_tts_lead_silence_ms',
         'piper_length_scale',
         'piper_noise_scale',
         'piper_noise_w_scale',
@@ -1720,6 +1735,7 @@
           'output_device',
           'tts_engine',
           'piper_model_path',
+          'server_tts_lead_silence_ms',
           'piper_length_scale',
           'piper_noise_scale',
           'piper_noise_w_scale',
@@ -5318,6 +5334,7 @@
           const azureRate = readFloatOrNull(cfgAzureRate ? cfgAzureRate.value : '');
           const azurePitch = readFloatOrNull(cfgAzurePitch ? cfgAzurePitch.value : '');
           const azureVolume = readFloatOrNull(cfgAzureVolume ? cfgAzureVolume.value : '');
+          const serverTtsLeadSilence = readIntOrNull(cfgServerTtsLeadSilence ? cfgServerTtsLeadSilence.value : '');
           const piperLengthScale = readFloatOrNull(cfgPiperLength ? cfgPiperLength.value : '');
           const piperNoiseScale = readFloatOrNull(cfgPiperNoise ? cfgPiperNoise.value : '');
           const piperNoiseWScale = readFloatOrNull(cfgPiperNoiseW ? cfgPiperNoiseW.value : '');
@@ -5361,6 +5378,7 @@
             output_device: outputDevice,
             tts_engine: (cfgTtsEngine && cfgTtsEngine.value) || 'nao_native',
             piper_model_path: piperModelPath,
+            server_tts_lead_silence_ms: serverTtsLeadSilence,
             piper_length_scale: piperLengthScale,
             piper_noise_scale: piperNoiseScale,
             piper_noise_w_scale: piperNoiseWScale,
@@ -5519,6 +5537,9 @@
           const desiredEngine = (cfg.tts_engine || '').toLowerCase() || (outputTarget === 'server' ? 'piper' : 'nao_native');
           const hasOption = [...cfgTtsEngine.options].some(o => o.value === desiredEngine);
           cfgTtsEngine.value = hasOption ? desiredEngine : (outputTarget === 'server' ? 'piper' : 'nao_native');
+        }
+        if (cfgServerTtsLeadSilence) {
+          cfgServerTtsLeadSilence.value = (cfg.server_tts_lead_silence_ms != null) ? String(cfg.server_tts_lead_silence_ms) : '0';
         }
         if (cfgAzureVoice) {
           lastAzureVoiceValue = cfg.azure_tts_voice || '';
@@ -5819,6 +5840,13 @@
         if (outputDeviceSection) outputDeviceSection.style.display = target === 'server' ? '' : 'none';
         if (cfgOutputDevice) cfgOutputDevice.disabled = target !== 'server';
         if (cfgTtsEngine) cfgTtsEngine.disabled = target === 'none';
+        if (cfgOutputAdvancedSection) cfgOutputAdvancedSection.style.display = target === 'server' ? '' : 'none';
+        if (cfgServerTtsLeadSilence) cfgServerTtsLeadSilence.disabled = target !== 'server';
+        if (cfgOutputAdvancedNote) {
+          cfgOutputAdvancedNote.textContent = target === 'server'
+            ? 'Alleen relevant voor Server speakers. Richtwaarde bij Bluetooth clipping: 700-750 ms.'
+            : 'Niet van toepassing voor NAO speakers of audio uit.';
+        }
         if (cfgNaoAudioSection) cfgNaoAudioSection.style.display = target === 'nao' ? '' : 'none';
         if (target !== 'nao') {
           setNaoAudioEnabled(false, 'Alleen relevant bij NAO output.');
@@ -7386,6 +7414,9 @@
           el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
         }
       });
+      if (cfgServerTtsLeadSilence) {
+        cfgServerTtsLeadSilence.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
+      }
       [cfgPiperLength, cfgPiperNoise, cfgPiperNoiseW, cfgPiperSentenceSilence, cfgPiperVolume].forEach((el) => {
         if (el) {
           el.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
@@ -7726,6 +7757,7 @@
       addApplyButtonForInput(cfgAzureRate, { id: 'btnApplyAzureRate', label: 'Azure TTS toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgAzurePitch, { id: 'btnApplyAzurePitch', label: 'Azure TTS toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgAzureVolume, { id: 'btnApplyAzureVolume', label: 'Azure TTS toepassen', onApply: applyConfigNow });
+      addApplyButtonForInput(cfgServerTtsLeadSilence, { id: 'btnApplyServerTtsLeadSilence', label: 'Output advanced toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgPiperLength, { id: 'btnApplyPiperLength', label: 'Piper toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgPiperNoise, { id: 'btnApplyPiperNoise', label: 'Piper toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgPiperNoiseW, { id: 'btnApplyPiperNoiseW', label: 'Piper toepassen', onApply: applyConfigNow });

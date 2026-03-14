@@ -109,7 +109,7 @@ def test_runtime_config_defaults_read_output_router_params(monkeypatch):
     cfg = {
         "output": {
             "type": "output_router",
-            "params": {"target": "nao", "tts_engine": "piper"},
+            "params": {"target": "nao", "tts_engine": "piper", "server_tts_lead_silence_ms": 250},
         }
     }
     app = _make_app(monkeypatch, cfg=cfg)
@@ -122,6 +122,7 @@ def test_runtime_config_defaults_read_output_router_params(monkeypatch):
     runtime = data["config"]
     assert runtime["output_target"] == "nao"
     assert runtime["tts_engine"] == "piper"
+    assert runtime["server_tts_lead_silence_ms"] == 250
 
 
 def test_runtime_config_robot_name_defaults_and_cleaning(monkeypatch):

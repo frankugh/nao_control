@@ -170,6 +170,20 @@ import {
     btnTabBlocks.classList.toggle("is-active", isBlocks);
     jsonView.classList.toggle("is-hidden", isBlocks);
     blocksView.classList.toggle("is-hidden", !isBlocks);
+    syncBlocksConfigOpenState();
+  }
+
+  function syncBlocksConfigOpenState() {
+    blocksView.classList.toggle("is-config-open", viewMode === "blocks" && !!blocksConfigSection.open);
+  }
+
+  function resizeBlocksConfigEditor() {
+    if (!(blocksConfigJson instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    blocksConfigJson.style.height = "auto";
+    const nextHeight = Math.max(260, blocksConfigJson.scrollHeight || 0);
+    blocksConfigJson.style.height = String(nextHeight) + "px";
   }
 
   function isActiveRunStatus(status) {
@@ -1448,6 +1462,7 @@ import {
 
   function renderBlocks() {
     const canRender = blocksSessionActive && scriptState && isObject(scriptState.root);
+    syncBlocksConfigOpenState();
     stepsCards.innerHTML = "";
     stepInspector.replaceChildren();
     if (!canRender) {
@@ -1455,6 +1470,7 @@ import {
       blocksConfigSummary.textContent = "Geen configuratie geladen.";
       blocksEmpty.classList.remove("is-hidden");
       blocksConfigJson.value = "{}";
+      resizeBlocksConfigEditor();
       const emptyInspector = document.createElement("div");
       emptyInspector.className = "step-inspector-empty";
       emptyInspector.textContent = "Kies een step om deze hier te bewerken.";
@@ -1465,6 +1481,7 @@ import {
 
     ensureSelectedStepIndex();
     blocksConfigJson.value = blocksConfigDraft;
+    resizeBlocksConfigEditor();
     blocksConfigSummary.textContent = summarizeConfig(scriptState.root);
 
     const steps = Array.isArray(scriptState.root.steps) ? scriptState.root.steps : [];
@@ -2216,7 +2233,17 @@ import {
 
   blocksConfigJson.addEventListener("input", function () {
     blocksConfigDraft = blocksConfigJson.value;
+    resizeBlocksConfigEditor();
     validateConfigDraft();
+  });
+
+  blocksConfigSection.addEventListener("toggle", function () {
+    syncBlocksConfigOpenState();
+    if (!blocksConfigSection.open) {
+      return;
+    }
+    resizeBlocksConfigEditor();
+    blocksView.scrollTop = 0;
   });
 
   btnApplyConfig.addEventListener("click", function () {
