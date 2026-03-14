@@ -762,6 +762,11 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "output_device": output_cfg.get("device", None) if output_cfg.get("device", None) is not None else output_params.get("output_device"),
         "tts_engine": tts_engine,
         "piper_model_path": output_cfg.get("piper_model_path") or output_params.get("piper_model_path"),
+        "server_tts_lead_silence_ms": (
+            output_cfg.get("server_tts_lead_silence_ms")
+            if output_cfg.get("server_tts_lead_silence_ms") is not None
+            else output_params.get("server_tts_lead_silence_ms")
+        ),
         "azure_tts_voice": output_cfg.get("azure_tts_voice") or output_params.get("azure_tts_voice"),
         "azure_tts_rate": output_cfg.get("azure_tts_rate") or output_params.get("azure_tts_rate"),
         "azure_tts_pitch": output_cfg.get("azure_tts_pitch") or output_params.get("azure_tts_pitch"),
@@ -942,6 +947,7 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     piper_noise_w_scale = runtime_cfg.get("piper_noise_w_scale")
     piper_sentence_silence = runtime_cfg.get("piper_sentence_silence")
     piper_volume = runtime_cfg.get("piper_volume")
+    server_tts_lead_silence_ms = runtime_cfg.get("server_tts_lead_silence_ms")
     azure_tts_voice = runtime_cfg.get("azure_tts_voice")
     azure_tts_rate = runtime_cfg.get("azure_tts_rate")
     azure_tts_pitch = runtime_cfg.get("azure_tts_pitch")
@@ -964,6 +970,7 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
                     "piper_noise_w_scale": piper_noise_w_scale,
                     "piper_sentence_silence": piper_sentence_silence,
                     "piper_volume": piper_volume,
+                    "server_tts_lead_silence_ms": server_tts_lead_silence_ms,
                     "azure_tts_voice": azure_tts_voice,
                     "azure_tts_rate": azure_tts_rate,
                     "azure_tts_pitch": azure_tts_pitch,

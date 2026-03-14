@@ -8,7 +8,8 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
+      <div class="topbar-title">
+        <div class="eyebrow">py3_script_runner</div>
         <h1>Script Builder</h1>
         <p class="subtitle">Standalone editor voor py3_script_runner scripts.</p>
       </div>
@@ -20,47 +21,78 @@
 
     <main class="layout">
       <section class="editor-panel">
-        <div class="toolbar">
-          <button id="btnNew" type="button">Nieuw</button>
-          <button id="btnLoad" type="button">Laad</button>
-          <button id="btnSave" type="button">Opslaan</button>
-          <button id="btnSaveAs" type="button">Opslaan als</button>
-        </div>
+        <div class="toolbar-shell">
+          <div class="toolbar">
+            <button id="btnNew" type="button">Nieuw</button>
+            <button id="btnLoad" type="button">Laad</button>
+            <button id="btnSave" type="button">Opslaan</button>
+            <button id="btnSaveAs" type="button">Opslaan als</button>
+          </div>
 
-        <div class="quick-open">
-          <span>Quick open:</span>
-          <button class="btnQuickOpen" type="button" data-example="example_workshop.json">example_workshop.json</button>
-          <button class="btnQuickOpen" type="button" data-example="example_workshop_ppt.json">example_workshop_ppt.json</button>
-          <button class="btnQuickOpen" type="button" data-example="example_workshop_summary.json">example_workshop_summary.json</button>
-        </div>
+          <div class="quick-open">
+            <span>Quick open:</span>
+            <button class="btnQuickOpen" type="button" data-example="example_workshop.json">example_workshop.json</button>
+            <button class="btnQuickOpen" type="button" data-example="example_workshop_ppt.json">example_workshop_ppt.json</button>
+            <button class="btnQuickOpen" type="button" data-example="example_workshop_summary.json">example_workshop_summary.json</button>
+          </div>
 
-        <div class="view-tabs" role="tablist" aria-label="Editor view">
-          <button id="btnTabJson" class="tab-btn is-active" type="button">JSON</button>
-          <button id="btnTabBlocks" class="tab-btn" type="button">Blocks</button>
+          <div class="view-tabs" role="tablist" aria-label="Editor view">
+            <button id="btnTabJson" class="tab-btn is-active" type="button">JSON</button>
+            <button id="btnTabBlocks" class="tab-btn" type="button">Blocks</button>
+          </div>
         </div>
 
         <div id="jsonView" class="editor-view">
-          <label for="editorJson" class="label">Script JSON</label>
-          <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+          <div class="json-shell">
+            <label for="editorJson" class="label">Script JSON</label>
+            <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+          </div>
         </div>
 
         <div id="blocksView" class="editor-view is-hidden">
-          <label for="blocksConfigJson" class="label">Config JSON (robots / ppt / defaults)</label>
-          <textarea id="blocksConfigJson" spellcheck="false" autocomplete="off"></textarea>
-          <div class="row-actions blocks-config-actions">
-            <button id="btnApplyConfig" type="button">Apply config</button>
-          </div>
-          <div id="blocksConfigError" class="inline-error is-hidden"></div>
+          <details id="blocksConfigSection" class="config-section">
+            <summary>
+              <div>
+                <div class="summary-title">Config</div>
+                <div id="blocksConfigSummary" class="summary-meta">Geen configuratie geladen.</div>
+              </div>
+            </summary>
+            <div class="config-section-body">
+              <label for="blocksConfigJson" class="label">Config JSON (robots / ppt / defaults)</label>
+              <textarea id="blocksConfigJson" spellcheck="false" autocomplete="off"></textarea>
+              <div class="row-actions blocks-config-actions">
+                <button id="btnApplyConfig" type="button">Apply config</button>
+              </div>
+              <div id="blocksConfigError" class="inline-error is-hidden"></div>
+            </div>
+          </details>
 
-          <label class="label">Steps (cards)</label>
-          <div id="stepsCards" class="steps-cards"></div>
-          <div id="blocksEmpty" class="blocks-empty is-hidden">Geen steps aanwezig. Voeg een template toe.</div>
+          <div class="blocks-studio">
+            <section class="studio-card steps-panel">
+              <div class="section-head">
+                <div>
+                  <div class="eyebrow">Script flow</div>
+                  <h2>Steps</h2>
+                </div>
+                <div id="blocksStepCount" class="section-count">0 steps</div>
+              </div>
+              <div id="stepsCards" class="steps-rail" role="listbox" aria-label="Script steps"></div>
+              <div id="blocksEmpty" class="blocks-empty is-hidden">Geen steps aanwezig. Voeg een template toe.</div>
+            </section>
+
+            <section id="stepInspector" class="studio-card step-inspector" aria-label="Geselecteerde step"></section>
+          </div>
         </div>
       </section>
 
       <aside class="builder-panel">
-        <div class="builder-main">
-          <h2>Add blok</h2>
+        <section class="builder-main utility-card">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Tooling</div>
+              <h2>Add blok</h2>
+            </div>
+          </div>
 
           <label for="selCategory" class="label">Categorie</label>
           <select id="selCategory"></select>
@@ -68,18 +100,27 @@
           <label for="selTemplate" class="label">Template</label>
           <select id="selTemplate"></select>
 
-          <label class="label">Template blocks (bewerkbaar)</label>
-          <div id="templateCards" class="template-cards"></div>
-          <div id="templateCardsEmpty" class="blocks-empty is-hidden">Geen template steps beschikbaar.</div>
+          <div class="section-subhead">
+            <div class="label">Template blocks (bewerkbaar)</div>
+            <div id="templateStepCount" class="section-count">0 blokken</div>
+          </div>
+          <div class="template-studio">
+            <section id="templateInspector" class="template-inspector" aria-label="Template blocks editor"></section>
+          </div>
 
           <div class="row-actions">
             <button id="btnCopyTemplate" type="button">Kopieer template</button>
             <button id="btnInsertTemplate" type="button">Voeg toe aan steps</button>
           </div>
-        </div>
+        </section>
 
-        <section class="runtime-panel">
-          <h2>Run</h2>
+        <section class="runtime-panel utility-card">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Runtime</div>
+              <h2>Run</h2>
+            </div>
+          </div>
           <div class="row-actions runtime-actions">
             <button id="btnDmStart" type="button">Start DM's</button>
             <button id="btnRunStart" type="button">Start</button>
@@ -87,13 +128,25 @@
             <button id="btnRunAbort" type="button" disabled>Abort</button>
           </div>
           <div id="dmStartResults" class="dm-start-results is-hidden"></div>
-          <div class="runtime-meta">
-            <div>Status: <span id="runStatus">idle</span></div>
-            <div>Progress: <span id="runProgress">0 / 0</span></div>
-            <div>Stap: <span id="runStep">-</span></div>
+          <div class="runtime-meta-grid">
+            <div class="runtime-stat">
+              <span class="runtime-label">Status</span>
+              <strong id="runStatus">idle</strong>
+            </div>
+            <div class="runtime-stat">
+              <span class="runtime-label">Progress</span>
+              <strong id="runProgress">0 / 0</strong>
+            </div>
+            <div class="runtime-stat runtime-stat-wide">
+              <span class="runtime-label">Stap</span>
+              <strong id="runStep">-</strong>
+            </div>
           </div>
-          <label for="runLog" class="label">Run log (tail)</label>
-          <textarea id="runLog" spellcheck="false" autocomplete="off" readonly></textarea>
+          <details id="runLogDetails" class="run-log-details">
+            <summary>Run log</summary>
+            <label for="runLog" class="label">Run log (tail)</label>
+            <textarea id="runLog" spellcheck="false" autocomplete="off" readonly></textarea>
+          </details>
         </section>
       </aside>
     </main>

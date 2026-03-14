@@ -42,6 +42,7 @@ class OutputRouterBackend(OutputBackend):
         piper_sentence_silence: Optional[float] = None,
         piper_volume: Optional[float] = None,
         piper_tail_silence_ms: Optional[int] = None,
+        server_tts_lead_silence_ms: Optional[int] = None,
         azure_tts_voice: Optional[str] = None,
         azure_voice: Optional[str] = None,
         azure_tts_rate: Optional[float] = None,
@@ -62,6 +63,9 @@ class OutputRouterBackend(OutputBackend):
         self.piper_volume = None if piper_volume is None else float(piper_volume)
         self.piper_tail_silence_ms = (
             int(piper_tail_silence_ms) if piper_tail_silence_ms is not None else 500
+        )
+        self.server_tts_lead_silence_ms = (
+            int(server_tts_lead_silence_ms) if server_tts_lead_silence_ms is not None else 300
         )
         selected_voice = azure_tts_voice if azure_tts_voice is not None else azure_voice
         self.azure_voice = (selected_voice or "").strip() or None
@@ -114,6 +118,30 @@ class OutputRouterBackend(OutputBackend):
             wf_out.setparams(params)
             wf_out.writeframes(frames + pad_bytes)
         return out.getvalue()
+
+    def _prepend_wav_silence(self, wav_bytes: bytes, *, ms: int) -> bytes:
+        if ms <= 0:
+            return wav_bytes
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+            params = wf.getparams()
+            frames = wf.readframes(wf.getnframes())
+        sample_rate = params.framerate
+        num_channels = params.nchannels
+        sample_width = params.sampwidth
+        pad_frames = int(sample_rate * (ms / 1000.0))
+        pad_bytes = b"\x00" * (pad_frames * num_channels * sample_width)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wf_out:
+            wf_out.setparams(params)
+            wf_out.writeframes(pad_bytes + frames)
+        return out.getvalue()
+
+    def _prepare_server_wav_bytes(self, wav_bytes: bytes) -> bytes:
+        if self.target != "server":
+            return wav_bytes
+        if self.server_tts_lead_silence_ms <= 0:
+            return wav_bytes
+        return self._prepend_wav_silence(wav_bytes, ms=self.server_tts_lead_silence_ms)
 
     def _ensure_terminal_punct(self, text: str) -> str:
         trimmed = text.rstrip()
@@ -314,7 +342,7 @@ class OutputRouterBackend(OutputBackend):
             if not wav_bytes:
                 return
             if self.target == "server":
-                return self._play_wav_bytes(wav_bytes)
+                return self._play_wav_bytes(self._prepare_server_wav_bytes(wav_bytes))
             if self.target == "nao":
                 stream_result = self._try_stream_to_nao(wav_bytes)
                 if stream_result == "ok":
@@ -328,7 +356,7 @@ class OutputRouterBackend(OutputBackend):
             if not wav_bytes:
                 return
             if self.target == "server":
-                return self._play_wav_bytes(wav_bytes)
+                return self._play_wav_bytes(self._prepare_server_wav_bytes(wav_bytes))
             if self.target == "nao":
                 stream_result = self._try_stream_to_nao(wav_bytes)
                 if stream_result == "ok":

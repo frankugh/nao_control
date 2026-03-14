@@ -30,8 +30,6 @@ import {
   const CONFIG_KEYS = ["robots", "ppt", "defaults"];
 
   const editorJson = document.getElementById("editorJson");
-  const templateCards = document.getElementById("templateCards");
-  const templateCardsEmpty = document.getElementById("templateCardsEmpty");
   const selCategory = document.getElementById("selCategory");
   const selTemplate = document.getElementById("selTemplate");
   const btnNew = document.getElementById("btnNew");
@@ -48,10 +46,14 @@ import {
   const btnTabBlocks = document.getElementById("btnTabBlocks");
   const jsonView = document.getElementById("jsonView");
   const blocksView = document.getElementById("blocksView");
+  const blocksConfigSection = document.getElementById("blocksConfigSection");
+  const blocksConfigSummary = document.getElementById("blocksConfigSummary");
   const blocksConfigJson = document.getElementById("blocksConfigJson");
   const btnApplyConfig = document.getElementById("btnApplyConfig");
   const blocksConfigError = document.getElementById("blocksConfigError");
   const stepsCards = document.getElementById("stepsCards");
+  const blocksStepCount = document.getElementById("blocksStepCount");
+  const stepInspector = document.getElementById("stepInspector");
   const blocksEmpty = document.getElementById("blocksEmpty");
   const fileLabel = document.getElementById("fileLabel");
   const saveState = document.getElementById("saveState");
@@ -59,8 +61,11 @@ import {
   const runStatus = document.getElementById("runStatus");
   const runProgress = document.getElementById("runProgress");
   const runStep = document.getElementById("runStep");
+  const runLogDetails = document.getElementById("runLogDetails");
   const runLog = document.getElementById("runLog");
   const dmStartResults = document.getElementById("dmStartResults");
+  const templateInspector = document.getElementById("templateInspector");
+  const templateStepCount = document.getElementById("templateStepCount");
   const quickOpenButtons = Array.from(document.querySelectorAll(".btnQuickOpen"));
 
   let templatesData = null;
@@ -84,6 +89,7 @@ import {
   let runPollFailures = 0;
   let pollPausedByNetworkError = false;
   let dmStartResultState = [];
+  let lastRunLogAutoOpenSignal = "";
 
   let viewMode = "json";
   let blocksSessionActive = false;
@@ -285,17 +291,17 @@ import {
     }
     const currentIndex = _resolveRunCurrentIndex(state);
     const nextIndex = _resolveRunNextIndex(state, currentIndex);
-    const cards = stepsCards.querySelectorAll(".step-card");
-    cards.forEach((card) => {
-      const index = Number(card.getAttribute("data-index"));
+    const rows = stepsCards.querySelectorAll(".step-row");
+    rows.forEach((row) => {
+      const index = Number(row.getAttribute("data-index"));
       const isCurrent = Number.isInteger(index) && currentIndex !== null && index === currentIndex;
       const isNext =
         Number.isInteger(index) &&
         nextIndex !== null &&
         index === nextIndex &&
         !(currentIndex !== null && index === currentIndex);
-      card.classList.toggle("is-run-current", isCurrent);
-      card.classList.toggle("is-run-next", isNext);
+      row.classList.toggle("is-run-current", isCurrent);
+      row.classList.toggle("is-run-next", isNext);
     });
     autoFollowRunStep(state, currentIndex, nextIndex);
   }
@@ -319,13 +325,13 @@ import {
       return;
     }
     lastAutoFollowKey = key;
-    const card = stepsCards.querySelector('.step-card[data-index="' + String(targetIndex) + '"]');
-    if (!(card instanceof HTMLElement)) {
+    const row = stepsCards.querySelector('.step-row[data-index="' + String(targetIndex) + '"]');
+    if (!(row instanceof HTMLElement)) {
       return;
     }
     const containerRect = stepsCards.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const rawTop = stepsCards.scrollTop + (cardRect.top - containerRect.top) - 4;
+    const rowRect = row.getBoundingClientRect();
+    const rawTop = stepsCards.scrollTop + (rowRect.top - containerRect.top) - 6;
     const maxScrollTop = Math.max(0, stepsCards.scrollHeight - stepsCards.clientHeight);
     const desiredTop = Math.min(maxScrollTop, Math.max(0, rawTop));
     stepsCards.scrollTop = desiredTop;
@@ -349,6 +355,35 @@ import {
     runLog.scrollTop = Math.min(maxScrollTop, prevTop);
   }
 
+  function buildRunLogAutoOpenSignal(state, logLines, runError) {
+    const status = state && state.status ? String(state.status) : "idle";
+    const hasAutoOpenReason = status === "failed" || (isActiveRunStatus(status) && !!runError);
+    if (!hasAutoOpenReason) {
+      return "";
+    }
+    const runId = state && state.run_id ? String(state.run_id) : "";
+    const stepLabel = state && state.current_step_id ? String(state.current_step_id) : "";
+    const completed = state && typeof state.completed_steps === "number" ? state.completed_steps : 0;
+    const total = state && typeof state.total_steps === "number" ? state.total_steps : 0;
+    return [status, runId, stepLabel, String(completed), String(total), String(runError || ""), String(logLines.length)].join("|");
+  }
+
+  function maybeAutoOpenRunLog(state, logLines, runError) {
+    if (!(runLogDetails instanceof HTMLDetailsElement)) {
+      return;
+    }
+    const nextSignal = buildRunLogAutoOpenSignal(state, logLines, runError);
+    if (!nextSignal) {
+      lastRunLogAutoOpenSignal = "";
+      return;
+    }
+    if (nextSignal === lastRunLogAutoOpenSignal) {
+      return;
+    }
+    lastRunLogAutoOpenSignal = nextSignal;
+    runLogDetails.open = true;
+  }
+
   function renderRuntimeState(state) {
     runtimeState = state || null;
     const status = state && state.status ? String(state.status) : "idle";
@@ -356,10 +391,12 @@ import {
     const total = state && typeof state.total_steps === "number" ? state.total_steps : 0;
     const stepLabel = state && state.current_step_id ? String(state.current_step_id) : "-";
     const logLines = state && Array.isArray(state.log_tail) ? state.log_tail : [];
+    const runError = state && typeof state.last_error === "string" ? String(state.last_error).trim() : "";
     runStatus.textContent = status;
     runProgress.textContent = String(completed) + " / " + String(total);
     runStep.textContent = stepLabel;
     updateRunLogTail(logLines);
+    maybeAutoOpenRunLog(state, logLines, runError);
     setRuntimeButtons(state);
     applyRunStepHighlights(runtimeState);
   }
@@ -641,7 +678,7 @@ import {
       return;
     }
     blocksConfigDraft = blocksConfigJson.value;
-    const advancedFields = Array.from(stepsCards.querySelectorAll(".step-advanced"));
+    const advancedFields = Array.from(stepInspector.querySelectorAll(".step-advanced"));
     for (const field of advancedFields) {
       const index = Number(field.getAttribute("data-index"));
       if (!Number.isInteger(index) || index < 0) {
@@ -798,6 +835,97 @@ import {
       return "";
     }
     return String(step.action.mode || "").trim().toLowerCase();
+  }
+
+  function formatInlineText(value, maxLength) {
+    const normalized = String(value || "").replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return "-";
+    }
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd() + "...";
+  }
+
+  function summarizeDoAction(step) {
+    const mode = getActionMode(step);
+    const action = isObject(step.action) ? step.action : {};
+    if (!mode) {
+      return "do";
+    }
+    if (mode === "command") {
+      return "command: " + formatInlineText(action.label, 54);
+    }
+    if (mode === "behavior_start" || mode === "behavior_stop") {
+      return mode + ": " + formatInlineText(action.behavior, 54);
+    }
+    if (mode === "dance") {
+      return "dance: " + formatInlineText(action.dance_key, 54);
+    }
+    if (mode === "nao_set_eye_color") {
+      const color = formatInlineText(action.color, 20);
+      const duration = typeof action.duration === "undefined" ? "" : " / " + String(action.duration) + "s";
+      return "eye color: " + color + duration;
+    }
+    if (mode === "summary_capture_stop_and_draft") {
+      return "summary: stop capture + draft";
+    }
+    if (mode === "summary_capture_start") {
+      return "summary: start capture";
+    }
+    return mode.replace(/_/g, " ");
+  }
+
+  function summarizeStep(step) {
+    const actionType = getStepActionType(step);
+    const action = isObject(step.action) ? step.action : {};
+    if (actionType === "say") {
+      return formatInlineText(action.text, 76);
+    }
+    if (actionType === "ppt") {
+      const mode = getActionMode(step);
+      if (mode === "goto") {
+        const slide = typeof action.slide === "undefined" ? "?" : String(action.slide);
+        const clickValue =
+          typeof action.click !== "undefined"
+            ? " / click " + String(action.click)
+            : typeof action.build !== "undefined"
+              ? " / click " + String(action.build)
+              : "";
+        return "goto slide " + slide + clickValue;
+      }
+      return mode ? mode.replace(/_/g, " ") : "ppt";
+    }
+    if (actionType === "pause") {
+      return "pause " + String(typeof action.seconds === "undefined" ? 0 : action.seconds) + "s";
+    }
+    if (actionType === "do") {
+      return summarizeDoAction(step);
+    }
+    return actionType || "onbekende stap";
+  }
+
+  function summarizeConfig(root) {
+    const robots = isObject(root) && isObject(root.robots) ? Object.keys(root.robots) : [];
+    const pptEnabled = !!(isObject(root) && isObject(root.ppt) && root.ppt.enabled);
+    const defaults = isObject(root) && isObject(root.defaults) ? root.defaults : {};
+    const parts = [String(robots.length) + " robot" + (robots.length === 1 ? "" : "s"), pptEnabled ? "PPT aan" : "PPT uit"];
+    if (typeof defaults.request_timeout_s !== "undefined") {
+      parts.push("timeout " + String(defaults.request_timeout_s) + "s");
+    }
+    return parts.join(" | ");
+  }
+
+  function ensureSelectedStepIndex() {
+    const steps = scriptState && isObject(scriptState.root) && Array.isArray(scriptState.root.steps) ? scriptState.root.steps : [];
+    if (steps.length === 0) {
+      selectedStepIndex = null;
+      return;
+    }
+    if (!Number.isInteger(selectedStepIndex) || selectedStepIndex < 0 || selectedStepIndex >= steps.length) {
+      selectedStepIndex = 0;
+    }
   }
 
   function collectUsedStepIds(steps) {
@@ -1096,21 +1224,38 @@ import {
     return advancedWrap;
   }
 
-  function createStepCard(step, index) {
-    const card = document.createElement("article");
-    card.className = "step-card";
-    card.setAttribute("data-index", String(index));
+  function createStepRowActions(index, totalSteps) {
+    const actions = document.createElement("div");
+    actions.className = "step-row-actions";
+    [
+      { id: "move-up", label: "Up", disabled: index === 0 },
+      { id: "move-down", label: "Down", disabled: index >= totalSteps - 1 },
+    ].forEach((cfg) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "step-row-action-btn";
+      btn.textContent = cfg.label;
+      btn.setAttribute("data-step-action", cfg.id);
+      btn.setAttribute("data-index", String(index));
+      btn.disabled = cfg.disabled;
+      actions.appendChild(btn);
+    });
+    return actions;
+  }
+
+  function createStepRow(step, index, totalSteps) {
+    const row = document.createElement("article");
+    row.className = "step-row";
+    row.setAttribute("data-index", String(index));
+    row.setAttribute("role", "option");
+    row.setAttribute("draggable", "true");
+    row.setAttribute("aria-selected", selectedStepIndex === index ? "true" : "false");
     if (selectedStepIndex === index) {
-      card.classList.add("is-selected");
+      row.classList.add("is-selected");
     }
     if (dragOverIndex === index) {
-      card.classList.add("is-drag-over");
+      row.classList.add("is-drag-over");
     }
-
-    const actionType = getStepActionType(step);
-
-    const header = document.createElement("div");
-    header.className = "step-card-header";
 
     const handle = document.createElement("button");
     handle.type = "button";
@@ -1119,23 +1264,65 @@ import {
     handle.setAttribute("title", "Sleep om te reorderen");
     handle.setAttribute("draggable", "true");
     handle.setAttribute("data-index", String(index));
-    header.appendChild(handle);
+    row.appendChild(handle);
+
+    const main = document.createElement("div");
+    main.className = "step-row-main";
+
+    const top = document.createElement("div");
+    top.className = "step-row-top";
+
+    const order = document.createElement("div");
+    order.className = "step-row-index";
+    order.textContent = "[" + String(index + 1) + "]";
+    top.appendChild(order);
 
     const title = document.createElement("div");
-    title.className = "step-title";
-    title.textContent = describeStep(step, index);
-    header.appendChild(title);
+    title.className = "step-row-title";
+    title.textContent = String(step.id || "").trim() || "zonder-id";
+    top.appendChild(title);
+    main.appendChild(top);
+
+    const meta = document.createElement("div");
+    meta.className = "step-row-meta";
 
     const typeBadge = document.createElement("span");
     typeBadge.className = "step-type";
-    typeBadge.textContent = actionType || "-";
-    header.appendChild(typeBadge);
+    typeBadge.textContent = getStepActionType(step) || "-";
+    meta.appendChild(typeBadge);
 
+    const startBadge = document.createElement("span");
+    startBadge.className = "step-mode-badge";
+    startBadge.textContent = getStepStartMode(step) || "-";
+    meta.appendChild(startBadge);
+    main.appendChild(meta);
+
+    const summary = document.createElement("div");
+    summary.className = "step-row-summary";
+    summary.textContent = summarizeStep(step);
+    main.appendChild(summary);
+    row.appendChild(main);
+
+    const status = document.createElement("div");
+    status.className = "step-row-status";
+    status.appendChild(createStepRowActions(index, totalSteps));
+    if (getStepStartMode(step) === "after_prev" && isObject(step.start) && typeof step.start.delay_s !== "undefined") {
+      const delay = document.createElement("div");
+      delay.className = "step-row-delay";
+      delay.textContent = String(step.start.delay_s) + "s";
+      status.appendChild(delay);
+    }
+    row.appendChild(status);
+
+    return row;
+  }
+
+  function createInspectorActions(index, totalSteps) {
     const actions = document.createElement("div");
     actions.className = "step-header-actions";
     [
       { id: "move-up", label: "Up", disabled: index === 0 },
-      { id: "move-down", label: "Down", disabled: index >= scriptState.root.steps.length - 1 },
+      { id: "move-down", label: "Down", disabled: index >= totalSteps - 1 },
       { id: "duplicate", label: "Duplicate", disabled: false },
       { id: "delete", label: "Delete", disabled: false },
     ].forEach((cfg) => {
@@ -1147,7 +1334,46 @@ import {
       btn.disabled = cfg.disabled;
       actions.appendChild(btn);
     });
-    header.appendChild(actions);
+    return actions;
+  }
+
+  function createStepInspectorCard(step, index, totalSteps) {
+    const card = document.createElement("article");
+    card.className = "step-inspector-card";
+    card.setAttribute("data-index", String(index));
+
+    const header = document.createElement("div");
+    header.className = "inspector-header";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "inspector-title-wrap";
+
+    const title = document.createElement("h3");
+    title.className = "inspector-title";
+    title.textContent = describeStep(step, index);
+    titleWrap.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.className = "inspector-meta";
+
+    const typeBadge = document.createElement("span");
+    typeBadge.className = "step-type";
+    typeBadge.textContent = getStepActionType(step) || "-";
+    meta.appendChild(typeBadge);
+
+    const startBadge = document.createElement("span");
+    startBadge.className = "step-mode-badge";
+    startBadge.textContent = getStepStartMode(step) || "-";
+    meta.appendChild(startBadge);
+    titleWrap.appendChild(meta);
+
+    const summary = document.createElement("div");
+    summary.className = "inspector-summary";
+    summary.textContent = summarizeStep(step);
+    titleWrap.appendChild(summary);
+
+    header.appendChild(titleWrap);
+    header.appendChild(createInspectorActions(index, totalSteps));
     card.appendChild(header);
     card.appendChild(createStepGrid(step, index));
     card.appendChild(
@@ -1166,25 +1392,42 @@ import {
     return card;
   }
 
-  function createTemplateCard(step, index) {
+  function createTemplateInspectorCard(step, index) {
     const card = document.createElement("article");
-    card.className = "step-card template-step-card";
+    card.className = "template-inspector-card";
     card.setAttribute("data-index", String(index));
-    const actionType = getStepActionType(step);
 
     const header = document.createElement("div");
-    header.className = "step-card-header";
+    header.className = "inspector-header";
 
-    const title = document.createElement("div");
-    title.className = "step-title";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "inspector-title-wrap";
+
+    const title = document.createElement("h3");
+    title.className = "inspector-title";
     title.textContent = "Template " + describeStep(step, index);
-    header.appendChild(title);
+    titleWrap.appendChild(title);
+
+    const meta = document.createElement("div");
+    meta.className = "inspector-meta";
 
     const typeBadge = document.createElement("span");
     typeBadge.className = "step-type";
-    typeBadge.textContent = actionType || "-";
-    header.appendChild(typeBadge);
+    typeBadge.textContent = getStepActionType(step) || "-";
+    meta.appendChild(typeBadge);
 
+    const startBadge = document.createElement("span");
+    startBadge.className = "step-mode-badge";
+    startBadge.textContent = getStepStartMode(step) || "-";
+    meta.appendChild(startBadge);
+    titleWrap.appendChild(meta);
+
+    const summary = document.createElement("div");
+    summary.className = "inspector-summary";
+    summary.textContent = summarizeStep(step);
+    titleWrap.appendChild(summary);
+
+    header.appendChild(titleWrap);
     card.appendChild(header);
     card.appendChild(createStepGrid(step, index));
     card.appendChild(
@@ -1206,33 +1449,57 @@ import {
   function renderBlocks() {
     const canRender = blocksSessionActive && scriptState && isObject(scriptState.root);
     stepsCards.innerHTML = "";
+    stepInspector.replaceChildren();
     if (!canRender) {
+      blocksStepCount.textContent = "0 steps";
+      blocksConfigSummary.textContent = "Geen configuratie geladen.";
       blocksEmpty.classList.remove("is-hidden");
       blocksConfigJson.value = "{}";
+      const emptyInspector = document.createElement("div");
+      emptyInspector.className = "step-inspector-empty";
+      emptyInspector.textContent = "Kies een step om deze hier te bewerken.";
+      stepInspector.appendChild(emptyInspector);
       renderBlocksConfigError();
       return;
     }
 
+    ensureSelectedStepIndex();
     blocksConfigJson.value = blocksConfigDraft;
+    blocksConfigSummary.textContent = summarizeConfig(scriptState.root);
+
     const steps = Array.isArray(scriptState.root.steps) ? scriptState.root.steps : [];
+    blocksStepCount.textContent = String(steps.length) + " step" + (steps.length === 1 ? "" : "s");
     blocksEmpty.classList.toggle("is-hidden", steps.length > 0);
     steps.forEach((step, index) => {
-      const card = createStepCard(step, index);
-      stepsCards.appendChild(card);
+      stepsCards.appendChild(createStepRow(step, index, steps.length));
     });
+
+    if (steps.length === 0 || selectedStepIndex === null) {
+      const emptyInspector = document.createElement("div");
+      emptyInspector.className = "step-inspector-empty";
+      emptyInspector.textContent = "Voeg een step toe om de inspector te vullen.";
+      stepInspector.appendChild(emptyInspector);
+    } else {
+      stepInspector.appendChild(createStepInspectorCard(steps[selectedStepIndex], selectedStepIndex, steps.length));
+    }
+
     applyRunStepHighlights(runtimeState);
     renderBlocksConfigError();
   }
 
   function renderTemplateCards() {
-    templateCards.innerHTML = "";
+    templateInspector.replaceChildren();
     const steps = Array.isArray(templateDraftSteps) ? templateDraftSteps : [];
-    templateCardsEmpty.classList.toggle("is-hidden", steps.length > 0);
+    templateStepCount.textContent = String(steps.length) + " blok" + (steps.length === 1 ? "" : "ken");
     if (steps.length === 0) {
+      const emptyInspector = document.createElement("div");
+      emptyInspector.className = "template-inspector-empty";
+      emptyInspector.textContent = "Geen template blocks beschikbaar.";
+      templateInspector.appendChild(emptyInspector);
       return;
     }
     steps.forEach((step, index) => {
-      templateCards.appendChild(createTemplateCard(step, index));
+      templateInspector.appendChild(createTemplateInspectorCard(step, index));
     });
   }
 
@@ -1355,6 +1622,14 @@ import {
     }
   }
 
+  function syncStepRowDragState() {
+    const rows = Array.from(stepsCards.querySelectorAll(".step-row"));
+    rows.forEach((row) => {
+      const index = Number(row.getAttribute("data-index"));
+      row.classList.toggle("is-drag-over", Number.isInteger(dragOverIndex) && index === dragOverIndex);
+    });
+  }
+
   function activateJsonTab() {
     if (viewMode === "json") {
       return;
@@ -1375,6 +1650,7 @@ import {
     if (!ensureViewSyncedForAction("Run starten")) {
       return;
     }
+    renderDmStartResults([]);
     const script = parseEditorScriptForRun();
     if (!script) {
       return;
@@ -1425,6 +1701,7 @@ import {
 
   async function sendNext() {
     ensureRunPolling();
+    renderDmStartResults([]);
     try {
       const payload = await fetchJson("/api/run/next", { method: "POST" });
       renderRuntimeState(payload);
@@ -1438,6 +1715,7 @@ import {
 
   async function sendAbort() {
     ensureRunPolling();
+    renderDmStartResults([]);
     try {
       const payload = await fetchJson("/api/run/abort", { method: "POST" });
       renderRuntimeState(payload);
@@ -1487,7 +1765,7 @@ import {
   }
 
   function snapshotTemplateDraftBuffers() {
-    const advancedFields = Array.from(templateCards.querySelectorAll(".template-advanced"));
+    const advancedFields = Array.from(templateInspector.querySelectorAll(".template-advanced"));
     for (const field of advancedFields) {
       const index = Number(field.getAttribute("data-index"));
       if (!Number.isInteger(index) || index < 0) {
@@ -1996,7 +2274,7 @@ import {
     await sendAbort();
   });
 
-  templateCards.addEventListener("change", function (event) {
+  templateInspector.addEventListener("change", function (event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       return;
@@ -2009,7 +2287,7 @@ import {
     applyTemplateFieldChange(index, field, target);
   });
 
-  templateCards.addEventListener("input", function (event) {
+  templateInspector.addEventListener("input", function (event) {
     const target = event.target;
     if (!(target instanceof HTMLElement) || !target.classList.contains("template-advanced")) {
       return;
@@ -2020,11 +2298,8 @@ import {
     }
     templateAdvancedDrafts.set(index, target.value);
     validateTemplateAdvancedDraft(index, target.value);
-    const card = templateCards.querySelector('.step-card[data-index="' + String(index) + '"]');
-    if (!card) {
-      return;
-    }
-    const errorEl = card.querySelector(".template-inline-error");
+    const wrap = target.closest(".template-advanced-wrap");
+    const errorEl = wrap instanceof HTMLElement ? wrap.querySelector(".template-inline-error") : null;
     if (errorEl instanceof HTMLElement) {
       const message = templateStepErrors.get(index) || "";
       errorEl.textContent = message;
@@ -2032,7 +2307,7 @@ import {
     }
   });
 
-  templateCards.addEventListener("click", function (event) {
+  templateInspector.addEventListener("click", function (event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       return;
@@ -2044,7 +2319,7 @@ import {
     handleTemplateAction(action, Number(target.getAttribute("data-index")));
   });
 
-  templateCards.addEventListener(
+  templateInspector.addEventListener(
     "toggle",
     function (event) {
       const target = event.target;
@@ -2064,7 +2339,7 @@ import {
     true
   );
 
-  stepsCards.addEventListener("change", function (event) {
+  stepInspector.addEventListener("change", function (event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       return;
@@ -2077,7 +2352,7 @@ import {
     applyBasicFieldChange(index, field, target);
   });
 
-  stepsCards.addEventListener("input", function (event) {
+  stepInspector.addEventListener("input", function (event) {
     const target = event.target;
     if (!(target instanceof HTMLElement) || !target.classList.contains("step-advanced")) {
       return;
@@ -2089,11 +2364,7 @@ import {
     advancedDrafts.set(index, target.value);
     validateAdvancedDraft(index, target.value);
     renderRuntimeState(runtimeState);
-    const card = stepsCards.querySelector('.step-card[data-index="' + String(index) + '"]');
-    if (!card) {
-      return;
-    }
-    const errorEl = card.querySelector(".step-inline-error");
+    const errorEl = stepInspector.querySelector(".step-inline-error");
     if (errorEl instanceof HTMLElement) {
       const message = blocksStepErrors.get(index) || "";
       errorEl.textContent = message;
@@ -2121,11 +2392,11 @@ import {
     if (isInteractiveCardElement(target)) {
       return;
     }
-    const card = target.closest(".step-card");
-    if (!card) {
+    const row = target.closest(".step-row");
+    if (!(row instanceof HTMLElement)) {
       return;
     }
-    const index = Number(card.getAttribute("data-index"));
+    const index = Number(row.getAttribute("data-index"));
     if (!Number.isInteger(index)) {
       return;
     }
@@ -2135,7 +2406,19 @@ import {
     }
   });
 
-  stepsCards.addEventListener(
+  stepInspector.addEventListener("click", function (event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const action = target.getAttribute("data-step-action");
+    if (!action) {
+      return;
+    }
+    handleStepAction(action, Number(target.getAttribute("data-index")));
+  });
+
+  stepInspector.addEventListener(
     "toggle",
     function (event) {
       const target = event.target;
@@ -2157,10 +2440,15 @@ import {
 
   stepsCards.addEventListener("dragstart", function (event) {
     const target = event.target;
-    if (!(target instanceof HTMLElement) || !target.classList.contains("drag-handle")) {
+    if (!(target instanceof HTMLElement)) {
       return;
     }
-    const index = Number(target.getAttribute("data-index"));
+    const row = target.closest(".step-row");
+    const handle = target.closest(".drag-handle");
+    if (!(row instanceof HTMLElement) || (isInteractiveCardElement(target) && !handle)) {
+      return;
+    }
+    const index = Number(row.getAttribute("data-index"));
     if (!Number.isInteger(index)) {
       return;
     }
@@ -2169,6 +2457,7 @@ import {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", String(index));
     }
+    syncStepRowDragState();
   });
 
   stepsCards.addEventListener("dragover", function (event) {
@@ -2179,17 +2468,19 @@ import {
     if (!(target instanceof HTMLElement)) {
       return;
     }
-    const card = target.closest(".step-card");
-    if (!card) {
+    const row = target.closest(".step-row");
+    if (!(row instanceof HTMLElement)) {
       return;
     }
     event.preventDefault();
-    const index = Number(card.getAttribute("data-index"));
+    const index = Number(row.getAttribute("data-index"));
     if (!Number.isInteger(index)) {
       return;
     }
-    dragOverIndex = index;
-    renderBlocks();
+    if (dragOverIndex !== index) {
+      dragOverIndex = index;
+      syncStepRowDragState();
+    }
   });
 
   stepsCards.addEventListener("drop", function (event) {
@@ -2200,12 +2491,12 @@ import {
     if (!(target instanceof HTMLElement)) {
       return;
     }
-    const card = target.closest(".step-card");
-    if (!card) {
+    const row = target.closest(".step-row");
+    if (!(row instanceof HTMLElement)) {
       return;
     }
     event.preventDefault();
-    const to = Number(card.getAttribute("data-index"));
+    const to = Number(row.getAttribute("data-index"));
     if (!Number.isInteger(to)) {
       return;
     }
@@ -2215,14 +2506,14 @@ import {
     if (from !== to) {
       moveStep(from, to);
     } else {
-      renderBlocks();
+      syncStepRowDragState();
     }
   });
 
   stepsCards.addEventListener("dragend", function () {
     dragSourceIndex = null;
     dragOverIndex = null;
-    renderBlocks();
+    syncStepRowDragState();
   });
 
   quickOpenButtons.forEach(function (button) {

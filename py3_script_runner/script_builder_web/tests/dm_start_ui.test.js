@@ -173,4 +173,69 @@ describe("dm start button", () => {
     expect(fetchMock.mock.calls.filter((entry) => entry[0] === "/api/dm/start")).toHaveLength(0);
     expect(document.getElementById("statusMessage").textContent).toContain("parsefout");
   });
+
+  test("clears prior DM launch errors when starting a run", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "./templates.json") {
+        return makeJsonResponse(TEMPLATE_FIXTURE);
+      }
+      if (url === "/api/run/state") {
+        return makeJsonResponse({
+          ok: true,
+          status: "idle",
+          waiting_for_next: false,
+          waiting_reason: "none",
+          current_step_id: "",
+          completed_steps: 0,
+          total_steps: 0,
+          log_tail: [],
+          last_error: null,
+        });
+      }
+      if (url === "/api/dm/start") {
+        return makeJsonResponse({
+          ok: true,
+          started_count: 0,
+          error_count: 1,
+          message: "0 DM gestart.",
+          results: [
+            {
+              robot_id: "nao1",
+              dm_url: "http://127.0.0.1:5301",
+              instance_id: "alex",
+              started: false,
+              message: "DM niet gestart.",
+            },
+          ],
+        });
+      }
+      if (url === "/api/run/start") {
+        return makeJsonResponse({
+          ok: true,
+          status: "preflight",
+          waiting_for_next: false,
+          waiting_reason: "none",
+          current_step_id: "",
+          completed_steps: 0,
+          total_steps: 1,
+          log_tail: ["[RUN] gestart"],
+          last_error: null,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    await loadApp(fetchMock);
+
+    document.getElementById("btnDmStart").click();
+    await flushUi();
+
+    expect(document.getElementById("dmStartResults").textContent).toContain("niet gestart");
+
+    document.getElementById("btnRunStart").click();
+    await flushUi();
+
+    expect(document.getElementById("dmStartResults").classList.contains("is-hidden")).toBe(true);
+    expect(document.getElementById("statusMessage").textContent).toContain("Run gestart");
+  });
 });

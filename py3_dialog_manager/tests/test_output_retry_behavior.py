@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import io
+import wave
+
 import numpy as np
 import requests
 
@@ -114,6 +117,16 @@ def _make_backend(fake_router: _FakeApiRouter) -> OutputRouterBackend:
     return backend
 
 
+def _make_wav(samples: np.ndarray, sample_rate: int = 16000) -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(samples.astype(np.int16).tobytes())
+    return out.getvalue()
+
+
 def test_output_router_does_not_upload_after_stream_timeout():
     fake_router = _FakeApiRouter(requests.Timeout("late timeout"))
     backend = _make_backend(fake_router)
@@ -130,3 +143,29 @@ def test_output_router_falls_back_to_upload_when_stream_unsupported():
     backend.emit("kort bericht")
 
     assert fake_router.calls == ["/play_stream", "/play_audio"]
+
+
+def test_output_router_prepends_lead_silence_for_server_tts():
+    backend = OutputRouterBackend(
+        target="server",
+        tts_engine="azure",
+        server_tts_lead_silence_ms=300,
+    )
+    raw_samples = np.full(1600, 1000, dtype=np.int16)
+    raw_wav = _make_wav(raw_samples)
+    played: dict[str, bytes] = {}
+
+    backend._synthesize_azure = lambda text: raw_wav  # type: ignore[method-assign]
+    backend._play_wav_bytes = lambda wav_bytes: played.setdefault("wav", wav_bytes)  # type: ignore[method-assign]
+
+    backend.emit("hoi")
+
+    assert "wav" in played
+    with wave.open(io.BytesIO(played["wav"]), "rb") as wf:
+        frames = wf.readframes(wf.getnframes())
+        sample_rate = wf.getframerate()
+    audio = np.frombuffer(frames, dtype=np.int16)
+    lead_samples = int(sample_rate * 0.3)
+    assert audio.size == lead_samples + raw_samples.size
+    assert np.all(audio[:lead_samples] == 0)
+    assert np.array_equal(audio[lead_samples:], raw_samples)

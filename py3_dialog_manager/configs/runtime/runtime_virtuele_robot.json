@@ -10,18 +10,18 @@
   "base_autostart": false,
   "behavior_autostart": false,
   "input_device": null,
-  "stt_type": "azure",
+  "stt_type": "vosk",
   "mic_params_ptt": {
-    "max_utterance_s": 12,
-    "pre_roll_ms": 500,
     "start_threshold_rms": 200,
-    "stop_silence_ms": 1000
+    "stop_silence_ms": 1000,
+    "pre_roll_ms": 500,
+    "max_utterance_s": 12
   },
   "mic_params_continuous": {
-    "max_utterance_s": 12,
-    "pre_roll_ms": 500,
     "start_threshold_rms": 200,
-    "stop_silence_ms": 1000
+    "stop_silence_ms": 1000,
+    "pre_roll_ms": 500,
+    "max_utterance_s": 12
   },
   "azure_initial_silence_ms": null,
   "azure_end_silence_ms": null,
@@ -38,8 +38,8 @@
   "locomotion_arms_enabled": true,
   "cmdrec": "latest",
   "ptt_use_vad": false,
-  "llm_type": "ollama_cloud",
-  "llm_model": "mistral-large-3:675b-cloud",
+  "llm_type": "echo",
+  "llm_model": "",
   "llm_temperature": null,
   "llm_top_p": null,
   "llm_top_k": null,
@@ -48,6 +48,7 @@
   "output_nao_tts": false,
   "output_target": "server",
   "output_device": null,
+  "server_tts_lead_silence_ms": 300,
   "tts_engine": "azure",
   "piper_model_path": "C:\\NAOqi_fundamentals\\NAO_Controller_WebAPI\\piper_tts_models\\nl\\nl_BE\\nathalie\\medium\\nl_BE-nathalie-medium.onnx",
   "azure_tts_voice": "nl-NL-ColetteNeural",
@@ -56,8 +57,8 @@
   "azure_tts_volume_db": 0,
   "custom_life_enabled": true,
   "custom_life_settings": {
-    "background_movement": true,
     "basic_awareness": true,
+    "background_movement": true,
     "breathing": true
   },
   "nao_auto_rest_after_s": 180,
