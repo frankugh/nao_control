@@ -2,7 +2,8 @@
   "version": 1,
   "robots": {
     "nao1": {
-      "dm_url": "http://127.0.0.1:8080"
+      "dm_url": "http://127.0.0.1:8080",
+      "instance_id": "virtuele_robot"
     }
   },
   "ppt": {
@@ -34,15 +35,26 @@
       },
       "action": {
         "type": "say",
-        "text": "Welkom bij de workshop."
+        "text": "Eén. Welkom bij de workshop."
+      }
+    },
+    {
+      "id": "r1_2",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 3
+      },
+      "action": {
+        "type": "say",
+        "text": "twee"
       }
     },
     {
       "id": "eye1",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 0
+        "mode": "with_prev"
       },
       "action": {
         "type": "do",
@@ -52,16 +64,46 @@
       }
     },
     {
+      "id": "say_001",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Drie"
+      }
+    },
+    {
       "id": "p2",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 1
+        "mode": "with_prev"
       },
       "action": {
         "type": "ppt",
-        "mode": "goto",
-        "slide": 3,
-        "build": 1
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "say_2",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Vier"
+      }
+    },
+    {
+      "id": "ppt_next_001",
+      "start": {
+        "mode": "after_prev",
+        "delay_s": 3
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
       }
     }
   ]

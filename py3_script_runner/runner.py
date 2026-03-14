@@ -422,6 +422,10 @@ class ScriptRunner:
             controller.open_and_start_slideshow(ppt_file, fullscreen_required=fullscreen_required)
         except PPTControllerError as exc:
             raise RuntimeError(str(exc)) from exc
+        try:
+            controller.goto(1, 0)
+        except PPTControllerError as exc:
+            raise RuntimeError(f"PowerPoint reset to start failed: {exc}") from exc
 
         if fullscreen_required and not controller.is_fullscreen_slideshow():
             raise RuntimeError("PowerPoint slideshow is not fullscreen.")
@@ -972,6 +976,11 @@ class ScriptRunner:
         start = step.get("start") or {}
         return str(start.get("mode") or "").strip().lower()
 
+    @staticmethod
+    def _step_action_type(step: Dict[str, Any]) -> str:
+        action = step.get("action") or {}
+        return str(action.get("type") or "").strip().lower()
+
     def _execute_step_with_policy(self, step: Dict[str, Any], index: int, total: int) -> str:
         step_id = step.get("id", f"step_{index+1}")
         while True:
@@ -1018,15 +1027,32 @@ class ScriptRunner:
     ) -> tuple[int, list[tuple[int, Dict[str, Any], Exception]]]:
         completed = 0
         failures: list[tuple[int, Dict[str, Any], Exception]] = []
-        max_workers = max(1, len(group))
         future_map: Dict[Any, tuple[int, Dict[str, Any], str]] = {}
+        worker_count = sum(1 for _, step in group if self._step_action_type(step) != "ppt")
+        executor = ThreadPoolExecutor(max_workers=worker_count) if worker_count > 0 else None
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        try:
             for step_index, step in group:
                 step_id = step.get("id", f"step_{step_index+1}")
                 self._raise_if_abort_requested(context=f"[{step_index + 1}/{total}] {step_id}")
                 self._emit_event("step_start", index=step_index, total=total, step_id=step_id)
                 self._log(f"[{step_index + 1}/{total}] {step_id}: executing (with_prev)")
+
+                # PowerPoint COM objects are bound to the thread that opened the slideshow.
+                if self._step_action_type(step) == "ppt":
+                    try:
+                        response = self._execute_step_action(step, index=step_index, total=total)
+                    except Exception as exc:
+                        self._emit_event("step_error", index=step_index, total=total, step_id=step_id, error=str(exc))
+                        failures.append((step_index, step, exc))
+                    else:
+                        self._log(f"[{step_index + 1}/{total}] {step_id}: OK -> {response}")
+                        self._emit_event("step_done", index=step_index, total=total, step_id=step_id, status="completed")
+                        completed += 1
+                    continue
+
+                if executor is None:
+                    raise RuntimeError("parallel group executor missing for non-PPT step")
                 future = executor.submit(self._execute_step_action, step, index=step_index, total=total)
                 future_map[future] = (step_index, step, step_id)
 
@@ -1041,6 +1067,9 @@ class ScriptRunner:
                 self._log(f"[{step_index + 1}/{total}] {step_id}: OK -> {response}")
                 self._emit_event("step_done", index=step_index, total=total, step_id=step_id, status="completed")
                 completed += 1
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True)
 
         failures.sort(key=lambda item: item[0])
         return completed, failures

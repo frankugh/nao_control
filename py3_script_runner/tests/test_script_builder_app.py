@@ -27,6 +27,27 @@ def _script_payload() -> Dict[str, Any]:
     }
 
 
+def _dm_payload() -> Dict[str, Any]:
+    return {
+        "script": {
+            "version": 1,
+            "robots": {
+                "nao1": {"dm_url": "http://127.0.0.1:5301", "instance_id": "alex"},
+                "nao2": {"dm_url": "http://localhost:5302"},
+            },
+            "defaults": {"request_timeout_s": 12, "on_error": "prompt"},
+            "steps": [
+                {
+                    "id": "s1",
+                    "robot_id": "nao1",
+                    "start": {"mode": "manual"},
+                    "action": {"type": "say", "text": "hello"},
+                }
+            ],
+        }
+    }
+
+
 def _wait_until(predicate: Callable[[], bool], timeout_s: float = 2.0) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -143,3 +164,135 @@ def test_run_session_abort_transitions_to_aborted(monkeypatch):
     abort_code, _ = manager.request_abort()
     assert abort_code == HTTPStatus.ACCEPTED
     assert _wait_until(lambda: manager.state()["status"] == "aborted")
+
+
+def test_build_dm_launch_command_uses_dm_url_and_instance():
+    spec = script_builder_app.DmLaunchSpec(
+        robot_id="nao1",
+        dm_url="http://127.0.0.1:5301",
+        bind_host="127.0.0.1",
+        port=5301,
+        instance_id="alex",
+    )
+    command = script_builder_app._build_dm_launch_command(spec)
+    assert command[:2] == ["cmd.exe", "/k"]
+    assert "--host 127.0.0.1" in command[2]
+    assert "--port 5301" in command[2]
+    assert "--instance-id alex" in command[2]
+
+
+def test_start_dialog_managers_starts_each_unique_local_target(monkeypatch, tmp_path):
+    dm_python = tmp_path / "python.exe"
+    dm_python.write_text("", encoding="utf-8")
+    dm_webapp = tmp_path / "webapp_server.py"
+    dm_webapp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script_builder_app, "DM_DIR", tmp_path)
+    monkeypatch.setattr(script_builder_app, "DM_PYTHON", dm_python)
+    monkeypatch.setattr(script_builder_app, "DM_WEBAPP", dm_webapp)
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, cwd, creationflags):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+
+    monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
+    code, payload = script_builder_app.start_dialog_managers(_dm_payload())
+
+    assert code == HTTPStatus.OK
+    assert payload["started_count"] == 2
+    assert payload["error_count"] == 0
+    assert len(popen_calls) == 2
+    assert popen_calls[0]["cwd"] == str(tmp_path)
+    assert "--instance-id alex" in popen_calls[0]["cmd"][2]
+    assert "--port 5302" in popen_calls[1]["cmd"][2]
+
+
+def test_start_dialog_managers_rejects_remote_targets_and_keeps_local_ones(monkeypatch, tmp_path):
+    dm_python = tmp_path / "python.exe"
+    dm_python.write_text("", encoding="utf-8")
+    dm_webapp = tmp_path / "webapp_server.py"
+    dm_webapp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script_builder_app, "DM_DIR", tmp_path)
+    monkeypatch.setattr(script_builder_app, "DM_PYTHON", dm_python)
+    monkeypatch.setattr(script_builder_app, "DM_WEBAPP", dm_webapp)
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, cwd, creationflags):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+
+    monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
+    payload = _dm_payload()
+    payload["script"]["robots"]["nao2"]["dm_url"] = "http://192.168.68.102:5302"
+
+    code, response = script_builder_app.start_dialog_managers(payload)
+
+    assert code == HTTPStatus.OK
+    assert response["started_count"] == 1
+    assert response["error_count"] == 1
+    assert len(popen_calls) == 1
+    robot2 = next(item for item in response["results"] if item["robot_id"] == "nao2")
+    assert robot2["started"] is False
+    assert "lokale host" in robot2["error"]
+
+
+def test_start_dialog_managers_rejects_duplicate_local_targets(monkeypatch, tmp_path):
+    dm_python = tmp_path / "python.exe"
+    dm_python.write_text("", encoding="utf-8")
+    dm_webapp = tmp_path / "webapp_server.py"
+    dm_webapp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script_builder_app, "DM_DIR", tmp_path)
+    monkeypatch.setattr(script_builder_app, "DM_PYTHON", dm_python)
+    monkeypatch.setattr(script_builder_app, "DM_WEBAPP", dm_webapp)
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, cwd, creationflags):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+
+    monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
+    payload = _dm_payload()
+    payload["script"]["robots"]["nao2"]["dm_url"] = "http://localhost:5301"
+
+    code, response = script_builder_app.start_dialog_managers(payload)
+
+    assert code == HTTPStatus.OK
+    assert response["started_count"] == 0
+    assert response["error_count"] == 2
+    assert len(popen_calls) == 0
+    assert all("Dubbele lokale DM target" in item["error"] for item in response["results"])
+
+
+def test_start_dialog_managers_skips_targets_that_are_already_occupied(monkeypatch, tmp_path):
+    dm_python = tmp_path / "python.exe"
+    dm_python.write_text("", encoding="utf-8")
+    dm_webapp = tmp_path / "webapp_server.py"
+    dm_webapp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script_builder_app, "DM_DIR", tmp_path)
+    monkeypatch.setattr(script_builder_app, "DM_PYTHON", dm_python)
+    monkeypatch.setattr(script_builder_app, "DM_WEBAPP", dm_webapp)
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, cwd, creationflags):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+
+    monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: spec.port == 5301)
+
+    code, response = script_builder_app.start_dialog_managers(_dm_payload())
+
+    assert code == HTTPStatus.OK
+    assert response["started_count"] == 1
+    assert response["error_count"] == 1
+    assert len(popen_calls) == 1
+    robot1 = next(item for item in response["results"] if item["robot_id"] == "nao1")
+    assert robot1["started"] is False
+    assert "Er draait al iets op" in robot1["error"]

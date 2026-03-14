@@ -46,6 +46,7 @@ example_audio/*.wav
 
 # === Misc ===
 *.lock
+~$*.ppt*
 node_modules/
 .vitest/
 coverage/

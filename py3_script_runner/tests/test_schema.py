@@ -100,6 +100,27 @@ def test_validate_script_accepts_robot_runtime_config():
     assert validated["robots"]["nao1"]["runtime_config"]["nao_ip"] == "192.168.68.101"
 
 
+def test_validate_script_accepts_robot_instance_id():
+    script = _base_script()
+    script["robots"]["nao1"]["instance_id"] = "alex"
+    validated = validate_script(script)
+    assert validated["robots"]["nao1"]["instance_id"] == "alex"
+
+
+def test_validate_script_rejects_invalid_robot_instance_id():
+    script = _base_script()
+    script["robots"]["nao1"]["instance_id"] = "   "
+    with pytest.raises(ScriptSchemaError, match="instance_id must be a non-empty string"):
+        validate_script(script)
+
+
+def test_validate_script_rejects_non_string_robot_instance_id():
+    script = _base_script()
+    script["robots"]["nao1"]["instance_id"] = 123
+    with pytest.raises(ScriptSchemaError, match="instance_id must be a non-empty string"):
+        validate_script(script)
+
+
 def test_validate_script_rejects_non_object_robot_runtime_config():
     script = _base_script()
     script["robots"]["nao1"]["runtime_config"] = "invalid"

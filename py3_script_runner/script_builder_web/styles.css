@@ -393,6 +393,41 @@ textarea {
   color: var(--muted);
 }
 
+.dm-start-results {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.dm-start-result {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 8px 10px;
+}
+
+.dm-start-result.is-ok {
+  border-color: #bee4cc;
+  background: #edf8f1;
+}
+
+.dm-start-result.is-error {
+  border-color: #f1bcbc;
+  background: #fff1f1;
+}
+
+.dm-start-result-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dm-start-result-meta,
+.dm-start-result-message {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 #runLog {
   min-height: 150px;
   flex: 0 0 auto;

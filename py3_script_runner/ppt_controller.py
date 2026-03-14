@@ -77,31 +77,38 @@ class ComPptController:
 
     def _refresh_live_refs(self) -> None:
         app = self._app
-        if app is None:
-            return
-        window = None
-        try:
-            window = app.SlideShowWindows(1)
-        except Exception:
+        presentation = self._presentation
+        candidates = []
+        if presentation is not None:
             try:
-                windows = getattr(app, "SlideShowWindows", None)
-                if windows is not None and hasattr(windows, "Item"):
-                    window = windows.Item(1)
+                window = getattr(presentation, "SlideShowWindow", None)
             except Exception:
                 window = None
-        if window is None:
-            presentation = self._presentation
-            if presentation is not None:
-                try:
-                    window = getattr(presentation, "SlideShowWindow", None)
-                except Exception:
-                    window = None
+            if window is not None:
+                candidates.append(window)
+        try:
+            window = app.SlideShowWindows(1) if app is not None else None
+        except Exception:
+            window = None
         if window is not None:
-            self._slide_show_window = window
+            candidates.append(window)
+        try:
+            windows = getattr(app, "SlideShowWindows", None) if app is not None else None
+            if windows is not None and hasattr(windows, "Item"):
+                window = windows.Item(1)
+            else:
+                window = None
+        except Exception:
+            window = None
+        if window is not None:
+            candidates.append(window)
+        for window in candidates:
             try:
+                self._slide_show_window = window
                 self._view = window.View
-            except Exception:
                 return
+            except Exception:
+                continue
 
     @staticmethod
     def _find_open_presentation(app, ppt_path: Path):
@@ -148,8 +155,17 @@ class ComPptController:
             settings = presentation.SlideShowSettings
             # 3 = ppShowTypeKiosk (fullscreen), 2 = ppShowTypeWindow (windowed).
             settings.ShowType = 3 if fullscreen_required else 2
+            window = None
             try:
-                window = settings.Run()
+                if existing is not None:
+                    try:
+                        window = getattr(presentation, "SlideShowWindow", None)
+                        if window is not None:
+                            _ = window.View
+                    except Exception:
+                        window = None
+                if window is None:
+                    window = settings.Run()
             except Exception:
                 # Existing presentation can be in a stale state after repeated runs.
                 # Try reopening once as fallback.
@@ -163,7 +179,11 @@ class ComPptController:
                 settings = presentation.SlideShowSettings
                 settings.ShowType = 3 if fullscreen_required else 2
                 window = settings.Run()
-            view = window.View if window is not None else app.SlideShowWindows(1).View
+            if window is None:
+                window = getattr(presentation, "SlideShowWindow", None)
+            if window is None:
+                window = app.SlideShowWindows(1)
+            view = window.View
         except Exception as exc:
             raise PPTControllerError(f"Could not open PowerPoint slideshow: {exc}") from exc
 

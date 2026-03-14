@@ -40,6 +40,7 @@ import {
   const btnSaveAs = document.getElementById("btnSaveAs");
   const btnCopyTemplate = document.getElementById("btnCopyTemplate");
   const btnInsertTemplate = document.getElementById("btnInsertTemplate");
+  const btnDmStart = document.getElementById("btnDmStart");
   const btnRunStart = document.getElementById("btnRunStart");
   const btnRunNext = document.getElementById("btnRunNext");
   const btnRunAbort = document.getElementById("btnRunAbort");
@@ -59,6 +60,7 @@ import {
   const runProgress = document.getElementById("runProgress");
   const runStep = document.getElementById("runStep");
   const runLog = document.getElementById("runLog");
+  const dmStartResults = document.getElementById("dmStartResults");
   const quickOpenButtons = Array.from(document.querySelectorAll(".btnQuickOpen"));
 
   let templatesData = null;
@@ -81,6 +83,7 @@ import {
   let lastRuntimeError = "";
   let runPollFailures = 0;
   let pollPausedByNetworkError = false;
+  let dmStartResultState = [];
 
   let viewMode = "json";
   let blocksSessionActive = false;
@@ -171,6 +174,7 @@ import {
     const status = state && state.status ? String(state.status) : "idle";
     const waiting = !!(state && state.waiting_for_next);
     const blockedByBlocks = hasBlockingBlockErrors(blocksConfigErrorMessage, blocksStepErrors);
+    btnDmStart.disabled = blockedByBlocks;
     btnRunStart.disabled =
       !(
         status === "idle" ||
@@ -180,6 +184,51 @@ import {
       ) || blockedByBlocks;
     btnRunNext.disabled = !waiting;
     btnRunAbort.disabled = !isActiveRunStatus(status);
+  }
+
+  function renderDmStartResults(results) {
+    dmStartResultState = Array.isArray(results) ? results.slice() : [];
+    dmStartResults.replaceChildren();
+    if (dmStartResultState.length === 0) {
+      dmStartResults.classList.add("is-hidden");
+      return;
+    }
+    dmStartResultState.forEach(function (item) {
+      const started = !!(item && item.started);
+      const robotId = item && item.robot_id ? String(item.robot_id) : "?";
+      const dmUrl = item && item.dm_url ? String(item.dm_url) : "";
+      const instanceId = item && item.instance_id ? String(item.instance_id) : "";
+      const message =
+        item && item.message ? String(item.message) : item && item.error ? String(item.error) : "";
+
+      const card = document.createElement("div");
+      card.className = "dm-start-result " + (started ? "is-ok" : "is-error");
+
+      const title = document.createElement("div");
+      title.className = "dm-start-result-title";
+      title.textContent = robotId + (started ? " gestart" : " niet gestart");
+      card.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "dm-start-result-meta";
+      const parts = [];
+      if (dmUrl) {
+        parts.push(dmUrl);
+      }
+      if (instanceId) {
+        parts.push("instance_id=" + instanceId);
+      }
+      meta.textContent = parts.join(" | ");
+      card.appendChild(meta);
+
+      const body = document.createElement("div");
+      body.className = "dm-start-result-message";
+      body.textContent = message;
+      card.appendChild(body);
+
+      dmStartResults.appendChild(card);
+    });
+    dmStartResults.classList.remove("is-hidden");
   }
 
   function _resolveRunCurrentIndex(state) {
@@ -393,7 +442,7 @@ import {
         runPollTimer = null;
         pollPausedByNetworkError = true;
         setStatus(
-          "Geen verbinding met run API. Start script_builder_app opnieuw; polling is gepauzeerd.",
+          "Geen verbinding met run API. Start de Script Builder app opnieuw; polling is gepauzeerd.",
           "error"
         );
         return;
@@ -1345,6 +1394,35 @@ import {
     await refreshRunState({ silent: true });
   }
 
+  async function startDmsFromEditor() {
+    if (!ensureViewSyncedForAction("DM's starten")) {
+      return;
+    }
+    renderDmStartResults([]);
+    const script = parseEditorScriptForRun();
+    if (!script) {
+      return;
+    }
+    try {
+      const payload = await fetchJson("/api/dm/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: script }),
+      });
+      renderDmStartResults(payload && Array.isArray(payload.results) ? payload.results : []);
+      const startedCount = payload && typeof payload.started_count === "number" ? payload.started_count : 0;
+      const errorCount = payload && typeof payload.error_count === "number" ? payload.error_count : 0;
+      const level = errorCount > 0 ? (startedCount > 0 ? "warn" : "error") : "ok";
+      setStatus(
+        payload && payload.message ? String(payload.message) : "DM start afgerond.",
+        level
+      );
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      setStatus("DM's starten mislukt: " + message, "error");
+    }
+  }
+
   async function sendNext() {
     ensureRunPolling();
     try {
@@ -1629,6 +1707,7 @@ import {
     currentFileHandle = null;
     setFileLabel(PLACEHOLDER_FILE_LABEL);
     resetBlocksSession();
+    renderDmStartResults([]);
     setStatus("Nieuw script geladen met default configuratie.", "ok");
     activateBlocksTab();
   }
@@ -1653,6 +1732,7 @@ import {
       currentFileHandle = fileHandle;
       setFileLabel(file.name);
       resetBlocksSession();
+      renderDmStartResults([]);
       setStatus("Bestand geladen: " + file.name, "ok");
       activateBlocksTab();
     } catch (err) {
@@ -1675,6 +1755,7 @@ import {
       currentFileHandle = null;
       setFileLabel(exampleName + " (voorbeeld)");
       resetBlocksSession();
+      renderDmStartResults([]);
       setStatus("Voorbeeld geladen: " + exampleName, "ok");
       activateBlocksTab();
     } catch (err) {
@@ -1838,6 +1919,7 @@ import {
 
       applyNewDefaultScript();
       renderRuntimeState({ status: "idle", waiting_for_next: false, waiting_reason: "none", current_step_id: "", completed_steps: 0, total_steps: 0, log_tail: [] });
+      renderDmStartResults([]);
       ensureRunPolling();
       await refreshRunState({ silent: true });
       setStatus("Script Builder klaar.", "ok");
@@ -1901,6 +1983,9 @@ import {
   });
 
   btnInsertTemplate.addEventListener("click", insertPreviewIntoEditor);
+  btnDmStart.addEventListener("click", async function () {
+    await startDmsFromEditor();
+  });
   btnRunStart.addEventListener("click", async function () {
     await startRunFromEditor();
   });

@@ -40,17 +40,23 @@ class _FakeWindow:
 
 
 class _FakeSettings:
-    def __init__(self, window: _FakeWindow) -> None:
+    def __init__(self, window: _FakeWindow, on_run=None) -> None:
         self.ShowType = None
         self._window = window
+        self._on_run = on_run
+        self.run_calls = 0
 
     def Run(self):
+        self.run_calls += 1
+        if self._on_run is not None:
+            self._on_run()
         return self._window
 
 
 class _FakePresentation:
     def __init__(self, settings: _FakeSettings) -> None:
         self.SlideShowSettings = settings
+        self.SlideShowWindow = settings._window
 
 
 class _FakePresentations:
@@ -125,3 +131,66 @@ def test_open_slideshow_raises_when_fullscreen_required_but_not_fullscreen(tmp_p
     controller = ComPptController()
     with pytest.raises(PPTControllerError, match="not fullscreen"):
         controller.open_and_start_slideshow(str(ppt_file), fullscreen_required=True)
+
+
+def test_open_slideshow_runs_when_new_presentation_has_no_slideshow_window_yet(tmp_path, monkeypatch):
+    class _LazyPresentation:
+        def __init__(self, window: _FakeWindow) -> None:
+            self._started = False
+            self.SlideShowSettings = _FakeSettings(window=window, on_run=self._mark_started)
+
+        def _mark_started(self) -> None:
+            self._started = True
+
+        @property
+        def SlideShowWindow(self):
+            if not self._started:
+                raise RuntimeError("no slideshow window yet")
+            return self.SlideShowSettings._window
+
+    ppt_file = tmp_path / "demo.pptx"
+    ppt_file.write_text("x", encoding="utf-8")
+    view = _FakeView()
+    window = _FakeWindow(is_fullscreen=True, view=view)
+    presentation = _LazyPresentation(window=window)
+    app = _FakeApp(presentation=presentation, window=window)
+    fake_win32 = _FakeWin32(app)
+
+    monkeypatch.setattr("py3_script_runner.ppt_controller.sys.platform", "win32")
+    monkeypatch.setattr(ComPptController, "_win32_client", staticmethod(lambda: fake_win32))
+
+    controller = ComPptController()
+    controller.open_and_start_slideshow(str(ppt_file), fullscreen_required=True)
+
+    assert presentation.SlideShowSettings.run_calls == 1
+
+
+def test_refresh_live_refs_prefers_presentation_window_before_global_window():
+    class _FlakyView(_FakeView):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def Next(self):
+            self.calls += 1
+            raise RuntimeError("stale view")
+
+    stale_view = _FlakyView()
+    wrong_view = _FakeView()
+    correct_view = _FakeView()
+    wrong_window = _FakeWindow(is_fullscreen=True, view=wrong_view)
+    correct_window = _FakeWindow(is_fullscreen=True, view=correct_view)
+    settings = _FakeSettings(window=correct_window)
+    presentation = _FakePresentation(settings=settings)
+    app = _FakeApp(presentation=presentation, window=wrong_window)
+
+    controller = ComPptController()
+    controller._app = app
+    controller._presentation = presentation
+    controller._slide_show_window = wrong_window
+    controller._view = stale_view
+
+    controller.next_slide()
+
+    assert wrong_view.GetClickIndex() == 0
+    assert correct_view.GetClickIndex() == 1

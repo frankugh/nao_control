@@ -12,16 +12,16 @@
   "input_device": null,
   "stt_type": "azure",
   "mic_params_ptt": {
-    "start_threshold_rms": 200,
-    "stop_silence_ms": 1000,
+    "max_utterance_s": 12,
     "pre_roll_ms": 500,
-    "max_utterance_s": 12
+    "start_threshold_rms": 200,
+    "stop_silence_ms": 1000
   },
   "mic_params_continuous": {
-    "start_threshold_rms": 200,
-    "stop_silence_ms": 1000,
+    "max_utterance_s": 12,
     "pre_roll_ms": 500,
-    "max_utterance_s": 12
+    "start_threshold_rms": 200,
+    "stop_silence_ms": 1000
   },
   "azure_initial_silence_ms": null,
   "azure_end_silence_ms": null,
@@ -56,8 +56,8 @@
   "azure_tts_volume_db": 0,
   "custom_life_enabled": true,
   "custom_life_settings": {
-    "basic_awareness": true,
     "background_movement": true,
+    "basic_awareness": true,
     "breathing": true
   },
   "nao_auto_rest_after_s": 180,

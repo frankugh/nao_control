@@ -65,7 +65,7 @@ python .\cli.py --script .\scripts\example_workshop.json
 Start de losse script builder (lokale static webapp):
 
 ```powershell
-py3_script_runner\venv\Scripts\python.exe -m py3_script_runner.script_builder_app
+py3_script_runner\venv\Scripts\python.exe -m py3_script_runner.script_runner_app
 ```
 
 Default URL:
@@ -78,6 +78,7 @@ Features:
 - `Nieuw` zet direct een valide default script
 - Add-blok paneel met templates voor `NAO gedrag`, `PPTX`, `Summary`
 - Bewerkbaar template preview veld met kopieerknop en auto-insert in `steps`
+- `Start DM's` knop die per robot een lokale DM in een apart `cmd.exe` venster start
 
 Frontend tests (Script Builder web):
 
@@ -93,6 +94,7 @@ Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Acce
 
 - `version` must be `1`
 - `robots` maps `robot_id -> { dm_url }`
+  - optional: `instance_id` for local DM autostart from the Script Builder webapp
   - optional: `runtime_config` (same keys as DM `/api/runtime_config`)
 - `defaults`:
   - `request_timeout_s` (number > 0)
@@ -122,6 +124,29 @@ Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Acce
   - `start_capture_on_run` (bool, default `true`)
 
 See `scripts/example_workshop.json` for a complete DM example, `scripts/example_workshop_summary.json` for summary-only testing, and `scripts/example_workshop_ppt.json` for PPT capture usage.
+
+### Local DM autostart from Script Builder
+
+The `Start DM's` button in the webapp reads `robots.<id>.dm_url` and optional `robots.<id>.instance_id` from the current script.
+
+Example:
+
+```json
+{
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5301",
+      "instance_id": "alex"
+    }
+  }
+}
+```
+
+Notes:
+
+- only local DM targets are supported (`127.0.0.1`, `localhost`, `0.0.0.0`, `::1`)
+- `dm_url` must include an explicit port
+- the button ignores `runtime_config`; DM runtime state stays on the DM side via `runtime_<instance>.json`
 
 By default, the runner executes against the current runtime config already active on each DM instance.
 

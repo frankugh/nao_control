@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import socket
+import subprocess
 import sys
 import threading
 import traceback
 import webbrowser
 from collections import deque
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import unquote, urlsplit
 
 if __package__ in (None, ""):
@@ -25,14 +29,230 @@ else:
 
 
 MODULE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = MODULE_DIR.parent
 WEB_ROOT = MODULE_DIR / "script_builder_web"
 SCRIPTS_DIR = MODULE_DIR / "scripts"
+DM_DIR = REPO_ROOT / "py3_dialog_manager"
+DM_PYTHON = DM_DIR / "venv" / "Scripts" / "python.exe"
+DM_WEBAPP = DM_DIR / "webapp_server.py"
+CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
 EXAMPLE_FILES = {
     "example_workshop.json",
     "example_workshop_ppt.json",
     "example_workshop_summary.json",
 }
 ACTIVE_RUN_STATUSES = {"preflight", "running", "waiting"}
+
+
+@dataclass(frozen=True)
+class DmLaunchSpec:
+    robot_id: str
+    dm_url: str
+    bind_host: str
+    port: int
+    instance_id: str
+
+
+def _local_dm_bind_host(raw_host: str) -> Optional[str]:
+    host = str(raw_host or "").strip()
+    if not host:
+        return None
+    if host.casefold() == "localhost":
+        return "127.0.0.1"
+    try:
+        parsed = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if parsed.is_loopback or parsed.is_unspecified:
+        return host
+    return None
+
+
+def _dm_launcher_prereq_error() -> str:
+    if not DM_DIR.exists():
+        return f"DM map niet gevonden: {DM_DIR}"
+    if not DM_PYTHON.exists():
+        return f"DM venv python.exe niet gevonden: {DM_PYTHON}"
+    if not DM_WEBAPP.exists():
+        return f"DM webapp_server.py niet gevonden: {DM_WEBAPP}"
+    return ""
+
+
+def _dm_launch_result(
+    *,
+    robot_id: str,
+    dm_url: str,
+    instance_id: str,
+    started: bool,
+    message: str,
+    port: Optional[int] = None,
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "robot_id": str(robot_id or ""),
+        "dm_url": str(dm_url or ""),
+        "instance_id": str(instance_id or ""),
+        "started": bool(started),
+        "message": str(message or ""),
+    }
+    if port is not None:
+        result["port"] = int(port)
+    if not started:
+        result["error"] = str(message or "")
+    return result
+
+
+def _parse_dm_launch_spec(robot_id: str, robot_cfg: Dict[str, Any]) -> tuple[Optional[DmLaunchSpec], Optional[str]]:
+    dm_url = str(robot_cfg.get("dm_url") or "").strip()
+    instance_id = str(robot_cfg.get("instance_id") or "").strip()
+    try:
+        parsed = urlsplit(dm_url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        return None, f"robots.{robot_id}.dm_url is ongeldig: {exc}"
+    if parsed.scheme not in {"http", "https"} or not host:
+        return None, f"robots.{robot_id}.dm_url moet een volledige http(s) URL zijn."
+    if port is None:
+        return None, f"robots.{robot_id}.dm_url moet een expliciete poort bevatten."
+    bind_host = _local_dm_bind_host(host)
+    if bind_host is None:
+        return None, f"robots.{robot_id}.dm_url moet naar een lokale host wijzen om een DM te starten."
+    return DmLaunchSpec(
+        robot_id=str(robot_id or ""),
+        dm_url=dm_url,
+        bind_host=bind_host,
+        port=int(port),
+        instance_id=instance_id,
+    ), None
+
+
+def _build_dm_launch_command(spec: DmLaunchSpec) -> List[str]:
+    python_cmd = [str(DM_PYTHON), str(DM_WEBAPP), "--host", spec.bind_host, "--port", str(spec.port)]
+    if spec.instance_id:
+        python_cmd.extend(["--instance-id", spec.instance_id])
+    return ["cmd.exe", "/k", subprocess.list2cmdline(python_cmd)]
+
+
+def _local_target_is_occupied(spec: DmLaunchSpec) -> bool:
+    probe_host = spec.bind_host
+    if probe_host == "0.0.0.0":
+        probe_host = "127.0.0.1"
+    elif probe_host == "::":
+        probe_host = "::1"
+    try:
+        with socket.create_connection((probe_host, spec.port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
+def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
+    cmd = _build_dm_launch_command(spec)
+    try:
+        subprocess.Popen(
+            cmd,
+            cwd=str(DM_DIR),
+            creationflags=CREATE_NEW_CONSOLE,
+        )
+    except OSError as exc:
+        return _dm_launch_result(
+            robot_id=spec.robot_id,
+            dm_url=spec.dm_url,
+            instance_id=spec.instance_id,
+            started=False,
+            message=f"DM starten mislukt: {exc}",
+            port=spec.port,
+        )
+    return _dm_launch_result(
+        robot_id=spec.robot_id,
+        dm_url=spec.dm_url,
+        instance_id=spec.instance_id,
+        started=True,
+        message="DM gestart in een nieuw cmd-venster.",
+        port=spec.port,
+    )
+
+
+def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
+    script_raw = payload.get("script") if isinstance(payload, dict) else None
+    if not isinstance(script_raw, dict):
+        return HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload("Expected JSON body with object field 'script'.")
+    try:
+        script = validate_script(script_raw)
+    except ScriptSchemaError as exc:
+        return HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(f"Schema error: {exc}")
+
+    prereq_error = _dm_launcher_prereq_error()
+    if prereq_error:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, RunSessionManager._error_payload(prereq_error)
+
+    robot_items = list((script.get("robots") or {}).items())
+    results: List[Optional[Dict[str, Any]]] = [None] * len(robot_items)
+    specs_by_index: Dict[int, DmLaunchSpec] = {}
+    target_map: Dict[int, List[int]] = {}
+
+    for index, (robot_id, robot_cfg_raw) in enumerate(robot_items):
+        robot_cfg = robot_cfg_raw if isinstance(robot_cfg_raw, dict) else {}
+        spec, error = _parse_dm_launch_spec(str(robot_id or ""), robot_cfg)
+        if error:
+            results[index] = _dm_launch_result(
+                robot_id=str(robot_id or ""),
+                dm_url=str(robot_cfg.get("dm_url") or ""),
+                instance_id=str(robot_cfg.get("instance_id") or "").strip(),
+                started=False,
+                message=error,
+            )
+            continue
+        specs_by_index[index] = spec
+        target_map.setdefault(spec.port, []).append(index)
+
+    for positions in target_map.values():
+        if len(positions) < 2:
+            continue
+        first = specs_by_index[positions[0]]
+        target_label = f"{first.bind_host}:{first.port}"
+        for pos in positions:
+            spec = specs_by_index[pos]
+            results[pos] = _dm_launch_result(
+                robot_id=spec.robot_id,
+                dm_url=spec.dm_url,
+                instance_id=spec.instance_id,
+                started=False,
+                message=f"Dubbele lokale DM target in script: {target_label}.",
+                port=spec.port,
+            )
+
+    for index, spec in specs_by_index.items():
+        if results[index] is not None:
+            continue
+        if _local_target_is_occupied(spec):
+            results[index] = _dm_launch_result(
+                robot_id=spec.robot_id,
+                dm_url=spec.dm_url,
+                instance_id=spec.instance_id,
+                started=False,
+                message=f"Er draait al iets op {spec.dm_url}.",
+                port=spec.port,
+            )
+            continue
+        results[index] = _start_dm_process(spec)
+
+    final_results = [item for item in results if item is not None]
+    started_count = sum(1 for item in final_results if item.get("started"))
+    error_count = len(final_results) - started_count
+    if started_count and not error_count:
+        message = f"{started_count} DM{'s' if started_count != 1 else ''} gestart."
+    elif started_count and error_count:
+        message = f"{started_count} DM gestart, {error_count} fout."
+    else:
+        message = "Geen DM's gestart."
+    return HTTPStatus.OK, {
+        "ok": True,
+        "results": final_results,
+        "started_count": started_count,
+        "error_count": error_count,
+        "message": message,
+    }
 
 
 class RunSessionManager:
@@ -285,6 +505,14 @@ class ScriptBuilderHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
+        if parsed.path == "/api/dm/start":
+            ok, payload, error = self._read_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            status, response = start_dialog_managers(payload)
+            self._send_json(status, response)
+            return
         if parsed.path == "/api/run/start":
             ok, payload, error = self._read_json_body()
             if not ok:

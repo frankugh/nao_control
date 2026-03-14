@@ -1241,9 +1241,174 @@ def test_ppt_actions_call_controller_methods(tmp_path):
     result = runner.run()
     assert result.aborted is False
     assert result.completed_steps == 3
-    assert fake_ppt.calls[0][0] == "next_slide"
-    assert fake_ppt.calls[1][0] == "previous_slide"
-    assert fake_ppt.calls[2] == ("goto", 3, 2)
+    assert fake_ppt.calls[0] == ("goto", 1, 0)
+    assert fake_ppt.calls[1][0] == "next_slide"
+    assert fake_ppt.calls[2][0] == "previous_slide"
+    assert fake_ppt.calls[3] == ("goto", 3, 2)
+
+
+def test_new_run_resets_ppt_to_start_before_first_step(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    class FakePpt:
+        def __init__(self) -> None:
+            self.position = {"slide": 4, "build": 2}
+            self.calls: List[Tuple[str, int, int | None]] = []
+
+        def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
+            return None
+
+        def next_slide(self) -> None:
+            self.calls.append(("next_slide", self.position["slide"], self.position["build"]))
+            self.position["slide"] += 1
+            self.position["build"] = 0
+
+        def previous_slide(self) -> None:
+            self.calls.append(("previous_slide", self.position["slide"], self.position["build"]))
+            self.position["slide"] = max(1, self.position["slide"] - 1)
+            self.position["build"] = 0
+
+        def goto(self, slide: int, build=None) -> None:
+            self.calls.append(("goto", int(slide), int(build) if build is not None else None))
+            self.position["slide"] = int(slide)
+            self.position["build"] = int(build) if build is not None else 0
+
+        def get_position(self):
+            return dict(self.position)
+
+        def is_fullscreen_slideshow(self) -> bool:
+            return True
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": True,
+    }
+    script["steps"] = [
+        {
+            "id": "p1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "ppt", "mode": "next_slide"},
+        }
+    ]
+
+    fake_ppt = FakePpt()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        ppt_controller=fake_ppt,
+    )
+    result = runner.run()
+
+    assert result.aborted is False
+    assert result.completed_steps == 1
+    assert fake_ppt.calls[0] == ("goto", 1, 0)
+    assert fake_ppt.calls[1] == ("next_slide", 1, 0)
+
+
+def test_with_prev_group_keeps_ppt_on_runner_thread(tmp_path):
+    say_calls: List[Tuple[str, int]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, timeout_s=None):
+            say_calls.append((text, threading.get_ident()))
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    class FakePpt:
+        def __init__(self) -> None:
+            self.position = {"slide": 1, "build": 0}
+            self.owner_thread: int | None = None
+            self.calls: List[Tuple[str, int]] = []
+
+        def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
+            self.owner_thread = threading.get_ident()
+
+        def next_slide(self) -> None:
+            current_thread = threading.get_ident()
+            if current_thread != self.owner_thread:
+                raise RuntimeError(
+                    f"ppt thread mismatch: owner={self.owner_thread} current={current_thread}"
+                )
+            self.calls.append(("next_slide", current_thread))
+            self.position["slide"] += 1
+            self.position["build"] = 0
+
+        def previous_slide(self) -> None:
+            self.position["slide"] = max(1, self.position["slide"] - 1)
+            self.position["build"] = 0
+
+        def goto(self, slide: int, build=None) -> None:
+            self.position["slide"] = int(slide)
+            self.position["build"] = int(build) if build is not None else 0
+
+        def get_position(self):
+            return dict(self.position)
+
+        def is_fullscreen_slideshow(self) -> bool:
+            return True
+
+    script = _script_template()
+    script["ppt"] = {
+        "enabled": True,
+        "file": "C:/slides/demo.pptx",
+        "fullscreen_required": True,
+        "start_capture_on_run": True,
+    }
+    script["steps"] = [
+        {
+            "id": "p1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "ppt", "mode": "next_slide"},
+        },
+        {
+            "id": "r1",
+            "robot_id": "nao1",
+            "start": {"mode": "with_prev"},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        },
+    ]
+
+    fake_ppt = FakePpt()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        ppt_controller=fake_ppt,
+    )
+    result = runner.run()
+    assert result.aborted is False
+    assert result.completed_steps == 2
+    assert fake_ppt.owner_thread is not None
+    assert fake_ppt.calls == [("next_slide", fake_ppt.owner_thread)]
+    assert len(say_calls) == 1
+    assert say_calls[0][0] == "hello"
 
 
 def test_sync_mismatch_triggers_hard_pause_and_resume(tmp_path):
@@ -1591,7 +1756,7 @@ def test_ppt_mismatch_policy_defer_snapback(tmp_path):
     result = runner.run()
     assert result.aborted is False
     assert result.completed_steps == 1
-    assert fake_ppt.goto_calls == [(1, 0)]
+    assert fake_ppt.goto_calls == [(1, 0), (1, 0)]
     log_text = result.log_path.read_text(encoding="utf-8")
     assert "defer snapback at next script step" in log_text
     assert "applying deferred snapback before next step" in log_text

@@ -81,10 +81,12 @@
         <section class="runtime-panel">
           <h2>Run</h2>
           <div class="row-actions runtime-actions">
+            <button id="btnDmStart" type="button">Start DM's</button>
             <button id="btnRunStart" type="button">Start</button>
             <button id="btnRunNext" type="button" disabled>Next</button>
             <button id="btnRunAbort" type="button" disabled>Abort</button>
           </div>
+          <div id="dmStartResults" class="dm-start-results is-hidden"></div>
           <div class="runtime-meta">
             <div>Status: <span id="runStatus">idle</span></div>
             <div>Progress: <span id="runProgress">0 / 0</span></div>

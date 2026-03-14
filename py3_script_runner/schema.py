@@ -106,6 +106,11 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
         robot_cfg = _as_dict(robot_cfg_raw, f"robots.{rid}")
         dm_url = _as_nonempty_str(robot_cfg.get("dm_url"), f"robots.{rid}.dm_url")
         normalized_robot: Dict[str, Any] = {"dm_url": dm_url}
+        instance_id = robot_cfg.get("instance_id", None)
+        if instance_id is not None:
+            if not isinstance(instance_id, str) or not instance_id.strip():
+                _fail(f"robots.{rid}.instance_id must be a non-empty string if provided")
+            normalized_robot["instance_id"] = instance_id.strip()
         runtime_config = robot_cfg.get("runtime_config", None)
         if runtime_config is not None:
             if not isinstance(runtime_config, dict):
