@@ -18,7 +18,7 @@ ALLOWED_DO_MODES = {
     "summary_publish",
     "summary_cancel",
 }
-ALLOWED_PPT_MODES = {"next_build", "prev_build", "goto"}
+ALLOWED_PPT_MODES = {"next_slide", "previous_slide", "goto"}
 ALLOWED_ON_ERROR = {"prompt", "abort", "continue"}
 
 
@@ -269,14 +269,15 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
         else:
             ppt_mode = str(action.get("mode") or "").strip().lower()
             if ppt_mode not in ALLOWED_PPT_MODES:
-                _fail(f"steps[{idx}].action.mode must be one of: next_build, prev_build, goto")
+                _fail(f"steps[{idx}].action.mode must be one of: next_slide, previous_slide, goto")
             normalized_step["action"]["mode"] = ppt_mode
             if ppt_mode == "goto":
                 normalized_step["action"]["slide"] = _as_positive_int(action.get("slide"), f"steps[{idx}].action.slide")
-                if "build" in action and action.get("build") is not None:
-                    normalized_step["action"]["build"] = _as_nonnegative_int(
-                        action.get("build"),
-                        f"steps[{idx}].action.build",
+                click_value = action.get("click", action.get("build"))
+                if click_value is not None:
+                    normalized_step["action"]["click"] = _as_nonnegative_int(
+                        click_value,
+                        f"steps[{idx}].action.click",
                     )
 
         steps.append(normalized_step)

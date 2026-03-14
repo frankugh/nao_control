@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -434,23 +434,23 @@ class ScriptRunner:
         self._log("[CAPTURE] ON" if self._capture_on else "[CAPTURE] OFF")
         self._ppt_prepared = True
 
-    def _operator_next_build(self) -> None:
+    def _operator_next_slide(self) -> None:
         controller = self._get_ppt_controller()
         try:
-            controller.next_build()
+            controller.next_slide()
         except PPTControllerError as exc:
             raise RuntimeError(str(exc)) from exc
         pos = self._get_ppt_position()
-        self._log(f"[PPT] operator next -> {self._format_position(pos)}")
+        self._log(f"[PPT] operator next slide -> {self._format_position(pos)}")
 
-    def _operator_prev_build(self) -> None:
+    def _operator_previous_slide(self) -> None:
         controller = self._get_ppt_controller()
         try:
-            controller.prev_build()
+            controller.previous_slide()
         except PPTControllerError as exc:
             raise RuntimeError(str(exc)) from exc
         pos = self._get_ppt_position()
-        self._log(f"[PPT] operator prev -> {self._format_position(pos)}")
+        self._log(f"[PPT] operator previous slide -> {self._format_position(pos)}")
 
     def _snapback_to_script_anchor(self) -> None:
         if not self.ppt_enabled:
@@ -511,13 +511,13 @@ class ScriptRunner:
 
         while not self._capture_on:
             self._raise_if_abort_requested()
-            self._log("[CAPTURE] paused (ENTER=next_build, p=prev_build, c=capture ON, q=quit)")
+            self._log("[CAPTURE] paused (ENTER=next slide, p=previous slide, c=capture ON, q=quit)")
             choice = self._read_control_input("")
             if choice == "":
-                self._operator_next_build()
+                self._operator_next_slide()
                 continue
             if choice in {"p", "prev", "previous"}:
-                self._operator_prev_build()
+                self._operator_previous_slide()
                 continue
             if choice in {"c", "capture"}:
                 self._capture_on = True
@@ -663,14 +663,14 @@ class ScriptRunner:
             controller = self._get_ppt_controller()
             ppt_mode = str(action.get("mode") or "").strip().lower()
             try:
-                if ppt_mode == "next_build":
-                    controller.next_build()
-                elif ppt_mode == "prev_build":
-                    controller.prev_build()
+                if ppt_mode == "next_slide":
+                    controller.next_slide()
+                elif ppt_mode == "previous_slide":
+                    controller.previous_slide()
                 elif ppt_mode == "goto":
                     slide = int(action.get("slide"))
-                    build = action.get("build")
-                    controller.goto(slide, int(build) if build is not None else None)
+                    click = action.get("click", action.get("build"))
+                    controller.goto(slide, int(click) if click is not None else None)
                 else:
                     raise RuntimeError(f"unsupported ppt mode: {ppt_mode}")
             except PPTControllerError as exc:

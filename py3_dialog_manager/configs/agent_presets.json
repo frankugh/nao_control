@@ -234,7 +234,7 @@
         "llm_top_p": null,
         "llm_top_k": null,
         "master_prompt_file": "master_prompts/atlantis_Alex.txt",
-        "output_target": "none",
+        "output_target": "server",
         "output_device": null,
         "tts_engine": "azure",
         "piper_model_path": "C:\\NAOqi_fundamentals\\NAO_Controller_WebAPI\\piper_tts_models\\nl\\nl_BE\\nathalie\\medium\\nl_BE-nathalie-medium.onnx",

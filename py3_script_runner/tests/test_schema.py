@@ -130,7 +130,7 @@ def test_validate_script_accepts_with_prev_and_ppt_step():
     script["steps"][0] = {
         "id": "s1",
         "start": {"mode": "with_prev"},
-        "action": {"type": "ppt", "mode": "next_build"},
+        "action": {"type": "ppt", "mode": "next_slide"},
     }
     validated = validate_script(script)
     assert validated["ppt"]["enabled"] is True
@@ -138,7 +138,7 @@ def test_validate_script_accepts_with_prev_and_ppt_step():
     assert validated["steps"][0]["start"]["mode"] == "with_prev"
     assert validated["steps"][0]["start"]["delay_s"] == 0.0
     assert validated["steps"][0]["action"]["type"] == "ppt"
-    assert validated["steps"][0]["action"]["mode"] == "next_build"
+    assert validated["steps"][0]["action"]["mode"] == "next_slide"
 
 
 def test_validate_script_rejects_ppt_goto_without_slide():
@@ -153,6 +153,33 @@ def test_validate_script_rejects_ppt_goto_without_slide():
         validate_script(script)
 
 
+def test_validate_script_accepts_ppt_goto_with_click():
+    script = _base_script()
+    script["ppt"] = {"enabled": True, "file": "C:/slides/workshop.pptx"}
+    script["steps"][0] = {
+        "id": "s1",
+        "start": {"mode": "manual"},
+        "action": {"type": "ppt", "mode": "goto", "slide": 3, "click": 2},
+    }
+    validated = validate_script(script)
+    assert validated["steps"][0]["action"]["mode"] == "goto"
+    assert validated["steps"][0]["action"]["slide"] == 3
+    assert validated["steps"][0]["action"]["click"] == 2
+
+
+def test_validate_script_accepts_legacy_ppt_goto_build_alias():
+    script = _base_script()
+    script["ppt"] = {"enabled": True, "file": "C:/slides/workshop.pptx"}
+    script["steps"][0] = {
+        "id": "s1",
+        "start": {"mode": "manual"},
+        "action": {"type": "ppt", "mode": "goto", "slide": 3, "build": 2},
+    }
+    validated = validate_script(script)
+    assert validated["steps"][0]["action"]["click"] == 2
+    assert "build" not in validated["steps"][0]["action"]
+
+
 def test_validate_script_rejects_invalid_ppt_mode():
     script = _base_script()
     script["steps"][0] = {
@@ -160,7 +187,7 @@ def test_validate_script_rejects_invalid_ppt_mode():
         "start": {"mode": "manual"},
         "action": {"type": "ppt", "mode": "jump"},
     }
-    with pytest.raises(ScriptSchemaError, match="action.mode must be one of: next_build, prev_build, goto"):
+    with pytest.raises(ScriptSchemaError, match="action.mode must be one of: next_slide, previous_slide, goto"):
         validate_script(script)
 
 

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5302"
+    }
+  },
+  "ppt": {
+    "enabled": true,
+    "file": "C:/NAOqi_fundamentals/NAO_Controller_WebAPI/py3_script_runner/assets/presentations/Demo NAO Studio.pptx",
+    "fullscreen_required": false,
+    "start_capture_on_run": true
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "ppt_next_001",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "intro_welcome",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "He! Vergeet mij niet. Ik mag vandaag toch ook meedoen? "
+      }
+    },
+    {
+      "id": "ppt_next_2",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    }
+  ]
+}

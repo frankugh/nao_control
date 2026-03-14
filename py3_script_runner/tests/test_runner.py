@@ -1120,11 +1120,11 @@ def test_capture_off_pauses_execution_and_snaps_back_on_resume(tmp_path):
         def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
             return None
 
-        def next_build(self) -> None:
+        def next_slide(self) -> None:
             self.next_calls += 1
             self.position["build"] += 1
 
-        def prev_build(self) -> None:
+        def previous_slide(self) -> None:
             self.prev_calls += 1
             self.position["build"] = max(0, self.position["build"] - 1)
 
@@ -1175,7 +1175,7 @@ def test_capture_off_pauses_execution_and_snaps_back_on_resume(tmp_path):
     assert "[CAPTURE] OFF" in log_text
     assert "[CAPTURE] ON" in log_text
     assert "[PPT] snapback to slide=1 build=0" in log_text
-    assert "[PPT] operator next -> slide=1 build=1" in log_text
+    assert "[PPT] operator next slide -> slide=1 build=1" in log_text
 
 
 def test_ppt_actions_call_controller_methods(tmp_path):
@@ -1197,12 +1197,12 @@ def test_ppt_actions_call_controller_methods(tmp_path):
         def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
             return None
 
-        def next_build(self) -> None:
-            self.calls.append(("next_build", self.position["slide"], self.position["build"]))
+        def next_slide(self) -> None:
+            self.calls.append(("next_slide", self.position["slide"], self.position["build"]))
             self.position["build"] += 1
 
-        def prev_build(self) -> None:
-            self.calls.append(("prev_build", self.position["slide"], self.position["build"]))
+        def previous_slide(self) -> None:
+            self.calls.append(("previous_slide", self.position["slide"], self.position["build"]))
             self.position["build"] = max(0, self.position["build"] - 1)
 
         def goto(self, slide: int, build=None) -> None:
@@ -1224,9 +1224,9 @@ def test_ppt_actions_call_controller_methods(tmp_path):
         "start_capture_on_run": True,
     }
     script["steps"] = [
-        {"id": "p1", "start": {"mode": "after_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "next_build"}},
-        {"id": "p2", "start": {"mode": "with_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "prev_build"}},
-        {"id": "p3", "start": {"mode": "after_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "goto", "slide": 3, "build": 2}},
+        {"id": "p1", "start": {"mode": "after_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "next_slide"}},
+        {"id": "p2", "start": {"mode": "with_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "previous_slide"}},
+        {"id": "p3", "start": {"mode": "after_prev", "delay_s": 0}, "request_timeout_s": 12, "on_error": "prompt", "action": {"type": "ppt", "mode": "goto", "slide": 3, "click": 2}},
     ]
 
     fake_ppt = FakePpt()
@@ -1241,8 +1241,8 @@ def test_ppt_actions_call_controller_methods(tmp_path):
     result = runner.run()
     assert result.aborted is False
     assert result.completed_steps == 3
-    assert fake_ppt.calls[0][0] == "next_build"
-    assert fake_ppt.calls[1][0] == "prev_build"
+    assert fake_ppt.calls[0][0] == "next_slide"
+    assert fake_ppt.calls[1][0] == "previous_slide"
     assert fake_ppt.calls[2] == ("goto", 3, 2)
 
 
@@ -1268,10 +1268,10 @@ def test_sync_mismatch_triggers_hard_pause_and_resume(tmp_path):
         def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
             return None
 
-        def next_build(self) -> None:
+        def next_slide(self) -> None:
             self.position["build"] += 1
 
-        def prev_build(self) -> None:
+        def previous_slide(self) -> None:
             self.position["build"] = max(0, self.position["build"] - 1)
 
         def goto(self, slide: int, build=None) -> None:
@@ -1541,10 +1541,10 @@ def test_ppt_mismatch_policy_defer_snapback(tmp_path):
         def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
             return None
 
-        def next_build(self) -> None:
+        def next_slide(self) -> None:
             self.position["build"] += 1
 
-        def prev_build(self) -> None:
+        def previous_slide(self) -> None:
             self.position["build"] = max(0, self.position["build"] - 1)
 
         def goto(self, slide: int, build=None) -> None:

@@ -23,7 +23,7 @@
       },
       "action": {
         "type": "ppt",
-        "mode": "next_build"
+        "mode": "next_slide"
       }
     },
     {

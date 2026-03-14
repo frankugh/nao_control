@@ -34,25 +34,48 @@
           <button class="btnQuickOpen" type="button" data-example="example_workshop_summary.json">example_workshop_summary.json</button>
         </div>
 
-        <label for="editorJson" class="label">Script JSON</label>
-        <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+        <div class="view-tabs" role="tablist" aria-label="Editor view">
+          <button id="btnTabJson" class="tab-btn is-active" type="button">JSON</button>
+          <button id="btnTabBlocks" class="tab-btn" type="button">Blocks</button>
+        </div>
+
+        <div id="jsonView" class="editor-view">
+          <label for="editorJson" class="label">Script JSON</label>
+          <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+        </div>
+
+        <div id="blocksView" class="editor-view is-hidden">
+          <label for="blocksConfigJson" class="label">Config JSON (robots / ppt / defaults)</label>
+          <textarea id="blocksConfigJson" spellcheck="false" autocomplete="off"></textarea>
+          <div class="row-actions blocks-config-actions">
+            <button id="btnApplyConfig" type="button">Apply config</button>
+          </div>
+          <div id="blocksConfigError" class="inline-error is-hidden"></div>
+
+          <label class="label">Steps (cards)</label>
+          <div id="stepsCards" class="steps-cards"></div>
+          <div id="blocksEmpty" class="blocks-empty is-hidden">Geen steps aanwezig. Voeg een template toe.</div>
+        </div>
       </section>
 
       <aside class="builder-panel">
-        <h2>Add blok</h2>
+        <div class="builder-main">
+          <h2>Add blok</h2>
 
-        <label for="selCategory" class="label">Categorie</label>
-        <select id="selCategory"></select>
+          <label for="selCategory" class="label">Categorie</label>
+          <select id="selCategory"></select>
 
-        <label for="selTemplate" class="label">Template</label>
-        <select id="selTemplate"></select>
+          <label for="selTemplate" class="label">Template</label>
+          <select id="selTemplate"></select>
 
-        <label for="previewJson" class="label">Template preview (bewerkbaar)</label>
-        <textarea id="previewJson" spellcheck="false" autocomplete="off"></textarea>
+          <label class="label">Template blocks (bewerkbaar)</label>
+          <div id="templateCards" class="template-cards"></div>
+          <div id="templateCardsEmpty" class="blocks-empty is-hidden">Geen template steps beschikbaar.</div>
 
-        <div class="row-actions">
-          <button id="btnCopyTemplate" type="button">Kopieer template</button>
-          <button id="btnInsertTemplate" type="button">Voeg toe aan steps</button>
+          <div class="row-actions">
+            <button id="btnCopyTemplate" type="button">Kopieer template</button>
+            <button id="btnInsertTemplate" type="button">Voeg toe aan steps</button>
+          </div>
         </div>
 
         <section class="runtime-panel">
@@ -77,6 +100,6 @@
       <div id="statusMessage" class="status status-info">Laden...</div>
     </footer>
 
-    <script src="./app.js"></script>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>

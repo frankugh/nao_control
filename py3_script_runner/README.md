@@ -15,7 +15,7 @@ Console script runner for workshop orchestration across one or more dialog manag
   - `say`
   - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`, `nao_set_eye_color`, `summary_capture_start`, `summary_capture_stop_and_draft`, `summary_publish`, `summary_cancel`)
   - `pause`
-  - `ppt` (`next_build`, `prev_build`, `goto`)
+  - `ppt` (`next_slide`, `previous_slide`, `goto`)
 - Uses DM wrapper endpoints:
   - `POST /api/script/say`
   - `POST /api/script/do`
@@ -32,7 +32,7 @@ Console script runner for workshop orchestration across one or more dialog manag
   - `start_capture_on_run` (default `true`)
 - Capture controls:
   - `c`: toggle capture ON/OFF
-  - when capture is OFF: `ENTER` = next build, `p` = previous build, `q` = quit prompt
+  - when capture is OFF: `ENTER` = next slide, `p` = previous slide, `q` = quit prompt
 - Runner logs capture and position events:
   - `[CAPTURE] ON/OFF`
   - `[PPT] slide=X build=Y`
@@ -79,6 +79,14 @@ Features:
 - Add-blok paneel met templates voor `NAO gedrag`, `PPTX`, `Summary`
 - Bewerkbaar template preview veld met kopieerknop en auto-insert in `steps`
 
+Frontend tests (Script Builder web):
+
+```powershell
+cd py3_script_runner\script_builder_web
+npm install
+npm test
+```
+
 Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Access API (Edge/Chrome).
 
 ## Script format (summary)
@@ -104,7 +112,8 @@ Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Acce
       - `summary_capture_stop_and_draft`: requires `action.input_prompt_template`
       - optional for `summary_capture_stop_and_draft`: `action.instruction`, `action.system_prompt`, `action.system_prompt_file`
     - `pause`: requires `action.seconds`
-    - `ppt`: `action.mode` is `next_build|prev_build|goto`
+    - `ppt`: `action.mode` is `next_slide|previous_slide|goto`
+      - `goto`: requires `action.slide`, optional `action.click` (0 = slide start state)
 
 - optional top-level `ppt`:
   - `enabled` (bool, default `false`)
@@ -178,12 +187,12 @@ For less clipped utterance starts, set a larger continuous mic pre-roll in `robo
     {
       "id": "p1",
       "start": { "mode": "manual" },
-      "action": { "type": "ppt", "mode": "next_build" }
+      "action": { "type": "ppt", "mode": "next_slide" }
     },
     {
       "id": "p2",
       "start": { "mode": "with_prev" },
-      "action": { "type": "ppt", "mode": "goto", "slide": 5, "build": 2 }
+      "action": { "type": "ppt", "mode": "goto", "slide": 5, "click": 2 }
     }
   ]
 }

@@ -32,8 +32,9 @@ body {
 
 body {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 h1,
@@ -71,6 +72,7 @@ p {
   gap: 14px;
   padding: 14px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .editor-panel,
@@ -82,7 +84,18 @@ p {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   box-shadow: 0 10px 30px rgba(25, 49, 79, 0.07);
+}
+
+.builder-panel {
+  gap: 10px;
+}
+
+.builder-main {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .toolbar,
@@ -135,6 +148,10 @@ button:disabled {
   color: var(--muted);
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 textarea,
 select {
   width: 100%;
@@ -150,20 +167,218 @@ textarea {
   resize: none;
 }
 
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tab-btn {
+  min-width: 84px;
+}
+
+.tab-btn.is-active {
+  background: linear-gradient(180deg, #dcecff 0%, #c9e0fb 100%);
+  border-color: var(--accent);
+}
+
+.editor-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 #editorJson {
   flex: 1 1 auto;
   min-height: 360px;
 }
 
-#previewJson {
+#blocksConfigJson {
+  min-height: 120px;
+  flex: 0 0 auto;
+}
+
+.blocks-config-actions {
+  margin-top: 8px;
+}
+
+.steps-cards {
   flex: 1 1 auto;
+  min-height: 140px;
+  overflow: auto;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #f8fbff;
+}
+
+.template-cards {
+  flex: 0 1 auto;
   min-height: 220px;
+  max-height: min(48vh, 540px);
+  overflow: auto;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #f8fbff;
+}
+
+.template-step-card {
+  margin-bottom: 8px;
+}
+
+.template-step-card:last-child {
+  margin-bottom: 0;
+}
+
+.template-advanced {
+  min-height: 120px;
+}
+
+.template-inline-error {
+  margin-top: 6px;
+}
+
+.blocks-empty {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inline-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--error);
+  background: #fee9e9;
+  border: 1px solid #f1bcbc;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.step-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.step-card:last-child {
+  margin-bottom: 0;
+}
+
+.step-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(42, 110, 187, 0.3);
+}
+
+.step-card.is-run-current {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 1px rgba(31, 122, 70, 0.35);
+  background: #eefaf2;
+}
+
+.step-card.is-run-next {
+  border-color: #c28a00;
+  box-shadow: 0 0 0 1px rgba(194, 138, 0, 0.35);
+  background: #fff8e6;
+}
+
+.step-card.is-drag-over {
+  border-color: var(--accent-dark);
+  background: #edf5ff;
+}
+
+.step-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drag-handle {
+  cursor: grab;
+  width: 28px;
+  padding: 6px 0;
+  text-align: center;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.step-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.step-type {
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.step-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.step-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+}
+
+.field textarea {
+  min-height: 88px;
+}
+
+.field.is-wide {
+  grid-column: span 2;
+}
+
+.step-advanced-wrap {
+  margin-top: 8px;
+}
+
+.step-advanced {
+  min-height: 120px;
+}
+
+.step-inline-error {
+  margin-top: 6px;
 }
 
 .runtime-panel {
-  margin-top: 12px;
+  margin-top: 0;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+  flex: 0 0 auto;
+  background: var(--panel);
 }
 
 .runtime-actions {
@@ -229,7 +444,11 @@ footer {
     min-height: 280px;
   }
 
-  #previewJson {
-    min-height: 180px;
+  .step-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field.is-wide {
+    grid-column: span 1;
   }
 }

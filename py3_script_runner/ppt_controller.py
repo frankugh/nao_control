@@ -13,13 +13,13 @@ class PptControllerProtocol(Protocol):
     def open_and_start_slideshow(self, file_path: str, fullscreen_required: bool = True) -> None:
         ...
 
-    def next_build(self) -> None:
+    def next_slide(self) -> None:
         ...
 
-    def prev_build(self) -> None:
+    def previous_slide(self) -> None:
         ...
 
-    def goto(self, slide: int, build: Optional[int] = None) -> None:
+    def goto(self, slide: int, click: Optional[int] = None) -> None:
         ...
 
     def get_position(self) -> Dict[str, int]:
@@ -175,7 +175,7 @@ class ComPptController:
         if fullscreen_required and not self.is_fullscreen_slideshow():
             raise PPTControllerError("PowerPoint slideshow is not fullscreen.")
 
-    def next_build(self) -> None:
+    def next_slide(self) -> None:
         view = self._require_view()
         try:
             view.Next()
@@ -186,9 +186,9 @@ class ComPptController:
         try:
             view.Next()
         except Exception as exc:
-            raise PPTControllerError(f"PowerPoint next_build failed: {exc}") from exc
+            raise PPTControllerError(f"PowerPoint next_slide failed: {exc}") from exc
 
-    def prev_build(self) -> None:
+    def previous_slide(self) -> None:
         view = self._require_view()
         try:
             view.Previous()
@@ -199,9 +199,9 @@ class ComPptController:
         try:
             view.Previous()
         except Exception as exc:
-            raise PPTControllerError(f"PowerPoint prev_build failed: {exc}") from exc
+            raise PPTControllerError(f"PowerPoint previous_slide failed: {exc}") from exc
 
-    def goto(self, slide: int, build: Optional[int] = None) -> None:
+    def goto(self, slide: int, click: Optional[int] = None) -> None:
         view = self._require_view()
         slide_idx = int(slide)
         if slide_idx <= 0:
@@ -215,21 +215,21 @@ class ComPptController:
                 view.GotoSlide(slide_idx)
             except Exception as exc:
                 raise PPTControllerError(f"PowerPoint goto slide failed: {exc}") from exc
-        if build is None:
+        if click is None:
             return
-        build_idx = int(build)
-        # Build index 0 means "slide default state"; no additional click navigation needed.
-        if build_idx <= 0:
+        click_idx = int(click)
+        # Click index 0 means "slide default state"; no additional click navigation needed.
+        if click_idx <= 0:
             return
         try:
-            view.GotoClick(build_idx)
+            view.GotoClick(click_idx)
         except Exception:
             self._refresh_live_refs()
             view = self._require_view()
             try:
-                view.GotoClick(build_idx)
+                view.GotoClick(click_idx)
             except Exception as exc:
-                raise PPTControllerError(f"PowerPoint goto build failed: {exc}") from exc
+                raise PPTControllerError(f"PowerPoint goto click failed: {exc}") from exc
 
     def get_position(self) -> Dict[str, int]:
         view = self._require_view()

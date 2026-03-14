@@ -140,8 +140,8 @@
       "category_label": "PPTX",
       "templates": [
         {
-          "template_key": "ppt_next_build",
-          "template_label": "ppt.next_build",
+          "template_key": "ppt_next_slide",
+          "template_label": "ppt.next slide",
           "snippet": {
             "id": "ppt_next_001",
             "start": {
@@ -149,13 +149,13 @@
             },
             "action": {
               "type": "ppt",
-              "mode": "next_build"
+              "mode": "next_slide"
             }
           }
         },
         {
-          "template_key": "ppt_prev_build",
-          "template_label": "ppt.prev_build",
+          "template_key": "ppt_previous_slide",
+          "template_label": "ppt.previous slide",
           "snippet": {
             "id": "ppt_prev_001",
             "start": {
@@ -163,7 +163,7 @@
             },
             "action": {
               "type": "ppt",
-              "mode": "prev_build"
+              "mode": "previous_slide"
             }
           }
         },
@@ -179,7 +179,7 @@
               "type": "ppt",
               "mode": "goto",
               "slide": 1,
-              "build": 0
+              "click": 0
             }
           }
         }
