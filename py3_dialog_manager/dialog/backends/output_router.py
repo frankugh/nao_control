@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import shutil
 import subprocess
 import io
+import sys
 import tempfile
 import wave
 import time
-from typing import Optional
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
@@ -72,20 +77,60 @@ class OutputRouterBackend(OutputBackend):
         self.azure_rate_pct = None if azure_tts_rate is None else float(azure_tts_rate)
         self.azure_pitch_st = None if azure_tts_pitch is None else float(azure_tts_pitch)
         self.azure_volume_db = None if azure_tts_volume_db is None else float(azure_tts_volume_db)
-        self.piper_bin = piper_bin or "piper"
+        self.piper_bin = self._resolve_piper_bin(piper_bin)
         self._no_op = NoOpOutputBackend()
         self._console = ConsoleOutputBackend()
         self._nao = NaoTTSOutputBackend(api_router=api_router, timeout=timeout or 5.0)
         self._api_router = api_router
         self._timeout = float(timeout) if timeout else 5.0
         self._warned = False
+        self._last_error_message = ""
         self._stream_failures = 0
         self._stream_cooldown_until = 0.0
         self._stream_fail_threshold = 2
         self._stream_cooldown_s = 300.0
 
     def _warn(self, msg: str) -> None:
+        self._last_error_message = str(msg or "").strip()
         self._console.emit(msg)
+
+    def last_error_message(self) -> str:
+        return str(self._last_error_message or "").strip()
+
+    @staticmethod
+    def _resolve_piper_bin(configured_value: Optional[str]) -> str:
+        configured = str(configured_value or "").strip()
+        candidates: list[str] = []
+        if configured:
+            candidates.append(configured)
+        else:
+            candidates.append("piper")
+        which_name = configured or "piper"
+        resolved = shutil.which(which_name)
+        if resolved:
+            candidates.append(resolved)
+        exe_dir = Path(sys.executable).resolve().parent
+        repo_root = Path(__file__).resolve().parents[3]
+        local_candidates = [
+            exe_dir / "piper.exe",
+            exe_dir / "piper",
+            repo_root / "py3_dialog_manager" / "venv" / "Scripts" / "piper.exe",
+            repo_root / "py3_dialog_manager" / "venv" / "Scripts" / "piper",
+        ]
+        for path in local_candidates:
+            candidates.append(str(path))
+        for candidate in candidates:
+            value = str(candidate or "").strip()
+            if not value:
+                continue
+            if os.path.isfile(value):
+                return value
+        return configured or "piper"
+
+    @staticmethod
+    def _stable_fingerprint(payload: Dict[str, Any]) -> str:
+        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def _wav_bytes_to_int16(self, wav_bytes: bytes) -> tuple[np.ndarray, int]:
         with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
@@ -159,19 +204,100 @@ class OutputRouterBackend(OutputBackend):
         sd.play(audio, samplerate=sample_rate, device=self.output_device)
         sd.wait()
 
-    def _send_wav_to_nao(self, wav_bytes: bytes, filename: str = "piper.wav") -> None:
+    def _send_wav_to_nao(self, wav_bytes: bytes, filename: str = "piper.wav") -> bool:
         if self._api_router is None:
             self._warn("[output] NAO router ontbreekt; kan audio niet sturen.")
-            return
+            return False
         files = {"file": (filename, wav_bytes, "audio/wav")}
         data = {"filename": filename}
         try:
             resp = self._api_router.post("/play_audio", files=files, data=data, timeout=self._timeout)
         except requests.RequestException as exc:
             self._warn(f"[output] NAO play_audio failed: {exc}")
-            return
+            return False
         if resp.status_code >= 400:
             self._warn(f"[output] NAO play_audio returned {resp.status_code}")
+            return False
+        return True
+
+    def describe_tts_profile(self) -> Dict[str, Any]:
+        engine = str(self.tts_engine or "").strip().lower()
+        if engine in {"", "none", "nao_native", "nao"}:
+            return {
+                "supported": False,
+                "engine": engine or "nao_native",
+                "reason": "not_renderable",
+                "summary": "Niet renderbare TTS-engine",
+                "details": {},
+            }
+        if engine == "azure":
+            details = {
+                "engine": "azure",
+                "voice": self.azure_voice or "",
+                "rate": self.azure_rate_pct,
+                "pitch": self.azure_pitch_st,
+                "volume_db": self.azure_volume_db,
+            }
+            voice = self.azure_voice or "(default)"
+            summary = f"Azure | {voice}"
+            return {
+                "supported": True,
+                "engine": "azure",
+                "fingerprint": self._stable_fingerprint(details),
+                "summary": summary,
+                "details": details,
+            }
+        if engine == "piper":
+            details = {
+                "engine": "piper",
+                "model_path": self.piper_model_path or "",
+                "length_scale": self.piper_length_scale,
+                "noise_scale": self.piper_noise_scale,
+                "noise_w_scale": self.piper_noise_w_scale,
+                "sentence_silence": self.piper_sentence_silence,
+                "volume": self.piper_volume,
+                "tail_silence_ms": self.piper_tail_silence_ms,
+            }
+            model_label = os.path.basename(str(self.piper_model_path or "").strip()) or "(default)"
+            summary = f"Piper | {model_label}"
+            return {
+                "supported": True,
+                "engine": "piper",
+                "fingerprint": self._stable_fingerprint(details),
+                "summary": summary,
+                "details": details,
+            }
+        return {
+            "supported": False,
+            "engine": engine or "unknown",
+            "reason": "not_renderable",
+            "summary": "Niet renderbare TTS-engine",
+            "details": {},
+        }
+
+    def render_wav_bytes(self, text: str) -> Optional[bytes]:
+        self._last_error_message = ""
+        if self.tts_engine == "piper":
+            return self._synthesize_piper(text)
+        if self.tts_engine == "azure":
+            return self._synthesize_azure(text)
+        return None
+
+    def emit_preloaded_wav_bytes(self, wav_bytes: bytes, *, filename: str = "preloaded.wav") -> bool:
+        if self.target == "none" or self.tts_engine == "none":
+            return True
+        if self.target == "server":
+            self._play_wav_bytes(self._prepare_server_wav_bytes(wav_bytes))
+            return True
+        if self.target == "nao":
+            stream_result = self._try_stream_to_nao(wav_bytes)
+            if stream_result == "ok":
+                return True
+            if stream_result == "fallback_upload":
+                return bool(self._send_wav_to_nao(wav_bytes, filename=filename))
+            return False
+        self._warn(f"[output] preloaded wav niet ondersteund voor target={self.target}")
+        return False
 
     def _try_stream_to_nao(self, wav_bytes: bytes) -> str:
         if self._api_router is None:

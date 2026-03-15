@@ -28,9 +28,14 @@ class StubSTTBackend:
 class StubOutput:
     def __init__(self) -> None:
         self.emitted: list[str] = []
+        self.preloaded: list[bytes] = []
 
     def emit(self, text: str) -> None:
         self.emitted.append(text)
+
+    def emit_preloaded_wav_bytes(self, wav_bytes: bytes, *, filename: str = "preloaded.wav") -> bool:
+        self.preloaded.append(bytes(wav_bytes))
+        return True
 
 
 class StubExecutor:
@@ -139,8 +144,94 @@ def test_script_say_uses_pipeline_output_when_enabled(monkeypatch):
     resp = client.post("/api/script/say", json={"text": "Welkom bij de workshop"})
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data == {"ok": True, "status": "accepted", "action": "say"}
+    assert data == {"ok": True, "status": "accepted", "action": "say", "preloaded_audio": False}
     assert output.emitted == ["Welkom bij de workshop"]
+
+
+def test_script_say_uses_preloaded_audio_when_provided(monkeypatch):
+    output = StubOutput()
+    app, _ = _make_app(monkeypatch, output=output)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"output_target": "server", "tts_engine": "piper"}},
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post(
+        "/api/script/say",
+        json={
+            "text": "Offline welkom",
+            "preloaded_audio_b64": "UklGRg==",
+            "preloaded_audio_format": "wav",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["preloaded_audio"] is True
+    assert output.preloaded == [b"RIFF"]
+    assert output.emitted == []
+
+
+def test_script_tts_profile_reports_renderable_engine(monkeypatch):
+    app, _ = _make_app(monkeypatch)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"output_target": "server", "tts_engine": "azure", "azure_tts_voice": "nl-NL-ColetteNeural"}},
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/script/tts_profile", json={})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["supported"] is True
+    assert data["engine"] == "azure"
+    assert data["fingerprint"]
+    assert "Colette" in data["summary"]
+
+
+def test_script_tts_profile_reports_nao_native_as_not_renderable(monkeypatch):
+    app, _ = _make_app(monkeypatch)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"output_target": "nao", "tts_engine": "nao_native"}},
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/script/tts_profile", json={})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["supported"] is False
+    assert data["engine"] == "nao_native"
+    assert data["reason"] == "not_renderable"
+
+
+def test_script_tts_render_returns_wav_bytes(monkeypatch):
+    monkeypatch.setattr(
+        webapp_server.OutputRouterBackend,
+        "render_wav_bytes",
+        lambda self, text: b"RIFFfakewav",
+    )
+    app, _ = _make_app(monkeypatch)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"output_target": "server", "tts_engine": "azure", "azure_tts_voice": "nl-NL-ColetteNeural"}},
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/script/tts_render", json={"text": "Render mij"})
+    assert resp.status_code == 200
+    assert resp.mimetype == "audio/wav"
+    assert resp.data == b"RIFFfakewav"
 
 
 def test_script_do_command_stop_uses_existing_stop_logic(monkeypatch):

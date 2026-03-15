@@ -153,7 +153,9 @@ def test_preflight_waits_until_all_robots_ready(tmp_path):
     assert abs(sleep_calls[0] - 3.0) < 1e-6
     assert health_calls["http://dm-nao2:5302"] >= 2
     log_text = runner.log_path.read_text(encoding="utf-8")
-    assert "Robot nao2: WAIT - base connector down" in log_text
+    assert "Robot nao2: WAIT - base connector down (" in log_text
+    assert "nao_base_url=http://127.0.0.1:5101" in log_text
+    assert "nao_ip_enabled=false" in log_text
     assert "Readiness complete: all robots ready." in log_text
 
 
@@ -198,6 +200,91 @@ def test_preflight_reports_dm_down_then_recovers(tmp_path):
     log_text = runner.log_path.read_text(encoding="utf-8")
     assert "Robot nao1: WAIT - DM down (" in log_text
     assert "Robot nao1: READY - dm+connections OK" in log_text
+
+
+def test_preflight_does_not_require_base_nao_ping_when_nao_is_disabled(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True, "supports": {"say": True}}
+
+        def runtime_effective(self, timeout_s=None):
+            return {
+                "ok": True,
+                "runtime_config": {
+                    "base_enabled": True,
+                    "behavior_enabled": False,
+                    "nao_ip_enabled": False,
+                    "nao_base_url": "http://127.0.0.1:5101",
+                },
+            }
+
+        def runtime_health(self, payload, timeout_s=None):
+            return {
+                "ok": True,
+                "base": {"ping": True, "nao_ping": False},
+                "behavior": {"ping": False, "nao_ping": False},
+                "nao": {"ping": False},
+            }
+
+    script = _script_template()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+
+    runner.preflight()
+
+    log_text = runner.log_path.read_text(encoding="utf-8")
+    assert "base->NAO down" not in log_text
+    assert "Readiness complete: all robots ready." in log_text
+
+
+def test_preflight_reports_runtime_health_timeout_with_enabled_dependency_context(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True, "supports": {"say": True}}
+
+        def runtime_effective(self, timeout_s=None):
+            return {
+                "ok": True,
+                "runtime_config": {
+                    "base_enabled": True,
+                    "behavior_enabled": False,
+                    "nao_ip_enabled": False,
+                    "nao_base_url": "http://127.0.0.1:5101",
+                },
+            }
+
+        def runtime_health(self, payload, timeout_s=None):
+            raise DMClientError(
+                "POST http://127.0.0.1:5301/api/runtime_health request failed: "
+                "HTTPConnectionPool(host='127.0.0.1', port=5301): Read timed out. (read timeout=3.0)"
+            )
+
+    script = _script_template()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+
+    ready, status, _info = runner._check_robot_ready("nao1")
+
+    assert ready is False
+    assert "runtime_health timed out while checking base connector" in status
+    assert "nao_base_url=http://127.0.0.1:5101" in status
+    assert "NAO TCP is disabled, but base connector is still enabled" in status
 
 
 def test_manual_step_waits_for_enter(tmp_path):
@@ -1811,3 +1898,122 @@ def test_abort_event_stops_manual_wait_with_continue_event(tmp_path):
     result = result_box["result"]
     assert result.aborted is True
     assert result.completed_steps == 0
+
+
+def test_say_step_uses_preloaded_audio_when_available(tmp_path):
+    calls: List[Dict[str, Any]] = []
+    preload_root = tmp_path / "preloaded"
+    clip_path = preload_root / "clips" / "fp" / "demo.wav"
+    clip_path.parent.mkdir(parents=True)
+    clip_path.write_bytes(b"RIFFdemo")
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, *, timeout_s=None, preloaded_audio_b64=None, preloaded_audio_format=None):
+            calls.append(
+                {
+                    "text": text,
+                    "timeout_s": timeout_s,
+                    "preloaded_audio_b64": preloaded_audio_b64,
+                    "preloaded_audio_format": preloaded_audio_format,
+                }
+            )
+            return {"ok": True, "status": "accepted", "action": "say", "preloaded_audio": bool(preloaded_audio_b64)}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "say_1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "offline welkom"},
+        }
+    ]
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        tts_preload_root=preload_root,
+        tts_preload_step_audio={
+            "say_1": {
+                "clip_id": "clip-1",
+                "clip_rel_path": "clips/fp/demo.wav",
+                "profile_fingerprint": "fp",
+            }
+        },
+        tts_preload_robot_modes={"nao1": "preloaded_current"},
+    )
+
+    result = runner.run()
+    assert result.completed_steps == 1
+    assert len(calls) == 1
+    assert calls[0]["text"] == "offline welkom"
+    assert calls[0]["preloaded_audio_b64"]
+    assert calls[0]["preloaded_audio_format"] == "wav"
+
+
+def test_say_step_falls_back_to_live_when_preloaded_playback_fails(tmp_path):
+    calls: List[Dict[str, Any]] = []
+    preload_root = tmp_path / "preloaded"
+    clip_path = preload_root / "clips" / "fp" / "demo.wav"
+    clip_path.parent.mkdir(parents=True)
+    clip_path.write_bytes(b"RIFFdemo")
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def script_say(self, text: str, *, timeout_s=None, preloaded_audio_b64=None, preloaded_audio_format=None):
+            calls.append({"text": text, "preloaded": bool(preloaded_audio_b64)})
+            if preloaded_audio_b64:
+                raise DMClientError("preloaded playback failed")
+            return {"ok": True, "status": "accepted", "action": "say"}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "say_1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "fallback welkom"},
+        }
+    ]
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        tts_preload_root=preload_root,
+        tts_preload_step_audio={
+            "say_1": {
+                "clip_id": "clip-1",
+                "clip_rel_path": "clips/fp/demo.wav",
+                "profile_fingerprint": "fp",
+            }
+        },
+        tts_preload_robot_modes={"nao1": "preloaded_current"},
+    )
+
+    result = runner.run()
+    assert result.completed_steps == 1
+    assert calls == [
+        {"text": "fallback welkom", "preloaded": True},
+        {"text": "fallback welkom", "preloaded": False},
+    ]

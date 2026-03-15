@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import io
 import atexit
+import base64
 import copy
 import hashlib
 import json
@@ -53,6 +54,7 @@ try:
     from dialog.pipeline_builder import build_pipeline_from_config, make_stt_backend_from_config
     from dialog.backends.input_fixed_text import FixedTextInputBackend
     from dialog.backends.output_none import NoOpOutputBackend
+    from dialog.backends.output_router import OutputRouterBackend
     from dialog.backends.mic_laptop import LaptopMic
     from dialog.backends.mic_nao_ssh import NaoSshMic
     from dialog.backends.vad_segmenter import RmsVadUtteranceCapturer, int16_to_wav_bytes
@@ -775,6 +777,11 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "output_device": output_cfg.get("device", None) if output_cfg.get("device", None) is not None else output_params.get("output_device"),
         "tts_engine": tts_engine,
         "piper_model_path": output_cfg.get("piper_model_path") or output_params.get("piper_model_path"),
+        "piper_length_scale": output_cfg.get("piper_length_scale") or output_params.get("piper_length_scale"),
+        "piper_noise_scale": output_cfg.get("piper_noise_scale") or output_params.get("piper_noise_scale"),
+        "piper_noise_w_scale": output_cfg.get("piper_noise_w_scale") or output_params.get("piper_noise_w_scale"),
+        "piper_sentence_silence": output_cfg.get("piper_sentence_silence") or output_params.get("piper_sentence_silence"),
+        "piper_volume": output_cfg.get("piper_volume") or output_params.get("piper_volume"),
         "server_tts_lead_silence_ms": (
             output_cfg.get("server_tts_lead_silence_ms")
             if output_cfg.get("server_tts_lead_silence_ms") is not None
@@ -1329,7 +1336,7 @@ def create_app(
             "/api/process_start",
         ):
             return "manual_command_ui"
-        if ep in ("/api/script/do", "/api/script/say"):
+        if ep in ("/api/script/do", "/api/script/say", "/api/script/tts_profile", "/api/script/tts_render"):
             return "script_api"
         return "system_auto"
 
@@ -2050,6 +2057,33 @@ def create_app(
             _sanitize_runtime_cfg_inplace(runtime_cfg_global)
             return runtime_cfg_global
 
+    def _runtime_cfg_with_override(sid: str, override: Any) -> JsonLike:
+        runtime_cfg = copy.deepcopy(_get_runtime_cfg(sid))
+        if isinstance(override, dict) and override:
+            runtime_cfg.update(copy.deepcopy(override))
+            _sanitize_runtime_cfg_inplace(runtime_cfg)
+        return runtime_cfg
+
+    def _script_output_router(runtime_cfg_local: JsonLike) -> OutputRouterBackend:
+        merged = _apply_runtime_overrides(base_cfg, runtime_cfg_local)
+        effective_runtime = _extract_runtime_config(merged)
+        return OutputRouterBackend(
+            target=effective_runtime.get("output_target"),
+            tts_engine=effective_runtime.get("tts_engine"),
+            output_device=effective_runtime.get("output_device"),
+            piper_model_path=effective_runtime.get("piper_model_path"),
+            piper_length_scale=effective_runtime.get("piper_length_scale"),
+            piper_noise_scale=effective_runtime.get("piper_noise_scale"),
+            piper_noise_w_scale=effective_runtime.get("piper_noise_w_scale"),
+            piper_sentence_silence=effective_runtime.get("piper_sentence_silence"),
+            piper_volume=effective_runtime.get("piper_volume"),
+            server_tts_lead_silence_ms=effective_runtime.get("server_tts_lead_silence_ms"),
+            azure_tts_voice=effective_runtime.get("azure_tts_voice"),
+            azure_tts_rate=effective_runtime.get("azure_tts_rate"),
+            azure_tts_pitch=effective_runtime.get("azure_tts_pitch"),
+            azure_tts_volume_db=effective_runtime.get("azure_tts_volume_db"),
+        )
+
     def _auto_rest_timeout_s(runtime_cfg: JsonLike) -> float:
         value = runtime_cfg.get("nao_auto_rest_after_s", base_cfg.get("nao_auto_rest_after_s", 0))
         try:
@@ -2301,6 +2335,8 @@ def create_app(
         emit_used: str,
         runtime_cfg: JsonLike,
         text: str,
+        preloaded_audio_bytes: Optional[bytes] = None,
+        preloaded_audio_format: str = "wav",
     ) -> None:
         if not text or emit_used != "pipeline":
             return
@@ -2313,6 +2349,18 @@ def create_app(
                 spoken_text = str(normalizer(text) or "")
             if not spoken_text:
                 return
+            if preloaded_audio_bytes:
+                emitter = getattr(pipeline.output, "emit_preloaded_wav_bytes", None)
+                if callable(emitter):
+                    emitted = bool(
+                        emitter(
+                            preloaded_audio_bytes,
+                            filename=f"script_preloaded.{str(preloaded_audio_format or 'wav').strip().lower() or 'wav'}",
+                        )
+                    )
+                    if emitted:
+                        _touch_activity()
+                        return
             pipeline.output.emit(spoken_text)
             _touch_activity()
         except Exception:
@@ -7760,12 +7808,63 @@ def create_app(
             }
         )
 
+    @app.post("/api/script/tts_profile")
+    def api_script_tts_profile():
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        runtime_cfg = _runtime_cfg_with_override(sid, payload.get("runtime_config_override"))
+        router = _script_output_router(runtime_cfg)
+        profile = router.describe_tts_profile()
+        resp = jsonify({"ok": True, **profile})
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/script/tts_render")
+    def api_script_tts_render():
+        payload = request.get_json(force=True, silent=True) or {}
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return jsonify({"ok": False, "error": "Missing 'text'."}), 400
+        sid = _get_sid()
+        runtime_cfg = _runtime_cfg_with_override(sid, payload.get("runtime_config_override"))
+        router = _script_output_router(runtime_cfg)
+        profile = router.describe_tts_profile()
+        if not profile.get("supported"):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "tts_not_renderable",
+                    "reason": str(profile.get("reason") or "not_renderable"),
+                    "engine": str(profile.get("engine") or ""),
+                }
+            ), 400
+        wav_bytes = router.render_wav_bytes(text)
+        if not wav_bytes:
+            detail = re.sub(r"^\[output\]\s*", "", str(router.last_error_message() or "").strip())
+            payload = {"ok": False, "error": "tts_render_failed"}
+            if detail:
+                payload["detail"] = detail
+            return jsonify(payload), 502
+        resp = Response(wav_bytes, status=200, mimetype="audio/wav")
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
     @app.post("/api/script/say")
     def api_script_say():
         payload = request.get_json(force=True, silent=True) or {}
         text = str(payload.get("text") or "").strip()
         if not text:
             return jsonify({"ok": False, "error": "Missing 'text'."}), 400
+        preloaded_audio_bytes: Optional[bytes] = None
+        preloaded_audio_format = str(payload.get("preloaded_audio_format") or "wav").strip().lower() or "wav"
+        preloaded_audio_b64 = str(payload.get("preloaded_audio_b64") or "").strip()
+        if preloaded_audio_b64:
+            if preloaded_audio_format != "wav":
+                return jsonify({"ok": False, "error": "Unsupported 'preloaded_audio_format'."}), 400
+            try:
+                preloaded_audio_bytes = base64.b64decode(preloaded_audio_b64.encode("ascii"), validate=True)
+            except Exception:
+                return jsonify({"ok": False, "error": "Invalid 'preloaded_audio_b64'."}), 400
         sid = _get_sid()
         source = _infer_event_source(endpoint="/api/script/say", explicit_source=payload.get("source"))
         request_id = _get_request_id()
@@ -7776,6 +7875,8 @@ def create_app(
             emit_used="pipeline",
             runtime_cfg=runtime_cfg,
             text=text,
+            preloaded_audio_bytes=preloaded_audio_bytes,
+            preloaded_audio_format=preloaded_audio_format,
         )
         _touch_activity()
         _log_dm_event(
@@ -7786,9 +7887,21 @@ def create_app(
             source=source,
             message="Script API say emitted.",
             request_id=request_id,
-            data={"reply": text, "emit_used": "pipeline", "action": "say"},
+            data={
+                "reply": text,
+                "emit_used": "pipeline",
+                "action": "say",
+                "preloaded_audio": bool(preloaded_audio_bytes),
+            },
         )
-        resp = jsonify({"ok": True, "status": "accepted", "action": "say"})
+        resp = jsonify(
+            {
+                "ok": True,
+                "status": "accepted",
+                "action": "say",
+                "preloaded_audio": bool(preloaded_audio_bytes),
+            }
+        )
         resp.headers["X-Request-Id"] = request_id
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp

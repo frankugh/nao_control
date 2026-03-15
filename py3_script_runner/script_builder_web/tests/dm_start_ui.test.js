@@ -64,6 +64,17 @@ async function flushUi() {
   await Promise.resolve();
 }
 
+async function waitFor(check, attempts = 20) {
+  for (let index = 0; index < attempts; index += 1) {
+    await flushUi();
+    if (check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("waitFor timed out");
+}
+
 async function loadApp(fetchMock) {
   document.open();
   document.write(INDEX_HTML);
@@ -222,6 +233,25 @@ describe("dm start button", () => {
           last_error: null,
         });
       }
+      if (url === "/api/tts_preload/status") {
+        return makeJsonResponse({
+          ok: true,
+          script_id: "script-1",
+          has_say_steps: true,
+          say_count: 1,
+          robots: [
+            {
+              robot_id: "nao1",
+              status: "current_ready",
+              current_ready: true,
+              existing_ready: false,
+              current_missing_count: 0,
+              current_profile: { fingerprint: "fp-current", summary: "Azure | current", details: { voice: "current" } },
+              existing_profile: null,
+            },
+          ],
+        });
+      }
       throw new Error(`Unexpected fetch: ${String(url)}`);
     });
 
@@ -233,7 +263,7 @@ describe("dm start button", () => {
     expect(document.getElementById("dmStartResults").textContent).toContain("niet gestart");
 
     document.getElementById("btnRunStart").click();
-    await flushUi();
+    await waitFor(() => document.getElementById("statusMessage").textContent.includes("Run gestart"));
 
     expect(document.getElementById("dmStartResults").classList.contains("is-hidden")).toBe(true);
     expect(document.getElementById("statusMessage").textContent).toContain("Run gestart");

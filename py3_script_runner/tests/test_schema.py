@@ -37,6 +37,14 @@ def test_validate_script_ok():
     assert validated["defaults"]["readiness_timeout_s"] == 0.0
 
 
+def test_validate_script_preserves_optional_meta_script_id():
+    script = _base_script()
+    script["meta"] = {"script_id": "demo-script-id", "label": "Workshop"}
+    validated = validate_script(script)
+    assert validated["meta"]["script_id"] == "demo-script-id"
+    assert validated["meta"]["label"] == "Workshop"
+
+
 def test_validate_script_rejects_invalid_version():
     script = _base_script()
     script["version"] = 2

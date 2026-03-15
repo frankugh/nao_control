@@ -782,6 +782,11 @@ textarea {
   background: var(--error-soft);
 }
 
+.dm-start-result.is-warn {
+  border-color: #efd39f;
+  background: var(--warn-soft);
+}
+
 .dm-start-result-title {
   font-size: 13px;
   font-weight: 700;
@@ -798,9 +803,102 @@ textarea {
   margin-top: 2px;
 }
 
+.runtime-preload-actions {
+  margin-top: 8px;
+}
+
 #runLog {
   min-height: 170px;
   margin: 0 10px 10px;
+}
+
+.action-dialog {
+  width: min(640px, calc(100vw - 32px));
+  border: 1px solid rgba(111, 145, 181, 0.45);
+  border-radius: 18px;
+  padding: 0;
+  background: #fdfefe;
+  box-shadow: 0 18px 60px rgba(27, 61, 102, 0.2);
+}
+
+.action-dialog::backdrop {
+  background: rgba(22, 41, 68, 0.28);
+}
+
+.action-dialog-shell {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.action-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.action-dialog-head h3 {
+  margin: 0;
+  font-size: 22px;
+  color: var(--accent-dark);
+}
+
+.dialog-close {
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.action-dialog-body {
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+}
+
+.action-dialog-body p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.action-dialog-robot {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f7fbff;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.action-dialog-robot-title {
+  font-weight: 700;
+  color: var(--accent-dark);
+}
+
+.action-dialog-robot-meta {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.action-dialog-robot-diff {
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(226, 237, 248, 0.9);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.action-dialog-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.action-dialog-actions .primary {
+  background: linear-gradient(180deg, #2f7ef5, #1f6bdd);
+  border-color: #1b5fc6;
+  color: #ffffff;
 }
 
 footer {

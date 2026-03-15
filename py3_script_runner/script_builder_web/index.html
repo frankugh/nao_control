@@ -127,6 +127,10 @@
             <button id="btnRunNext" type="button" disabled>Next</button>
             <button id="btnRunAbort" type="button" disabled>Abort</button>
           </div>
+          <div class="row-actions runtime-actions runtime-preload-actions">
+            <button id="btnPreloadAudio" type="button">Preload audio...</button>
+            <button id="btnPreloadPrune" type="button">Opschonen preload-cache...</button>
+          </div>
           <div id="dmStartResults" class="dm-start-results is-hidden"></div>
           <div class="runtime-meta-grid">
             <div class="runtime-stat">
@@ -154,6 +158,17 @@
     <footer>
       <div id="statusMessage" class="status status-info">Laden...</div>
     </footer>
+
+    <dialog id="actionDialog" class="action-dialog">
+      <div class="action-dialog-shell">
+        <div class="action-dialog-head">
+          <h3 id="actionDialogTitle">Actie</h3>
+          <button id="actionDialogClose" type="button" class="dialog-close" aria-label="Sluiten">Sluit</button>
+        </div>
+        <div id="actionDialogBody" class="action-dialog-body"></div>
+        <div id="actionDialogActions" class="row-actions action-dialog-actions"></div>
+      </div>
+    </dialog>
 
     <datalist id="commandLabelSuggestions"></datalist>
 

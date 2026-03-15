@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import ipaddress
 import json
 import re
@@ -26,9 +27,11 @@ if __package__ in (None, ""):
         sys.path.insert(0, str(_REPO_ROOT))
     from py3_script_runner.runner import ScriptRunner
     from py3_script_runner.schema import ScriptSchemaError, validate_script
+    from py3_script_runner.tts_preload import TtsPreloadService
 else:
     from .runner import ScriptRunner
     from .schema import ScriptSchemaError, validate_script
+    from .tts_preload import TtsPreloadService
 
 
 MODULE_DIR = Path(__file__).resolve().parent
@@ -45,6 +48,7 @@ EXAMPLE_FILES = {
     "example_workshop_summary.json",
 }
 ACTIVE_RUN_STATUSES = {"preflight", "running", "waiting"}
+TTS_PRELOAD_SERVICE = TtsPreloadService()
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,20 @@ def _build_dm_launch_command(spec: DmLaunchSpec) -> List[str]:
     return ["cmd.exe", "/k", subprocess.list2cmdline(python_cmd)]
 
 
+def _build_dm_launch_env() -> Dict[str, str]:
+    env = dict(os.environ)
+    python_dir = DM_PYTHON.parent
+    scripts_dir = str(python_dir)
+    venv_dir = str(python_dir.parent if python_dir.name.lower() == "scripts" else python_dir)
+    path_parts = [scripts_dir]
+    current_path = str(env.get("PATH") or "")
+    if current_path:
+        path_parts.append(current_path)
+    env["PATH"] = os.pathsep.join(path_parts)
+    env["VIRTUAL_ENV"] = venv_dir
+    return env
+
+
 def _local_target_is_occupied(spec: DmLaunchSpec) -> bool:
     probe_host = spec.bind_host
     if probe_host == "0.0.0.0":
@@ -155,6 +173,7 @@ def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
         subprocess.Popen(
             cmd,
             cwd=str(DM_DIR),
+            env=_build_dm_launch_env(),
             creationflags=CREATE_NEW_CONSOLE,
         )
     except OSError as exc:
@@ -455,7 +474,7 @@ class RunSessionManager:
         with self._lock:
             return self._snapshot_locked()
 
-    def _start_new_run_locked(self, script: Dict[str, Any]) -> Dict[str, Any]:
+    def _start_new_run_locked(self, script: Dict[str, Any], *, run_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         self._run_counter += 1
         run_id = f"run_{self._run_counter}"
         self._abort_event = threading.Event()
@@ -473,7 +492,7 @@ class RunSessionManager:
             "last_error": None,
             "log_path": "",
         }
-        thread = threading.Thread(target=self._run_worker, args=(run_id, script), daemon=True)
+        thread = threading.Thread(target=self._run_worker, args=(run_id, script, dict(run_options or {})), daemon=True)
         self._run_thread = thread
         thread.start()
         return self._snapshot_locked()
@@ -486,12 +505,24 @@ class RunSessionManager:
             script = validate_script(script_raw)
         except ScriptSchemaError as exc:
             return HTTPStatus.BAD_REQUEST, self._error_payload(f"Schema error: {exc}")
+        run_options: Dict[str, Any] = {}
+        tts_preload_raw = payload.get("tts_preload") if isinstance(payload, dict) else None
+        if isinstance(tts_preload_raw, dict):
+            policy_by_robot_raw = tts_preload_raw.get("policy_by_robot")
+            policy_by_robot = policy_by_robot_raw if isinstance(policy_by_robot_raw, dict) else {}
+            try:
+                resolved = TTS_PRELOAD_SERVICE.resolve_run_plan(script, policy_by_robot)
+            except Exception as exc:
+                return HTTPStatus.BAD_REQUEST, self._error_payload(f"TTS preload error: {exc}")
+            run_options["tts_preload_root"] = TTS_PRELOAD_SERVICE.store.root
+            run_options["tts_preload_step_audio"] = resolved.get("step_audio") or {}
+            run_options["tts_preload_robot_modes"] = resolved.get("robot_modes") or {}
 
         with self._lock:
             status = str(self._state.get("status") or "")
             if status in ACTIVE_RUN_STATUSES:
                 return HTTPStatus.CONFLICT, self._error_payload("A run is already active.")
-            snapshot = self._start_new_run_locked(script)
+            snapshot = self._start_new_run_locked(script, run_options=run_options)
             return HTTPStatus.ACCEPTED, snapshot
 
     def request_next(self) -> tuple[int, Dict[str, Any]]:
@@ -583,7 +614,7 @@ class RunSessionManager:
             self._state["last_error"] = str(error_message)
             self._log_tail.append(f"[RUN] FAILED: {error_message}")
 
-    def _run_worker(self, run_id: str, script: Dict[str, Any]) -> None:
+    def _run_worker(self, run_id: str, script: Dict[str, Any], run_options: Dict[str, Any]) -> None:
         abort_event: Optional[threading.Event]
         continue_event: Optional[threading.Event]
         with self._lock:
@@ -598,6 +629,9 @@ class RunSessionManager:
             summary_publish_policy="publish",
             ppt_mismatch_policy="defer_snapback",
             event_sink=lambda event: self._handle_runner_event(run_id, event),
+            tts_preload_root=run_options.get("tts_preload_root"),
+            tts_preload_step_audio=run_options.get("tts_preload_step_audio"),
+            tts_preload_robot_modes=run_options.get("tts_preload_robot_modes"),
         )
         try:
             runner.preflight()
@@ -685,6 +719,58 @@ class ScriptBuilderHandler(SimpleHTTPRequestHandler):
                 return
             status, response = fetch_cmdrec_labels(payload)
             self._send_json(status, response)
+            return
+        if parsed.path == "/api/tts_preload/status":
+            ok, payload, error = self._read_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            script_raw = payload.get("script") if isinstance(payload, dict) else None
+            if not isinstance(script_raw, dict):
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload("Expected JSON body with object field 'script'."))
+                return
+            try:
+                script = validate_script(script_raw)
+                response = TTS_PRELOAD_SERVICE.status(script)
+            except ScriptSchemaError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(f"Schema error: {exc}"))
+                return
+            except Exception as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(str(exc)))
+                return
+            self._send_json(HTTPStatus.OK, response)
+            return
+        if parsed.path == "/api/tts_preload/generate":
+            ok, payload, error = self._read_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            script_raw = payload.get("script") if isinstance(payload, dict) else None
+            if not isinstance(script_raw, dict):
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload("Expected JSON body with object field 'script'."))
+                return
+            try:
+                script = validate_script(script_raw)
+                response = TTS_PRELOAD_SERVICE.generate(script)
+            except ScriptSchemaError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(f"Schema error: {exc}"))
+                return
+            except Exception as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(str(exc)))
+                return
+            self._send_json(HTTPStatus.OK, response)
+            return
+        if parsed.path == "/api/tts_preload/prune":
+            ok, payload, error = self._read_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            try:
+                response = TTS_PRELOAD_SERVICE.store.prune(str(payload.get("policy") or ""))
+            except Exception as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(str(exc)))
+                return
+            self._send_json(HTTPStatus.OK, response)
             return
         if parsed.path == "/api/run/start":
             ok, payload, error = self._read_json_body()

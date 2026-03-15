@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dataclasses import dataclass
@@ -49,6 +50,9 @@ class ScriptRunner:
         summary_publish_policy: str = "prompt",
         ppt_mismatch_policy: str = "pause",
         event_sink: Optional[RunnerEventSink] = None,
+        tts_preload_root: Optional[Path] = None,
+        tts_preload_step_audio: Optional[Dict[str, Dict[str, Any]]] = None,
+        tts_preload_robot_modes: Optional[Dict[str, str]] = None,
     ) -> None:
         self.script = script
         self.client_factory = client_factory or (lambda url, timeout_s: DMClient(url, timeout_s=timeout_s))
@@ -57,6 +61,13 @@ class ScriptRunner:
         self.continue_event = continue_event
         self.abort_event = abort_event
         self.event_sink = event_sink
+        self.tts_preload_root = Path(tts_preload_root) if tts_preload_root is not None else None
+        self.tts_preload_step_audio = dict(tts_preload_step_audio or {})
+        self.tts_preload_robot_modes = {
+            str(robot_id): str(mode or "").strip().lower()
+            for robot_id, mode in dict(tts_preload_robot_modes or {}).items()
+            if str(robot_id or "").strip()
+        }
         self.defaults = dict(script.get("defaults") or {})
         self.on_error_prompt_policy = self._normalize_policy(
             on_error_prompt_policy,
@@ -160,6 +171,15 @@ class ScriptRunner:
             dm_url = str(robot_cfg.get("dm_url") or "").strip()
             self.clients[robot_id] = self.client_factory(dm_url, timeout_s)
 
+    def _tts_preload_abs_path(self, rel_path: str) -> Path:
+        if self.tts_preload_root is None:
+            raise RuntimeError("tts preload root ontbreekt.")
+        safe_rel = str(rel_path or "").replace("\\", "/").lstrip("/")
+        abs_path = (self.tts_preload_root / safe_rel).resolve()
+        if self.tts_preload_root.resolve() not in abs_path.parents and abs_path != self.tts_preload_root.resolve():
+            raise RuntimeError("tts preload clip_rel_path is ongeldig.")
+        return abs_path
+
     def _log(self, message: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {message}"
@@ -253,6 +273,64 @@ class ScriptRunner:
             "behavior_enabled": bool(runtime_cfg.get("behavior_enabled", True)),
         }
 
+    def _describe_health_context(self, runtime_cfg: Dict[str, Any], *, endpoint: str) -> str:
+        nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
+        if endpoint == "base":
+            url = str(runtime_cfg.get("nao_base_url") or "").strip() or "-"
+            return (
+                f"nao_base_url={url}; base_enabled=true; "
+                f"nao_ip_enabled={'true' if nao_ip_enabled else 'false'}"
+            )
+        if endpoint == "behavior":
+            url = str(runtime_cfg.get("behavior_manager_url") or "").strip() or "-"
+            return (
+                f"behavior_manager_url={url}; behavior_enabled=true; "
+                f"nao_ip_enabled={'true' if nao_ip_enabled else 'false'}"
+            )
+        nao_ip = str(runtime_cfg.get("nao_ip") or "").strip() or "-"
+        return f"nao_ip={nao_ip}; nao_ip_enabled={'true' if nao_ip_enabled else 'false'}"
+
+    def _readiness_dependencies(self, runtime_cfg: Dict[str, Any]) -> list[tuple[str, str]]:
+        deps: list[tuple[str, str]] = []
+        if bool(runtime_cfg.get("base_enabled", True)):
+            deps.append(("base connector", self._describe_health_context(runtime_cfg, endpoint="base")))
+        if bool(runtime_cfg.get("behavior_enabled", True)):
+            deps.append(("behavior manager", self._describe_health_context(runtime_cfg, endpoint="behavior")))
+        if bool(runtime_cfg.get("nao_ip_enabled", False)):
+            deps.append(("nao tcp", self._describe_health_context(runtime_cfg, endpoint="nao")))
+        return deps
+
+    def _runtime_health_failure_message(self, runtime_cfg: Dict[str, Any], exc: Exception) -> str:
+        raw = str(exc or "").strip() or exc.__class__.__name__
+        deps = self._readiness_dependencies(runtime_cfg)
+        nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
+        base_enabled = bool(runtime_cfg.get("base_enabled", True))
+        behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
+        notes: list[str] = []
+        if not nao_ip_enabled and base_enabled:
+            notes.append("NAO TCP is disabled, but base connector is still enabled")
+        if not nao_ip_enabled and behavior_enabled:
+            notes.append("NAO TCP is disabled, but behavior manager is still enabled")
+        lowered = raw.lower()
+        if "timed out" in lowered:
+            if len(deps) == 1:
+                name, context = deps[0]
+                message = f"runtime_health timed out while checking {name} ({context})"
+            elif deps:
+                joined = "; ".join(f"{name}: {context}" for name, context in deps)
+                message = f"runtime_health timed out while checking readiness dependencies ({joined})"
+            else:
+                message = "runtime_health timed out while checking DM readiness"
+        else:
+            if deps:
+                joined = "; ".join(f"{name}: {context}" for name, context in deps)
+                message = f"runtime_health failed while checking readiness ({joined})"
+            else:
+                message = "runtime_health failed"
+        if notes:
+            message += ". " + ". ".join(notes) + "."
+        return f"{message} Original error: {raw}"
+
     def _health_issues(self, runtime_cfg: Dict[str, Any], health: Dict[str, Any]) -> list[str]:
         issues: list[str] = []
         base_enabled = bool(runtime_cfg.get("base_enabled", True))
@@ -270,19 +348,23 @@ class ScriptRunner:
         nao_ping = bool((nao or {}).get("ping"))
 
         if nao_ip_enabled and not nao_ping:
-            issues.append("nao tcp down")
+            issues.append(f"nao tcp down ({self._describe_health_context(runtime_cfg, endpoint='nao')})")
 
         if base_enabled:
             if not base_ping:
-                issues.append("base connector down")
-            elif not base_nao_ping:
-                issues.append("base->NAO down")
+                issues.append(f"base connector down ({self._describe_health_context(runtime_cfg, endpoint='base')})")
+            elif nao_ip_enabled and not base_nao_ping:
+                issues.append(f"base->NAO down ({self._describe_health_context(runtime_cfg, endpoint='base')})")
 
         if behavior_enabled:
             if not behavior_ping:
-                issues.append("behavior manager down")
-            elif not behavior_nao_ping:
-                issues.append("behavior->NAO down")
+                issues.append(
+                    f"behavior manager down ({self._describe_health_context(runtime_cfg, endpoint='behavior')})"
+                )
+            elif nao_ip_enabled and not behavior_nao_ping:
+                issues.append(
+                    f"behavior->NAO down ({self._describe_health_context(runtime_cfg, endpoint='behavior')})"
+                )
 
         return issues
 
@@ -317,7 +399,7 @@ class ScriptRunner:
         try:
             health = client.runtime_health(self._runtime_health_payload(runtime_cfg), timeout_s=timeout_s)
         except Exception as exc:
-            return False, f"runtime_health failed ({exc})", {"supports": supports, "runtime_config": runtime_cfg}
+            return False, self._runtime_health_failure_message(runtime_cfg, exc), {"supports": supports, "runtime_config": runtime_cfg}
 
         issues = self._health_issues(runtime_cfg, health)
         if issues:
@@ -598,6 +680,9 @@ class ScriptRunner:
                     tts=runtime.get("tts_engine"),
                 )
             )
+            preload_mode = str(self.tts_preload_robot_modes.get(robot_id) or "live")
+            if preload_mode != "live":
+                self._log(f"Robot {robot_id}: tts preload mode {preload_mode}")
 
         self._prepare_ppt_if_needed()
         self._log("Preflight complete.")
@@ -698,6 +783,24 @@ class ScriptRunner:
 
         if action_type == "say":
             text = str(action.get("text") or "").strip()
+            preload_meta = self.tts_preload_step_audio.get(step_id)
+            if isinstance(preload_meta, dict):
+                rel_path = str(preload_meta.get("clip_rel_path") or "").strip()
+                if rel_path:
+                    try:
+                        clip_bytes = self._tts_preload_abs_path(rel_path).read_bytes()
+                    except Exception as exc:
+                        self._log(f"[TTS preload] {step_id}: clip ontbreekt/onleesbaar -> live synthese ({exc})")
+                    else:
+                        try:
+                            return client.script_say(
+                                text=text,
+                                timeout_s=timeout_s,
+                                preloaded_audio_b64=base64.b64encode(clip_bytes).decode("ascii"),
+                                preloaded_audio_format="wav",
+                            )
+                        except Exception as exc:
+                            self._log(f"[TTS preload] {step_id}: preload playback faalde -> live synthese ({exc})")
             return client.script_say(text=text, timeout_s=timeout_s)
 
         if action_type != "do":

@@ -91,6 +91,17 @@ async function flushUi() {
   await Promise.resolve();
 }
 
+async function waitFor(check, attempts = 20) {
+  for (let index = 0; index < attempts; index += 1) {
+    await flushUi();
+    if (check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("waitFor timed out");
+}
+
 function dispatchDragEvent(node, type) {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, "dataTransfer", {
@@ -102,12 +113,18 @@ function dispatchDragEvent(node, type) {
   node.dispatchEvent(event);
 }
 
-async function loadApp(runState) {
+async function loadApp(runState, options = {}) {
   document.open();
   document.write(INDEX_HTML);
   document.close();
 
-  const fetchMock = vi.fn(async (url) => {
+  const fetchMock = vi.fn(async (url, fetchOptions = {}) => {
+    if (typeof options.fetchImpl === "function") {
+      const handled = await options.fetchImpl(url, fetchOptions);
+      if (handled) {
+        return handled;
+      }
+    }
     if (url === "./templates.json") {
       return makeJsonResponse(TEMPLATE_FIXTURE);
     }
@@ -128,6 +145,19 @@ async function loadApp(runState) {
     }
     if (url === "/api/cmdrec/labels") {
       return makeJsonResponse({ ok: true, labels: ["WAVE", "SIT_DOWN", "STAND\\_UP"] });
+    }
+    if (url === "/api/run/start") {
+      return makeJsonResponse({
+        ok: true,
+        status: "preflight",
+        waiting_for_next: false,
+        waiting_reason: "none",
+        current_step_id: "",
+        completed_steps: 0,
+        total_steps: 3,
+        log_tail: [],
+        last_error: null,
+      });
     }
     throw new Error("Unexpected fetch: " + String(url));
   });
@@ -462,5 +492,265 @@ describe("studio layout ui", () => {
     expect(document.querySelector('#stepsCards .step-row[data-index="2"]').classList.contains("is-run-next")).toBe(
       true
     );
+  });
+
+  test("preload audio injects a script_id and posts generate for the current script", async () => {
+    let generatePayload = null;
+    await loadApp(null, {
+      fetchImpl: async (url, fetchOptions) => {
+        if (url === "/api/tts_preload/generate") {
+          generatePayload = JSON.parse(fetchOptions.body);
+          return makeJsonResponse({
+            ok: true,
+            script_id: generatePayload.script.meta.script_id,
+            has_say_steps: true,
+            say_count: 2,
+            generated_count: 1,
+            reused_count: 0,
+            robots: [{ robot_id: "nao1", status: "current_ready", current_ready: true }],
+            robots_generation: [{ robot_id: "nao1", status: "generated", generated_count: 1, reused_count: 0 }],
+          });
+        }
+        return null;
+      },
+    });
+
+    document.getElementById("btnPreloadAudio").click();
+    await waitFor(() => document.getElementById("dmStartResults").textContent.includes("preload bijgewerkt"));
+
+    expect(generatePayload).not.toBeNull();
+    expect(generatePayload.script.meta.script_id).toBeTruthy();
+    expect(document.getElementById("editorJson").value).toContain('"script_id"');
+    expect(document.getElementById("saveState").textContent).toContain("Onopgeslagen");
+    expect(document.getElementById("dmStartResults").textContent).toContain("preload bijgewerkt");
+  });
+
+  test("preload audio shows a busy state and disables start until rendering finishes", async () => {
+    let resolveGenerate = null;
+    await loadApp(null, {
+      fetchImpl: async (url) => {
+        if (url === "/api/tts_preload/generate") {
+          return new Promise((resolve) => {
+            resolveGenerate = () =>
+              resolve(
+                makeJsonResponse({
+                  ok: true,
+                  script_id: "script-1",
+                  has_say_steps: true,
+                  say_count: 2,
+                  generated_count: 1,
+                  reused_count: 0,
+                  robots: [{ robot_id: "nao1", status: "current_ready", current_ready: true }],
+                  robots_generation: [{ robot_id: "nao1", status: "generated", generated_count: 1, reused_count: 0 }],
+                })
+              );
+          });
+        }
+        return null;
+      },
+    });
+
+    const preloadButton = document.getElementById("btnPreloadAudio");
+    const startButton = document.getElementById("btnRunStart");
+    preloadButton.click();
+
+    await waitFor(() => preloadButton.disabled && startButton.disabled);
+    expect(preloadButton.textContent).toContain("Preload bezig");
+    expect(startButton.textContent).toContain("Wacht op preload");
+    expect(document.getElementById("statusMessage").textContent).toContain("Preload bezig");
+
+    resolveGenerate();
+    await waitFor(() => !preloadButton.disabled && !startButton.disabled);
+    expect(preloadButton.textContent).toContain("Preload audio");
+    expect(startButton.textContent).toBe("Start");
+  });
+
+  test("run start uses current preload policy when status is current_ready", async () => {
+    let startPayload = null;
+    await loadApp(null, {
+      fetchImpl: async (url, fetchOptions) => {
+        if (url === "/api/tts_preload/status") {
+          return makeJsonResponse({
+            ok: true,
+            script_id: "script-1",
+            has_say_steps: true,
+            say_count: 2,
+            robots: [
+              {
+                robot_id: "nao1",
+                status: "current_ready",
+                current_ready: true,
+                existing_ready: false,
+                current_missing_count: 0,
+                current_profile: { fingerprint: "fp-current", summary: "Azure | current", details: { voice: "current" } },
+                existing_profile: null,
+              },
+            ],
+          });
+        }
+        if (url === "/api/run/start") {
+          startPayload = JSON.parse(fetchOptions.body);
+          return makeJsonResponse({
+            ok: true,
+            status: "preflight",
+            waiting_for_next: false,
+            waiting_reason: "none",
+            current_step_id: "",
+            completed_steps: 0,
+            total_steps: 3,
+            log_tail: [],
+            last_error: null,
+          });
+        }
+        return null;
+      },
+    });
+
+    document.getElementById("btnRunStart").click();
+    await waitFor(() => startPayload !== null);
+
+    expect(startPayload).not.toBeNull();
+    expect(startPayload.tts_preload.policy_by_robot.nao1.mode).toBe("current");
+  });
+
+  test("run start can choose an existing preload profile from the dialog", async () => {
+    let startPayload = null;
+    await loadApp(null, {
+      fetchImpl: async (url, fetchOptions) => {
+        if (url === "/api/tts_preload/status") {
+          return makeJsonResponse({
+            ok: true,
+            script_id: "script-1",
+            has_say_steps: true,
+            say_count: 2,
+            robots: [
+              {
+                robot_id: "nao1",
+                status: "mismatch_existing",
+                current_ready: false,
+                existing_ready: true,
+                current_missing_count: 2,
+                current_profile: { fingerprint: "fp-current", summary: "Azure | nieuw", details: { voice: "nieuw" } },
+                existing_profile: { fingerprint: "fp-old", summary: "Azure | oud", details: { voice: "oud" } },
+              },
+            ],
+          });
+        }
+        if (url === "/api/run/start") {
+          startPayload = JSON.parse(fetchOptions.body);
+          return makeJsonResponse({
+            ok: true,
+            status: "preflight",
+            waiting_for_next: false,
+            waiting_reason: "none",
+            current_step_id: "",
+            completed_steps: 0,
+            total_steps: 3,
+            log_tail: [],
+            last_error: null,
+          });
+        }
+        return null;
+      },
+    });
+
+    document.getElementById("btnRunStart").click();
+    await waitFor(() => document.querySelector('#actionDialogActions [data-dialog-action="use_existing"]') !== null);
+
+    const existingButton = document.querySelector('#actionDialogActions [data-dialog-action="use_existing"]');
+    expect(existingButton).not.toBeNull();
+    existingButton.click();
+    await waitFor(() => startPayload !== null);
+
+    expect(startPayload).not.toBeNull();
+    expect(startPayload.tts_preload.policy_by_robot.nao1.mode).toBe("existing");
+    expect(startPayload.tts_preload.policy_by_robot.nao1.profile_fingerprint).toBe("fp-old");
+  });
+
+  test("run start shows preload render progress while generating missing audio", async () => {
+    let startPayload = null;
+    let resolveGenerate = null;
+    await loadApp(null, {
+      fetchImpl: async (url, fetchOptions) => {
+        if (url === "/api/tts_preload/status") {
+          return makeJsonResponse({
+            ok: true,
+            script_id: "script-1",
+            has_say_steps: true,
+            say_count: 2,
+            robots: [
+              {
+                robot_id: "nao1",
+                status: "missing",
+                current_ready: false,
+                existing_ready: false,
+                current_missing_count: 2,
+                current_profile: { fingerprint: "fp-current", summary: "Azure | current", details: { voice: "current" } },
+                existing_profile: null,
+              },
+            ],
+          });
+        }
+        if (url === "/api/tts_preload/generate") {
+          return new Promise((resolve) => {
+            resolveGenerate = () =>
+              resolve(
+                makeJsonResponse({
+                  ok: true,
+                  script_id: "script-1",
+                  has_say_steps: true,
+                  say_count: 2,
+                  generated_count: 2,
+                  reused_count: 0,
+                  robots: [
+                    {
+                      robot_id: "nao1",
+                      status: "current_ready",
+                      current_ready: true,
+                      existing_ready: false,
+                      current_missing_count: 0,
+                      current_profile: {
+                        fingerprint: "fp-current",
+                        summary: "Azure | current",
+                        details: { voice: "current" },
+                      },
+                      existing_profile: null,
+                    },
+                  ],
+                  robots_generation: [{ robot_id: "nao1", status: "generated", generated_count: 2, reused_count: 0 }],
+                })
+              );
+          });
+        }
+        if (url === "/api/run/start") {
+          startPayload = JSON.parse(fetchOptions.body);
+          return makeJsonResponse({
+            ok: true,
+            status: "preflight",
+            waiting_for_next: false,
+            waiting_reason: "none",
+            current_step_id: "",
+            completed_steps: 0,
+            total_steps: 3,
+            log_tail: [],
+            last_error: null,
+          });
+        }
+        return null;
+      },
+    });
+
+    document.getElementById("btnRunStart").click();
+    await waitFor(() => document.querySelector('#actionDialogActions [data-dialog-action="preload_now"]') !== null);
+    document.querySelector('#actionDialogActions [data-dialog-action="preload_now"]').click();
+
+    await waitFor(() => document.getElementById("btnRunStart").textContent.includes("Wacht op preload"));
+    expect(document.getElementById("statusMessage").textContent).toContain("Run wacht op preload");
+
+    resolveGenerate();
+    await waitFor(() => startPayload !== null);
+
+    expect(startPayload).not.toBeNull();
+    expect(startPayload.tts_preload.policy_by_robot.nao1.mode).toBe("current");
   });
 });

@@ -91,6 +91,61 @@ def test_run_session_single_run_guard(monkeypatch):
     assert _wait_until(lambda: manager.state()["status"] == "aborted")
 
 
+def test_run_session_start_passes_resolved_tts_preload_plan_to_runner(monkeypatch, tmp_path):
+    seen: Dict[str, Any] = {}
+
+    class FakeRunner:
+        def __init__(self, script: Dict[str, Any], **kwargs: Any) -> None:
+            seen["kwargs"] = kwargs
+            self.script = script
+
+        def preflight(self) -> None:
+            return None
+
+        def run(self):
+            return SimpleNamespace(
+                completed_steps=len(list(self.script.get("steps") or [])),
+                total_steps=len(list(self.script.get("steps") or [])),
+                aborted=False,
+                log_path=Path("run.log"),
+            )
+
+    class FakePreloadService:
+        def __init__(self) -> None:
+            self.store = SimpleNamespace(root=tmp_path / "preloaded_tts")
+
+        def resolve_run_plan(self, script: Dict[str, Any], policy_by_robot: Dict[str, Any]) -> Dict[str, Any]:
+            assert policy_by_robot == {"nao1": {"mode": "current"}}
+            return {
+                "ok": True,
+                "robot_modes": {"nao1": "preloaded_current"},
+                "step_audio": {
+                    "s1": {
+                        "clip_id": "clip-1",
+                        "clip_rel_path": "clips/fp/demo.wav",
+                        "profile_fingerprint": "fp",
+                    }
+                },
+            }
+
+    monkeypatch.setattr(script_builder_app, "ScriptRunner", FakeRunner)
+    monkeypatch.setattr(script_builder_app, "TTS_PRELOAD_SERVICE", FakePreloadService())
+    manager = script_builder_app.RunSessionManager()
+
+    code, _payload = manager.start(
+        {
+            **_script_payload(),
+            "tts_preload": {"policy_by_robot": {"nao1": {"mode": "current"}}},
+        }
+    )
+
+    assert code == HTTPStatus.ACCEPTED
+    assert _wait_until(lambda: manager.state()["status"] == "completed")
+    assert seen["kwargs"]["tts_preload_root"] == tmp_path / "preloaded_tts"
+    assert seen["kwargs"]["tts_preload_robot_modes"] == {"nao1": "preloaded_current"}
+    assert seen["kwargs"]["tts_preload_step_audio"]["s1"]["clip_rel_path"] == "clips/fp/demo.wav"
+
+
 def test_run_session_next_flow(monkeypatch):
     class FakeRunner:
         def __init__(self, script: Dict[str, Any], **kwargs: Any) -> None:
@@ -194,8 +249,8 @@ def test_start_dialog_managers_starts_each_unique_local_target(monkeypatch, tmp_
     popen_calls = []
 
     class FakePopen:
-        def __init__(self, cmd, cwd, creationflags):
-            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+        def __init__(self, cmd, cwd, creationflags, env):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags, "env": env})
 
     monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
@@ -206,6 +261,8 @@ def test_start_dialog_managers_starts_each_unique_local_target(monkeypatch, tmp_
     assert payload["error_count"] == 0
     assert len(popen_calls) == 2
     assert popen_calls[0]["cwd"] == str(tmp_path)
+    assert popen_calls[0]["env"]["VIRTUAL_ENV"] == str(tmp_path)
+    assert popen_calls[0]["env"]["PATH"].split(";")[0] == str(tmp_path)
     assert "--instance-id alex" in popen_calls[0]["cmd"][2]
     assert "--port 5302" in popen_calls[1]["cmd"][2]
 
@@ -222,8 +279,8 @@ def test_start_dialog_managers_rejects_remote_targets_and_keeps_local_ones(monke
     popen_calls = []
 
     class FakePopen:
-        def __init__(self, cmd, cwd, creationflags):
-            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+        def __init__(self, cmd, cwd, creationflags, env):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags, "env": env})
 
     monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
@@ -253,8 +310,8 @@ def test_start_dialog_managers_rejects_duplicate_local_targets(monkeypatch, tmp_
     popen_calls = []
 
     class FakePopen:
-        def __init__(self, cmd, cwd, creationflags):
-            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+        def __init__(self, cmd, cwd, creationflags, env):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags, "env": env})
 
     monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
@@ -282,8 +339,8 @@ def test_start_dialog_managers_skips_targets_that_are_already_occupied(monkeypat
     popen_calls = []
 
     class FakePopen:
-        def __init__(self, cmd, cwd, creationflags):
-            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags})
+        def __init__(self, cmd, cwd, creationflags, env):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags, "env": env})
 
     monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: spec.port == 5301)

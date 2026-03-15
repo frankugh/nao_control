@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import wave
+from pathlib import Path
 
 import numpy as np
 import requests
 
+from dialog.backends import output_router as output_router_module
 from dialog.backends.output_router import OutputRouterBackend
 from dialog.nao_api_router import NaoApiRouter
 
@@ -169,3 +171,51 @@ def test_output_router_prepends_lead_silence_for_server_tts():
     assert audio.size == lead_samples + raw_samples.size
     assert np.all(audio[:lead_samples] == 0)
     assert np.array_equal(audio[lead_samples:], raw_samples)
+
+
+def test_output_router_describes_renderable_profile_without_target_in_fingerprint():
+    backend = OutputRouterBackend(
+        target="server",
+        tts_engine="azure",
+        azure_tts_voice="nl-NL-ColetteNeural",
+        azure_tts_rate=95,
+    )
+
+    profile = backend.describe_tts_profile()
+
+    assert profile["supported"] is True
+    assert profile["engine"] == "azure"
+    assert profile["fingerprint"]
+    assert "Colette" in profile["summary"]
+
+
+def test_output_router_emit_preloaded_wav_bytes_uses_server_playback(monkeypatch):
+    backend = OutputRouterBackend(
+        target="server",
+        tts_engine="azure",
+        server_tts_lead_silence_ms=250,
+    )
+    raw_wav = _make_wav(np.full(800, 200, dtype=np.int16))
+    played: dict[str, bytes] = {}
+    monkeypatch.setattr(backend, "_play_wav_bytes", lambda wav_bytes: played.setdefault("wav", wav_bytes))
+
+    ok = backend.emit_preloaded_wav_bytes(raw_wav, filename="demo.wav")
+
+    assert ok is True
+    assert "wav" in played
+
+
+def test_output_router_resolves_piper_from_python_sibling_when_path_missing(monkeypatch, tmp_path):
+    scripts_dir = tmp_path / "Scripts"
+    scripts_dir.mkdir()
+    python_exe = scripts_dir / "python.exe"
+    python_exe.write_bytes(b"")
+    piper_exe = scripts_dir / "piper.exe"
+    piper_exe.write_bytes(b"")
+
+    monkeypatch.setattr(output_router_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(output_router_module.sys, "executable", str(python_exe))
+
+    backend = OutputRouterBackend(target="server", tts_engine="piper", piper_model_path="model.onnx")
+
+    assert Path(backend.piper_bin) == piper_exe

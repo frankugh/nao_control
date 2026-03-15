@@ -67,3 +67,6 @@ py3_story_engine/runtime/story/
 
 # === Dialog manager local runtime state ===
 py3_dialog_manager/configs/runtime/runtime_port_*.json
+
+# === Script runner TTS preload cache ===
+runtime_data/preloaded_tts/

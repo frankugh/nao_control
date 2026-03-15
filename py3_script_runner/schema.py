@@ -97,6 +97,14 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
     if version != 1:
         _fail("version must be 1")
 
+    meta_raw = raw.get("meta")
+    meta: Dict[str, Any] | None = None
+    if meta_raw is not None:
+        meta_in = _as_dict(meta_raw, "meta")
+        meta = dict(meta_in)
+        if "script_id" in meta_in:
+            meta["script_id"] = _as_nonempty_str(meta_in.get("script_id"), "meta.script_id")
+
     robots_in = _as_dict(raw.get("robots"), "robots")
     if not robots_in:
         _fail("robots must contain at least one robot")
@@ -287,7 +295,7 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
 
         steps.append(normalized_step)
 
-    return {
+    normalized: Dict[str, Any] = {
         "version": 1,
         "robots": robots,
         "ppt": ppt_cfg,
@@ -300,6 +308,9 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
         },
         "steps": steps,
     }
+    if meta is not None:
+        normalized["meta"] = meta
+    return normalized
 
 
 def load_script(path: str | Path) -> Dict[str, Any]:

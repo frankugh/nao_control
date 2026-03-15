@@ -42,6 +42,8 @@ import {
   const btnRunStart = document.getElementById("btnRunStart");
   const btnRunNext = document.getElementById("btnRunNext");
   const btnRunAbort = document.getElementById("btnRunAbort");
+  const btnPreloadAudio = document.getElementById("btnPreloadAudio");
+  const btnPreloadPrune = document.getElementById("btnPreloadPrune");
   const btnTabJson = document.getElementById("btnTabJson");
   const btnTabBlocks = document.getElementById("btnTabBlocks");
   const jsonView = document.getElementById("jsonView");
@@ -67,6 +69,11 @@ import {
   const templateInspector = document.getElementById("templateInspector");
   const templateStepCount = document.getElementById("templateStepCount");
   const commandLabelSuggestions = document.getElementById("commandLabelSuggestions");
+  const actionDialog = document.getElementById("actionDialog");
+  const actionDialogTitle = document.getElementById("actionDialogTitle");
+  const actionDialogBody = document.getElementById("actionDialogBody");
+  const actionDialogActions = document.getElementById("actionDialogActions");
+  const actionDialogClose = document.getElementById("actionDialogClose");
   const quickOpenButtons = Array.from(document.querySelectorAll(".btnQuickOpen"));
 
   let templatesData = null;
@@ -86,6 +93,8 @@ import {
   let runtimeState = null;
   let runPollTimer = null;
   let runRequestInFlight = false;
+  let runStartRequestInFlight = false;
+  let preloadRequestInFlight = false;
   let lastRuntimeError = "";
   let runPollFailures = 0;
   let pollPausedByNetworkError = false;
@@ -108,6 +117,7 @@ import {
   let remoteCommandLabelFetchKey = "";
   let pendingCommandLabelFetchKey = "";
   let commandLabelLookup = new Map();
+  let actionDialogResolve = null;
 
   function setStatus(message, level) {
     statusMessage.textContent = message;
@@ -201,6 +211,188 @@ import {
       return;
     }
     container.scrollTop = Math.min(maxScrollTop, Math.max(0, previousTop));
+  }
+
+  function generateScriptId() {
+    const cryptoObj = globalThis.crypto;
+    if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+      return cryptoObj.randomUUID();
+    }
+    const stamp = Date.now().toString(16);
+    const randomPart = Math.random().toString(16).slice(2, 10);
+    return "script-" + stamp + "-" + randomPart;
+  }
+
+  function scriptHasSaySteps(script) {
+    const steps = isObject(script) && Array.isArray(script.steps) ? script.steps : [];
+    return steps.some((step) => isObject(step) && isObject(step.action) && String(step.action.type || "").trim().toLowerCase() === "say");
+  }
+
+  function syncBlocksStateFromScriptObject(script) {
+    if (!blocksSessionActive) {
+      return;
+    }
+    scriptState = { root: cloneJson(script) };
+    const steps = Array.isArray(scriptState.root.steps) ? scriptState.root.steps : [];
+    if (steps.length === 0) {
+      selectedStepIndex = null;
+    } else if (!Number.isInteger(selectedStepIndex) || selectedStepIndex < 0 || selectedStepIndex >= steps.length) {
+      selectedStepIndex = 0;
+    }
+    blocksConfigDraft = formatJson(normalizeTopLevelConfigObject(buildConfigPaneObject(scriptState.root)));
+    renderBlocks();
+  }
+
+  function persistScriptObjectToEditor(script, options) {
+    if (!isObject(script)) {
+      return;
+    }
+    editorJson.value = formatJson(script);
+    if (options && options.markDirty) {
+      setDirty(true);
+    }
+    syncBlocksStateFromScriptObject(script);
+  }
+
+  function ensureScriptIdForPreload(script) {
+    if (!isObject(script) || !scriptHasSaySteps(script)) {
+      return script;
+    }
+    const meta = isObject(script.meta) ? cloneJson(script.meta) : {};
+    const existing = String(meta.script_id || "").trim();
+    if (existing) {
+      return script;
+    }
+    const next = cloneJson(script);
+    next.meta = meta;
+    next.meta.script_id = generateScriptId();
+    persistScriptObjectToEditor(next, { markDirty: true });
+    return next;
+  }
+
+  function closeActionDialog(result) {
+    const hasDialogElement = typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement;
+    if (hasDialogElement) {
+      if (typeof actionDialog.close === "function" && actionDialog.open) {
+        try {
+          actionDialog.close();
+        } catch (_err) {
+          actionDialog.removeAttribute("open");
+        }
+      } else {
+        actionDialog.removeAttribute("open");
+      }
+    }
+    if (typeof actionDialogResolve === "function") {
+      const resolve = actionDialogResolve;
+      actionDialogResolve = null;
+      resolve(result || "cancel");
+    }
+  }
+
+  function openActionDialog(options) {
+    if (
+      !(actionDialog instanceof HTMLElement) ||
+      !(actionDialogTitle instanceof HTMLElement) ||
+      !(actionDialogBody instanceof HTMLElement) ||
+      !(actionDialogActions instanceof HTMLElement)
+    ) {
+      return Promise.resolve("cancel");
+    }
+    actionDialogTitle.textContent = options && options.title ? String(options.title) : "Actie";
+    actionDialogBody.replaceChildren();
+    actionDialogActions.replaceChildren();
+
+    const introLines = Array.isArray(options && options.intro) ? options.intro : [];
+    introLines.forEach((line) => {
+      const p = document.createElement("p");
+      p.textContent = String(line || "");
+      actionDialogBody.appendChild(p);
+    });
+
+    const robots = Array.isArray(options && options.robots) ? options.robots : [];
+    robots.forEach((robot) => {
+      const card = document.createElement("div");
+      card.className = "action-dialog-robot";
+
+      const title = document.createElement("div");
+      title.className = "action-dialog-robot-title";
+      title.textContent = String(robot.title || "");
+      card.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "action-dialog-robot-meta";
+      meta.textContent = String(robot.meta || "");
+      card.appendChild(meta);
+
+      const diff = String(robot.diff || "").trim();
+      if (diff) {
+        const diffEl = document.createElement("div");
+        diffEl.className = "action-dialog-robot-diff";
+        diffEl.textContent = diff;
+        card.appendChild(diffEl);
+      }
+
+      actionDialogBody.appendChild(card);
+    });
+
+    const buttons = Array.isArray(options && options.buttons) ? options.buttons : [];
+    buttons.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = String(item.label || item.id || "Kies");
+      button.dataset.dialogAction = String(item.id || "");
+      if (item && item.tone === "primary") {
+        button.classList.add("primary");
+      }
+      button.addEventListener("click", function () {
+        closeActionDialog(String(item.id || "cancel"));
+      });
+      actionDialogActions.appendChild(button);
+    });
+
+    return new Promise((resolve) => {
+      actionDialogResolve = resolve;
+      const hasDialogElement = typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement;
+      if (hasDialogElement && typeof actionDialog.showModal === "function") {
+        try {
+          actionDialog.showModal();
+          return;
+        } catch (_err) {
+          // Fall through to plain open attribute for jsdom/older browsers.
+        }
+      }
+      actionDialog.setAttribute("open", "");
+    });
+  }
+
+  function describeProfile(profile) {
+    if (!isObject(profile)) {
+      return "-";
+    }
+    const summary = String(profile.summary || "").trim();
+    if (summary) {
+      return summary;
+    }
+    return String(profile.engine || "onbekend");
+  }
+
+  function diffProfileFields(currentProfile, existingProfile) {
+    if (!isObject(currentProfile) || !isObject(existingProfile)) {
+      return "";
+    }
+    const currentDetails = isObject(currentProfile.details) ? currentProfile.details : {};
+    const existingDetails = isObject(existingProfile.details) ? existingProfile.details : {};
+    const keys = Array.from(new Set([...Object.keys(currentDetails), ...Object.keys(existingDetails)]));
+    const diffs = [];
+    keys.forEach((key) => {
+      const left = currentDetails[key];
+      const right = existingDetails[key];
+      if (JSON.stringify(left) !== JSON.stringify(right)) {
+        diffs.push(String(key));
+      }
+    });
+    return diffs.length > 0 ? "Verschil in: " + diffs.join(", ") : "";
   }
 
   function normalizeCommandLabelRaw(value) {
@@ -385,10 +577,29 @@ import {
     return status === "preflight" || status === "running" || status === "waiting";
   }
 
+  function setPreloadRequestBusy(isBusy) {
+    preloadRequestInFlight = !!isBusy;
+    setRuntimeButtons(runtimeState);
+  }
+
+  function setRunStartRequestBusy(isBusy) {
+    runStartRequestInFlight = !!isBusy;
+    setRuntimeButtons(runtimeState);
+  }
+
   function setRuntimeButtons(state) {
     const status = state && state.status ? String(state.status) : "idle";
     const waiting = !!(state && state.waiting_for_next);
     const blockedByBlocks = hasBlockingBlockErrors(blocksConfigErrorMessage, blocksStepErrors);
+    const activeRun = isActiveRunStatus(status);
+    btnRunStart.textContent = preloadRequestInFlight
+      ? "Wacht op preload..."
+      : runStartRequestInFlight
+        ? "Starten..."
+        : "Start";
+    if (btnPreloadAudio) {
+      btnPreloadAudio.textContent = preloadRequestInFlight ? "Preload bezig..." : "Preload audio...";
+    }
     btnDmStart.disabled = blockedByBlocks;
     btnRunStart.disabled =
       !(
@@ -396,36 +607,65 @@ import {
         status === "completed" ||
         status === "aborted" ||
         status === "failed"
-      ) || blockedByBlocks;
+      ) || blockedByBlocks || preloadRequestInFlight || runStartRequestInFlight;
     btnRunNext.disabled = !waiting;
-    btnRunAbort.disabled = !isActiveRunStatus(status);
+    btnRunAbort.disabled = !activeRun;
+    if (btnPreloadAudio) {
+      btnPreloadAudio.disabled = blockedByBlocks || activeRun || preloadRequestInFlight || runStartRequestInFlight;
+    }
+    if (btnPreloadPrune) {
+      btnPreloadPrune.disabled = activeRun || preloadRequestInFlight || runStartRequestInFlight;
+    }
   }
 
-  function renderDmStartResults(results) {
-    dmStartResultState = Array.isArray(results) ? results.slice() : [];
+  function renderRuntimeActionCards(cards) {
+    dmStartResultState = Array.isArray(cards) ? cards.slice() : [];
     dmStartResults.replaceChildren();
     if (dmStartResultState.length === 0) {
       dmStartResults.classList.add("is-hidden");
       return;
     }
     dmStartResultState.forEach(function (item) {
+      const card = document.createElement("div");
+      const tone = String((item && item.tone) || "info").toLowerCase();
+      card.className = "dm-start-result";
+      if (tone === "ok") {
+        card.classList.add("is-ok");
+      } else if (tone === "warn") {
+        card.classList.add("is-warn");
+      } else if (tone === "error") {
+        card.classList.add("is-error");
+      }
+
+      const title = document.createElement("div");
+      title.className = "dm-start-result-title";
+      title.textContent = item && item.title ? String(item.title) : "?";
+      card.appendChild(title);
+
+      const metaText = item && item.meta ? String(item.meta) : "";
+      if (metaText) {
+        const meta = document.createElement("div");
+        meta.className = "dm-start-result-meta";
+        meta.textContent = metaText;
+        card.appendChild(meta);
+      }
+
+      const body = document.createElement("div");
+      body.className = "dm-start-result-message";
+      body.textContent = item && item.message ? String(item.message) : "";
+      card.appendChild(body);
+
+      dmStartResults.appendChild(card);
+    });
+    dmStartResults.classList.remove("is-hidden");
+  }
+
+  function renderDmStartResults(results) {
+    const cards = (Array.isArray(results) ? results : []).map(function (item) {
       const started = !!(item && item.started);
       const robotId = item && item.robot_id ? String(item.robot_id) : "?";
       const dmUrl = item && item.dm_url ? String(item.dm_url) : "";
       const instanceId = item && item.instance_id ? String(item.instance_id) : "";
-      const message =
-        item && item.message ? String(item.message) : item && item.error ? String(item.error) : "";
-
-      const card = document.createElement("div");
-      card.className = "dm-start-result " + (started ? "is-ok" : "is-error");
-
-      const title = document.createElement("div");
-      title.className = "dm-start-result-title";
-      title.textContent = robotId + (started ? " gestart" : " niet gestart");
-      card.appendChild(title);
-
-      const meta = document.createElement("div");
-      meta.className = "dm-start-result-meta";
       const parts = [];
       if (dmUrl) {
         parts.push(dmUrl);
@@ -433,17 +673,51 @@ import {
       if (instanceId) {
         parts.push("instance_id=" + instanceId);
       }
-      meta.textContent = parts.join(" | ");
-      card.appendChild(meta);
-
-      const body = document.createElement("div");
-      body.className = "dm-start-result-message";
-      body.textContent = message;
-      card.appendChild(body);
-
-      dmStartResults.appendChild(card);
+      return {
+        tone: started ? "ok" : "error",
+        title: robotId + (started ? " gestart" : " niet gestart"),
+        meta: parts.join(" | "),
+        message: item && item.message ? String(item.message) : item && item.error ? String(item.error) : "",
+      };
     });
-    dmStartResults.classList.remove("is-hidden");
+    renderRuntimeActionCards(cards);
+  }
+
+  function renderPreloadResults(result) {
+    const robots = result && Array.isArray(result.robots) ? result.robots : [];
+    const robotLookup = new Map(robots.map((item) => [String(item.robot_id || ""), item]));
+    const generation = result && Array.isArray(result.robots_generation) ? result.robots_generation : [];
+    const cards = generation.map(function (item) {
+      const robotId = String((item && item.robot_id) || "?");
+      const robotStatus = robotLookup.get(robotId) || {};
+      const status = String((item && item.status) || "");
+      const generatedCount = Number(item && item.generated_count);
+      const reusedCount = Number(item && item.reused_count);
+      let title = robotId + " preload bijgewerkt";
+      let tone = "ok";
+      let message = "";
+      if (status === "unsupported") {
+        title = robotId + " preload niet beschikbaar";
+        tone = "warn";
+        message = String(item && item.message ? item.message : "Deze robot gebruikt live-only TTS.");
+      } else {
+        const parts = [];
+        if (Number.isFinite(generatedCount) && generatedCount > 0) {
+          parts.push(String(generatedCount) + " nieuw");
+        }
+        if (Number.isFinite(reusedCount) && reusedCount > 0) {
+          parts.push(String(reusedCount) + " hergebruikt");
+        }
+        message = parts.length > 0 ? parts.join(", ") + "." : "Geen wijzigingen nodig.";
+      }
+      return {
+        tone: tone,
+        title: title,
+        meta: describeProfile(robotStatus.current_profile),
+        message: message,
+      };
+    });
+    renderRuntimeActionCards(cards);
   }
 
   function _resolveRunCurrentIndex(state) {
@@ -639,6 +913,148 @@ import {
       return null;
     }
     return parsed.value;
+  }
+
+  async function fetchTtsPreloadStatus(script) {
+    return fetchJson("/api/tts_preload/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script: script }),
+    });
+  }
+
+  async function generateTtsPreload(script) {
+    return fetchJson("/api/tts_preload/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script: script }),
+    });
+  }
+
+  async function pruneTtsPreload(policy) {
+    return fetchJson("/api/tts_preload/prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ policy: policy }),
+    });
+  }
+
+  function buildAutomaticCurrentPolicies(statusPayload) {
+    const policies = {};
+    const robots = statusPayload && Array.isArray(statusPayload.robots) ? statusPayload.robots : [];
+    robots.forEach((robot) => {
+      if (robot && robot.current_ready) {
+        policies[String(robot.robot_id || "")] = { mode: "current" };
+      }
+    });
+    return policies;
+  }
+
+  function summarizePreloadGeneration(result) {
+    const generatedCount = result && typeof result.generated_count === "number" ? result.generated_count : 0;
+    const reusedCount = result && typeof result.reused_count === "number" ? result.reused_count : 0;
+    const robotsGeneration = result && Array.isArray(result.robots_generation) ? result.robots_generation : [];
+    const unsupported = robotsGeneration.filter((item) => item && String(item.status || "") === "unsupported");
+    let message =
+      "Preload klaar: " + String(generatedCount) + " nieuw gemaakt en " + String(reusedCount) + " bestaand hergebruikt.";
+    if (unsupported.length > 0) {
+      const robots = unsupported.map((item) => String(item.robot_id || "?")).join(", ");
+      message += " Live-only: " + robots + ".";
+    }
+    return {
+      message: message,
+      level: generatedCount > 0 || reusedCount > 0 ? "ok" : unsupported.length > 0 ? "warn" : "info",
+    };
+  }
+
+  async function resolveStartPreloadPolicy(script, statusPayload) {
+    let currentStatus = statusPayload;
+    while (true) {
+      const robots = currentStatus && Array.isArray(currentStatus.robots) ? currentStatus.robots : [];
+      const problemRobots = robots.filter((robot) => {
+        const status = String((robot && robot.status) || "");
+        return status === "missing" || status === "mismatch_existing";
+      });
+      if (problemRobots.length === 0) {
+        return buildAutomaticCurrentPolicies(currentStatus);
+      }
+
+      const canUseExisting = problemRobots.every(
+        (robot) => String(robot.status || "") === "mismatch_existing" && !!robot.existing_ready
+      );
+      const buttons = [];
+      if (canUseExisting) {
+        buttons.push({ id: "use_existing", label: "Gebruik preload" });
+      }
+      buttons.push({ id: "preload_now", label: "Preload nu", tone: "primary" });
+      buttons.push({ id: "live", label: "Live synthese" });
+      buttons.push({ id: "cancel", label: "Annuleer" });
+
+      const choice = await openActionDialog({
+        title: "TTS preload controle",
+        intro: [
+          "De huidige DM TTS-profielen komen niet volledig overeen met wat al is voorgemaakt.",
+          "Kies of je nu wilt preloaden, live wilt draaien of een bestaand preload-profiel wilt gebruiken.",
+        ],
+        robots: problemRobots.map((robot) => {
+          const metaLines = ["Huidig: " + describeProfile(robot.current_profile)];
+          if (robot.existing_profile) {
+            metaLines.push("Bestaand preload: " + describeProfile(robot.existing_profile));
+          } else if (typeof robot.current_missing_count === "number") {
+            metaLines.push("Ontbrekende clips: " + String(robot.current_missing_count));
+          }
+          return {
+            title: String(robot.robot_id || "?"),
+            meta: metaLines.join(" | "),
+            diff: diffProfileFields(robot.current_profile, robot.existing_profile),
+          };
+        }),
+        buttons: buttons,
+      });
+
+      if (choice === "cancel") {
+        return null;
+      }
+      if (choice === "live") {
+        const policies = buildAutomaticCurrentPolicies(currentStatus);
+        problemRobots.forEach((robot) => {
+          policies[String(robot.robot_id || "")] = { mode: "live" };
+        });
+        return policies;
+      }
+      if (choice === "use_existing" && canUseExisting) {
+        const policies = buildAutomaticCurrentPolicies(currentStatus);
+        problemRobots.forEach((robot) => {
+          const existingProfile = isObject(robot.existing_profile) ? robot.existing_profile : {};
+          policies[String(robot.robot_id || "")] = {
+            mode: "existing",
+            profile_fingerprint: String(existingProfile.fingerprint || ""),
+          };
+        });
+        return policies;
+      }
+      if (choice === "preload_now") {
+        setPreloadRequestBusy(true);
+        renderRuntimeActionCards([
+          {
+            tone: "info",
+            title: "Preload bezig",
+            meta: "Huidige DM TTS-profielen",
+            message: "Ontbrekende audiofragmenten worden nu voorgemaakt voor de say-stappen in dit script.",
+          },
+        ]);
+        setStatus("Run wacht op preload: audio wordt nu gerenderd voor de say-stappen.", "info");
+        try {
+          currentStatus = await generateTtsPreload(script);
+        } finally {
+          setPreloadRequestBusy(false);
+        }
+        renderPreloadResults(currentStatus);
+        const summary = summarizePreloadGeneration(currentStatus);
+        setStatus(summary.message, summary.level);
+        continue;
+      }
+    }
   }
 
   function hasPendingBlockErrors() {
@@ -1881,27 +2297,160 @@ import {
   }
   async function startRunFromEditor() {
     ensureRunPolling();
+    if (preloadRequestInFlight) {
+      setStatus("Preload audio is nog bezig. Wacht tot renderen klaar is.", "warn");
+      return;
+    }
+    if (runStartRequestInFlight) {
+      setStatus("Run wordt al voorbereid.", "warn");
+      return;
+    }
     if (!ensureViewSyncedForAction("Run starten")) {
       return;
     }
-    renderDmStartResults([]);
-    const script = parseEditorScriptForRun();
+    setRunStartRequestBusy(true);
+    let attemptedRunStart = false;
+    try {
+      renderDmStartResults([]);
+      let script = parseEditorScriptForRun();
+      if (!script) {
+        return;
+      }
+      if (scriptHasSaySteps(script)) {
+        script = ensureScriptIdForPreload(script);
+      }
+      let ttsPreload = undefined;
+      if (scriptHasSaySteps(script)) {
+        let preloadStatus;
+        setStatus("Run voorbereiden: TTS preload wordt gecontroleerd.", "info");
+        try {
+          preloadStatus = await fetchTtsPreloadStatus(script);
+        } catch (err) {
+          const message = err && err.message ? err.message : String(err);
+          setStatus("TTS preload status ophalen mislukt: " + message, "error");
+          return;
+        }
+        try {
+          const policyByRobot = await resolveStartPreloadPolicy(script, preloadStatus);
+          if (policyByRobot === null) {
+            setStatus("Run starten geannuleerd.", "warn");
+            return;
+          }
+          if (Object.keys(policyByRobot).length > 0) {
+            ttsPreload = { policy_by_robot: policyByRobot };
+          }
+        } catch (err) {
+          const message = err && err.message ? err.message : String(err);
+          renderRuntimeActionCards([
+            {
+              tone: "error",
+              title: "TTS preloadcontrole mislukt",
+              meta: "Run is niet gestart",
+              message: message,
+            },
+          ]);
+          setStatus("TTS preload verwerken mislukt: " + message, "error");
+          return;
+        }
+      }
+      setStatus("Run starten...", "info");
+      attemptedRunStart = true;
+      try {
+        const payload = await fetchJson("/api/run/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ script: script, tts_preload: ttsPreload }),
+        });
+        renderRuntimeState(payload);
+        setStatus("Run gestart.", "ok");
+      } catch (err) {
+        const message = err && err.message ? err.message : String(err);
+        setStatus("Run starten mislukt: " + message, "error");
+      }
+    } finally {
+      setRunStartRequestBusy(false);
+      if (attemptedRunStart) {
+        await refreshRunState({ silent: true });
+      }
+    }
+  }
+
+  async function preloadAudioFromEditor() {
+    if (preloadRequestInFlight) {
+      setStatus("Preload audio is al bezig.", "warn");
+      return;
+    }
+    if (runStartRequestInFlight) {
+      setStatus("Run wordt voorbereid. Wacht tot de preloadcontrole klaar is.", "warn");
+      return;
+    }
+    if (!ensureViewSyncedForAction("Preload audio")) {
+      return;
+    }
+    let script = parseEditorScriptForRun();
     if (!script) {
       return;
     }
+    if (!scriptHasSaySteps(script)) {
+      setStatus("Geen say-stappen gevonden om te preloaden.", "warn");
+      return;
+    }
+    script = ensureScriptIdForPreload(script);
+    setPreloadRequestBusy(true);
+    renderRuntimeActionCards([
+      {
+        tone: "info",
+        title: "Preload bezig",
+        meta: "Huidige DM TTS-profielen",
+        message: "Say-stappen worden gecontroleerd en ontbrekende audio wordt voorgemaakt op de server.",
+      },
+    ]);
+    setStatus("Preload bezig: audio wordt nu gerenderd voor de say-stappen.", "info");
     try {
-      const payload = await fetchJson("/api/run/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script: script }),
-      });
-      renderRuntimeState(payload);
-      setStatus("Run gestart.", "ok");
+      const result = await generateTtsPreload(script);
+      renderPreloadResults(result);
+      const summary = summarizePreloadGeneration(result);
+      setStatus(summary.message, summary.level);
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
-      setStatus("Run starten mislukt: " + message, "error");
+      renderRuntimeActionCards([
+        {
+          tone: "error",
+          title: "Preload mislukt",
+          meta: "Controleer TTS-instelling of modelconfiguratie",
+          message: message,
+        },
+      ]);
+      setStatus("Preload audio mislukt. Zie details in de runtimekaart.", "error");
+    } finally {
+      setPreloadRequestBusy(false);
     }
-    await refreshRunState({ silent: true });
+  }
+
+  async function prunePreloadCacheFromUi() {
+    const choice = await openActionDialog({
+      title: "Opschonen preload-cache",
+      intro: ["Verwijder ongebruikte clips uit de gedeelde TTS preload-cache."],
+      buttons: [
+        { id: "all", label: "Alles verwijderen" },
+        { id: "14d", label: "Ongebruikt 14 dagen" },
+        { id: "30d", label: "Ongebruikt 30 dagen" },
+        { id: "cancel", label: "Annuleer" },
+      ],
+    });
+    if (!choice || choice === "cancel") {
+      return;
+    }
+    try {
+      const result = await pruneTtsPreload(choice);
+      setStatus(
+        "Preload-cache opgeschoond: " + String(result.deleted_count || 0) + " clip(s) verwijderd.",
+        result.deleted_count > 0 ? "ok" : "info"
+      );
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      setStatus("Opschonen preload-cache mislukt: " + message, "error");
+    }
   }
 
   async function startDmsFromEditor() {
@@ -2517,6 +3066,27 @@ import {
   btnRunAbort.addEventListener("click", async function () {
     await sendAbort();
   });
+  if (btnPreloadAudio) {
+    btnPreloadAudio.addEventListener("click", async function () {
+      await preloadAudioFromEditor();
+    });
+  }
+  if (btnPreloadPrune) {
+    btnPreloadPrune.addEventListener("click", async function () {
+      await prunePreloadCacheFromUi();
+    });
+  }
+  if (actionDialogClose) {
+    actionDialogClose.addEventListener("click", function () {
+      closeActionDialog("cancel");
+    });
+  }
+  if (typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement) {
+    actionDialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closeActionDialog("cancel");
+    });
+  }
 
   templateInspector.addEventListener("change", function (event) {
     const target = event.target;

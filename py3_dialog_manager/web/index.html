@@ -3135,6 +3135,13 @@
         }, waitMs);
       }
 
+      function commandNaoRefreshDelayMs(label) {
+        const normalized = String(label || '').trim().toUpperCase();
+        if (normalized === 'STAND_UP') return 1800;
+        if (normalized === 'REST' || normalized === 'STOP') return 900;
+        return 350;
+      }
+
       async function refreshCmdNaoState(opts = {}) {
         const showErrors = !!opts.showErrors;
         if (!cmdNaoAwakeState || !cmdNaoAutLifeState) return;
@@ -3185,7 +3192,13 @@
             } else {
               setCmdNaoStatus('');
             }
-          } else if (cmdNaoReachable && cmdNaoStatusText.startsWith('NAO status niet beschikbaar:')) {
+          } else if (
+            cmdNaoReachable &&
+            (
+              cmdNaoStatusText.startsWith('NAO status niet beschikbaar:') ||
+              cmdNaoStatusText.startsWith('NAO status verversen na ')
+            )
+          ) {
             setCmdNaoStatus('');
           }
         } catch (e) {
@@ -3626,6 +3639,10 @@
           if (!j.ok) throw new Error(j.error || 'command failed');
           syncStopAvailability(j);
           cmdStatus.textContent = 'ok';
+          if (cmdNaoHealthAvailable && activeTab === 'commands') {
+            setCmdNaoStatus(`NAO status verversen na ${label}...`);
+            scheduleCmdNaoRefresh(commandNaoRefreshDelayMs(label), false);
+          }
         } catch (e) {
           if (isAbortError(e)) {
             cmdStatus.textContent = 'gestopt';

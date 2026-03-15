@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from typing import Any, Dict, Optional
 
 import requests
@@ -52,14 +51,82 @@ class DMClient:
             raise DMClientError(f"{method} {url} returned invalid payload type: {type(data).__name__}")
         return data
 
+    def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+        accept: str = "audio/wav",
+    ) -> bytes:
+        url = f"{self.base_url}{path}"
+        timeout = float(timeout_s if timeout_s is not None else self.timeout_s)
+        kwargs: Dict[str, Any] = {"timeout": timeout, "headers": {"Accept": accept}}
+        if payload is not None:
+            kwargs["json"] = payload
+        try:
+            resp = self._session.request(method=method, url=url, **kwargs)
+        except requests.RequestException as exc:
+            raise DMClientError(f"{method} {url} request failed: {exc}") from exc
+        if resp.status_code >= 400:
+            err: Optional[str] = None
+            try:
+                data = resp.json()
+            except ValueError:
+                data = None
+            if isinstance(data, dict):
+                err = str(data.get("error") or "").strip() or None
+                detail = str(data.get("detail") or "").strip()
+                if detail:
+                    err = f"{err}: {detail}" if err else detail
+            if not err:
+                err = (resp.text or "").strip() or f"status={resp.status_code}"
+            raise DMClientError(f"{method} {url} failed (status={resp.status_code}): {err}")
+        return bytes(resp.content or b"")
+
     def capabilities(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("GET", "/api/script/capabilities", timeout_s=timeout_s)
 
-    def script_say(self, text: str, timeout_s: Optional[float] = None) -> Dict[str, Any]:
-        return self._request("POST", "/api/script/say", payload={"text": text}, timeout_s=timeout_s)
+    def script_say(
+        self,
+        text: str,
+        *,
+        timeout_s: Optional[float] = None,
+        preloaded_audio_b64: Optional[str] = None,
+        preloaded_audio_format: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"text": text}
+        if preloaded_audio_b64:
+            payload["preloaded_audio_b64"] = str(preloaded_audio_b64)
+            payload["preloaded_audio_format"] = str(preloaded_audio_format or "wav").strip().lower() or "wav"
+        return self._request("POST", "/api/script/say", payload=payload, timeout_s=timeout_s)
 
     def script_do(self, payload: Dict[str, Any], timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/script/do", payload=payload, timeout_s=timeout_s)
+
+    def script_tts_profile(
+        self,
+        *,
+        runtime_config_override: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if isinstance(runtime_config_override, dict) and runtime_config_override:
+            payload["runtime_config_override"] = dict(runtime_config_override)
+        return self._request("POST", "/api/script/tts_profile", payload=payload, timeout_s=timeout_s)
+
+    def script_tts_render(
+        self,
+        *,
+        text: str,
+        runtime_config_override: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> bytes:
+        payload: Dict[str, Any] = {"text": text}
+        if isinstance(runtime_config_override, dict) and runtime_config_override:
+            payload["runtime_config_override"] = dict(runtime_config_override)
+        return self._request_bytes("POST", "/api/script/tts_render", payload=payload, timeout_s=timeout_s)
 
     def nao_set_eye_color(
         self,
