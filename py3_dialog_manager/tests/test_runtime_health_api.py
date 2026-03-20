@@ -249,3 +249,111 @@ def test_runtime_health_flags_conflict_when_base_url_points_to_webapp(monkeypatc
     assert data["base"]["conflict"] is True
     assert data["behavior"]["conflict"] is False
     assert get_calls == []
+    assert any(
+        issue["issue_key"] == "dm_local:base_conflict"
+        and issue["issue_type"] == "dm_local"
+        and issue["active"] is True
+        for issue in data["connectivity_issues"]
+    )
+
+
+def test_runtime_health_reports_local_connectivity_issues(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    def fake_get(_url, timeout=0, **_kwargs):
+        return _Resp({"status": "error", "timeout": timeout}, status_code=503)
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.socket, "create_connection", lambda *_a, **_k: _ConnOk())
+
+    resp = client.post(
+        "/api/runtime_health",
+        json={
+            "nao_base_url": "http://base:5000",
+            "behavior_enabled": False,
+            "base_enabled": True,
+            "nao_ip_enabled": False,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    issue = next(issue for issue in data["connectivity_issues"] if issue["issue_key"] == "dm_local:base_ping")
+    assert issue["issue_type"] == "dm_local"
+    assert issue["severity"] == "error"
+    assert issue["message"] == "Base connector is niet bereikbaar."
+    assert issue["source"] == "runtime_health.base_ping"
+    assert issue["first_seen_at"]
+    assert issue["active"] is True
+
+
+def test_cloud_tts_connectivity_issue_sets_and_clears(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    outcomes = [
+        {"wav_bytes": None, "error": "azure offline"},
+        {"wav_bytes": b"RIFF....WAVE", "error": ""},
+    ]
+
+    class FakeRouter:
+        def __init__(self, *args, **kwargs) -> None:
+            self._last_error_message = ""
+
+        def describe_tts_profile(self):
+            return {"supported": True, "engine": "azure"}
+
+        def render_wav_bytes(self, _text):
+            outcome = outcomes.pop(0)
+            self._last_error_message = outcome["error"]
+            return outcome["wav_bytes"]
+
+        def last_error_message(self):
+            return self._last_error_message
+
+    monkeypatch.setattr(webapp_server, "OutputRouterBackend", FakeRouter)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "tts_engine": "azure",
+                "output_target": "server",
+                "base_enabled": False,
+                "behavior_enabled": False,
+                "nao_ip_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    fail_resp = client.post("/api/script/tts_render", json={"text": "Hallo"})
+    assert fail_resp.status_code == 502
+    fail_payload = fail_resp.get_json()
+    assert fail_payload["error"] == "tts_render_failed"
+    assert fail_payload["detail"] == "azure offline"
+
+    health_resp = client.post(
+        "/api/runtime_health",
+        json={"base_enabled": False, "behavior_enabled": False, "nao_ip_enabled": False},
+    )
+    assert health_resp.status_code == 200
+    health_payload = health_resp.get_json()
+    issue = next(issue for issue in health_payload["connectivity_issues"] if issue["issue_key"] == "cloud:tts")
+    assert issue["issue_type"] == "cloud"
+    assert issue["message"] == "Cloud TTS mislukt: azure offline"
+    assert issue["source"] == "tts.azure"
+    assert issue["active"] is True
+
+    ok_resp = client.post("/api/script/tts_render", json={"text": "Hallo"})
+    assert ok_resp.status_code == 200
+    assert ok_resp.data == b"RIFF....WAVE"
+
+    recovered_resp = client.post(
+        "/api/runtime_health",
+        json={"base_enabled": False, "behavior_enabled": False, "nao_ip_enabled": False},
+    )
+    assert recovered_resp.status_code == 200
+    recovered_payload = recovered_resp.get_json()
+    issue = next(issue for issue in recovered_payload["connectivity_issues"] if issue["issue_key"] == "cloud:tts")
+    assert issue["active"] is False

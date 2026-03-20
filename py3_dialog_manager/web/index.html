@@ -457,6 +457,13 @@
       .chatcard { display: flex; flex-direction: column; min-height: 0; height: 100%; }
       .rightpane { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: auto; }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); font-size: 12px; background: #f7fbff; color: #23364d; }
+      .connectivity-banner { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #f0b8a3; background: linear-gradient(180deg, #fff7f1 0%, #ffece2 100%); color: #5b2417; box-shadow: inset 0 1px 0 rgba(255,255,255,0.66); }
+      .connectivity-banner.hidden { display: none; }
+      .connectivity-banner-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+      .connectivity-banner-title { font-size: 13px; font-weight: 700; }
+      .connectivity-banner-close { padding: 4px 8px; font-size: 12px; min-height: 30px; }
+      .connectivity-banner-lines { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+      .connectivity-banner-line { white-space: pre-wrap; }
 
       .chat { flex: 0 0 auto; height: clamp(200px, 36vh, 460px); min-height: 170px; max-height: 62vh; resize: vertical; overflow: auto; padding: 10px; background: var(--panel-soft); border: 1px solid var(--border-soft); border-radius: 12px; }
       .composer { margin-top: 10px; }
@@ -591,6 +598,13 @@
         border-color: var(--border-strong);
         background: rgba(28, 42, 58, 0.95);
       }
+      body[data-color-scheme="night_blue"] .connectivity-banner,
+      body[data-color-scheme="night_brown"] .connectivity-banner,
+      body[data-color-scheme="night_teal"] .connectivity-banner {
+        border-color: rgba(214, 140, 116, 0.62);
+        background: rgba(78, 36, 27, 0.92);
+        color: #ffd8ca;
+      }
       body[data-color-scheme="night_blue"] .confirm-meta,
       body[data-color-scheme="night_brown"] .confirm-meta,
       body[data-color-scheme="night_teal"] .confirm-meta {
@@ -719,6 +733,13 @@
     <div class="layout">
       <!-- LEFT: chat + controls -->
       <div class="card chatcard">
+        <div id="connectivityBanner" class="connectivity-banner hidden" aria-live="polite">
+          <div class="connectivity-banner-head">
+            <div id="connectivityBannerTitle" class="connectivity-banner-title">Verbindingsproblemen actief</div>
+            <button id="btnConnectivityBannerClose" type="button" class="connectivity-banner-close">Sluiten</button>
+          </div>
+          <div id="connectivityBannerLines" class="connectivity-banner-lines"></div>
+        </div>
         <div id="chat" class="chat"></div>
 
         <div class="composer">
@@ -1387,6 +1408,10 @@
       const btnReset = document.getElementById('btnReset');
       const txt = document.getElementById('txt');
       const statusEl = document.getElementById('status');
+      const connectivityBanner = document.getElementById('connectivityBanner');
+      const connectivityBannerTitle = document.getElementById('connectivityBannerTitle');
+      const connectivityBannerLines = document.getElementById('connectivityBannerLines');
+      const btnConnectivityBannerClose = document.getElementById('btnConnectivityBannerClose');
       const chatEl = document.getElementById('chat');
       const promptEl = document.getElementById('prompt');
       const promptFileSelect = document.getElementById('promptFileSelect');
@@ -1840,6 +1865,7 @@
       let cmdNaoAutoRestSuspendOwner = '';
       let cmdNaoStateWarning = '';
       let cmdNaoStatusText = '';
+      let cmdNaoDisabledByConfig = false;
       let cmdNaoActionBusy = false;
       let cmdNaoRefreshBusy = false;
       let cmdNaoDeferredRefreshTimer = null;
@@ -3093,6 +3119,22 @@
       }
 
       function renderCmdNaoState() {
+        if (cmdNaoDisabledByConfig) {
+          if (cmdNaoAwakeState) cmdNaoAwakeState.textContent = 'motoren: disabled';
+          if (cmdNaoAutLifeState) cmdNaoAutLifeState.textContent = 'aut life: disabled';
+          if (cmdNaoPostureState) cmdNaoPostureState.textContent = 'posture: disabled';
+          if (cmdNaoAutoRestState) cmdNaoAutoRestState.textContent = 'auto-rest: disabled';
+          if (btnCmdWakeUp) btnCmdWakeUp.disabled = true;
+          if (btnCmdRest) btnCmdRest.disabled = true;
+          if (btnCmdAutLifeToggle) {
+            btnCmdAutLifeToggle.disabled = true;
+            btnCmdAutLifeToggle.innerHTML = '&#9881; Aut life';
+          }
+          if (btnCmdNaoRefresh) btnCmdNaoRefresh.disabled = true;
+          setLocomotionButtonsEnabled(false);
+          if (cmdNaoLifeStatus) cmdNaoLifeStatus.textContent = 'disabled';
+          return;
+        }
         if (cmdNaoAwakeState) {
           if (!cmdNaoReachable) {
             cmdNaoAwakeState.textContent = 'motoren: niet beschikbaar';
@@ -3153,6 +3195,28 @@
         if (cmdNaoLifeStatus) cmdNaoLifeStatus.textContent = cmdNaoStatusText || cmdNaoStateWarning || '';
       }
 
+      function resetCmdNaoState(options = {}) {
+        const disabled = !!(options && options.disabled);
+        cmdNaoDisabledByConfig = disabled;
+        cmdNaoReachable = false;
+        cmdNaoIsAwake = null;
+        cmdNaoAutLifeEnabled = null;
+        cmdNaoAutLifeValue = '';
+        cmdNaoPostureValue = '';
+        cmdNaoAutoRestEnabled = null;
+        cmdNaoAutoRestTimeoutS = 0;
+        cmdNaoAutoRestSecondsRemainingBase = null;
+        cmdNaoAutoRestTimerActive = false;
+        cmdNaoAutoRestSampledAtMs = 0;
+        cmdNaoAutoRestSuspended = false;
+        cmdNaoAutoRestSuspendOwner = '';
+        cmdNaoStateWarning = '';
+        if (!cmdNaoActionBusy) {
+          cmdNaoStatusText = disabled ? 'disabled' : '';
+        }
+        renderCmdNaoState();
+      }
+
       function setCmdNaoStatus(text) {
         cmdNaoStatusText = text || '';
         renderCmdNaoState();
@@ -3210,22 +3274,12 @@
       async function refreshCmdNaoState(opts = {}) {
         const showErrors = !!opts.showErrors;
         if (!cmdNaoAwakeState || !cmdNaoAutLifeState) return;
+        if (cmdNaoDisabledByConfig) {
+          resetCmdNaoState({ disabled: true });
+          return;
+        }
         if (!showErrors && !cmdNaoHealthAvailable) {
-          cmdNaoReachable = false;
-          cmdNaoIsAwake = null;
-          cmdNaoAutLifeEnabled = null;
-          cmdNaoAutLifeValue = '';
-          cmdNaoPostureValue = '';
-          cmdNaoAutoRestEnabled = null;
-          cmdNaoAutoRestTimeoutS = 0;
-          cmdNaoAutoRestSecondsRemainingBase = null;
-          cmdNaoAutoRestTimerActive = false;
-          cmdNaoAutoRestSampledAtMs = 0;
-          cmdNaoAutoRestSuspended = false;
-          cmdNaoAutoRestSuspendOwner = '';
-          cmdNaoStateWarning = '';
-          if (!cmdNaoActionBusy) setCmdNaoStatus('');
-          renderCmdNaoState();
+          resetCmdNaoState({ disabled: false });
           return;
         }
         if (cmdNaoRefreshBusy) return;
@@ -3240,6 +3294,7 @@
           const life = (state && typeof state.custom_life === 'object') ? state.custom_life : {};
           const posture = (state && typeof state.posture === 'object') ? state.posture : {};
           const autoRest = (state && typeof state.auto_rest === 'object') ? state.auto_rest : {};
+          cmdNaoDisabledByConfig = false;
           const awakeOk = !!awake.ok;
           const lifeOk = !!life.ok;
           const postureOk = !!posture.ok;
@@ -3290,19 +3345,7 @@
             setCmdNaoStatus('');
           }
         } catch (e) {
-          cmdNaoReachable = false;
-          cmdNaoIsAwake = null;
-          cmdNaoAutLifeEnabled = null;
-          cmdNaoAutLifeValue = '';
-          cmdNaoPostureValue = '';
-          cmdNaoAutoRestEnabled = null;
-          cmdNaoAutoRestTimeoutS = 0;
-          cmdNaoAutoRestSecondsRemainingBase = null;
-          cmdNaoAutoRestTimerActive = false;
-          cmdNaoAutoRestSampledAtMs = 0;
-          cmdNaoAutoRestSuspended = false;
-          cmdNaoAutoRestSuspendOwner = '';
-          cmdNaoStateWarning = '';
+          resetCmdNaoState({ disabled: false });
           if (!cmdNaoActionBusy && showErrors) {
             const msg = (e && e.message) ? e.message : String(e || 'fout');
             setCmdNaoStatus(`NAO status niet beschikbaar: ${msg}`);
@@ -3395,12 +3438,7 @@
           if (el) el.disabled = disabled;
         });
         if (!enabled) {
-          cmdNaoReachable = false;
-          cmdNaoIsAwake = null;
-          cmdNaoAutLifeEnabled = null;
-          cmdNaoAutLifeValue = '';
-          if (!cmdNaoActionBusy) setCmdNaoStatus('');
-          renderCmdNaoState();
+          resetCmdNaoState({ disabled: cmdNaoDisabledByConfig });
           return;
         }
         const text = String(stateText || '').toLowerCase();
@@ -6335,6 +6373,112 @@
       let healthTimer = null;
       let lastHealthOk = null;
       let lastNaoOk = null;
+      let healthConnectivityIssueCounts = new Map();
+      let connectivityBannerDismissedSignature = '';
+      let connectivityBannerActiveSignature = '';
+
+      function normalizeConnectivityIssues(rawItems) {
+        const items = [];
+        (Array.isArray(rawItems) ? rawItems : []).forEach((raw) => {
+          if (!raw || typeof raw !== 'object') return;
+          const issueKey = String(raw.issue_key || '').trim();
+          if (!issueKey) return;
+          items.push({
+            issue_key: issueKey,
+            issue_type: String(raw.issue_type || '').trim() || 'dm_local',
+            severity: String(raw.severity || 'error').trim() || 'error',
+            message: String(raw.message || '').trim(),
+            source: String(raw.source || '').trim(),
+            first_seen_at: String(raw.first_seen_at || '').trim(),
+            active: !!raw.active
+          });
+        });
+        return items;
+      }
+
+      function connectivityBannerSignature(issues) {
+        return (Array.isArray(issues) ? issues : [])
+          .map((issue) => [
+            String(issue.issue_key || ''),
+            String(issue.issue_type || ''),
+            String(issue.first_seen_at || ''),
+            String(issue.message || '')
+          ].join('|'))
+          .sort()
+          .join('||');
+      }
+
+      function hideConnectivityBanner() {
+        if (!(connectivityBanner instanceof HTMLElement)) return;
+        connectivityBanner.classList.add('hidden');
+        if (connectivityBannerLines instanceof HTMLElement) {
+          connectivityBannerLines.replaceChildren();
+        }
+      }
+
+      function renderConnectivityBanner(issues) {
+        if (
+          !(connectivityBanner instanceof HTMLElement) ||
+          !(connectivityBannerLines instanceof HTMLElement) ||
+          !(connectivityBannerTitle instanceof HTMLElement)
+        ) {
+          return;
+        }
+        const hasCloudIssue = issues.some((issue) => issue.issue_type === 'cloud');
+        const hasLocalIssue = issues.some((issue) => issue.issue_type === 'dm_local');
+        if (hasCloudIssue && hasLocalIssue) {
+          connectivityBannerTitle.textContent = 'Verbindingsproblemen actief';
+        } else if (hasCloudIssue) {
+          connectivityBannerTitle.textContent = 'Cloudactie mislukt';
+        } else {
+          connectivityBannerTitle.textContent = 'Lokale keten niet gezond';
+        }
+        const lines = issues.map((issue) => {
+          const line = document.createElement('div');
+          line.className = 'connectivity-banner-line';
+          const prefix = issue.issue_type === 'cloud' ? 'Cloud' : 'Lokaal';
+          line.textContent = `${prefix}: ${issue.message || issue.issue_key}`;
+          return line;
+        });
+        connectivityBannerLines.replaceChildren(...lines);
+        connectivityBanner.classList.remove('hidden');
+      }
+
+      function updateConnectivityBanner(rawItems) {
+        const activeIssues = normalizeConnectivityIssues(rawItems).filter((issue) => issue.active);
+        const localIssueKeys = new Set(
+          activeIssues
+            .filter((issue) => issue.issue_type === 'dm_local')
+            .map((issue) => issue.issue_key)
+        );
+        [...healthConnectivityIssueCounts.keys()].forEach((issueKey) => {
+          if (!localIssueKeys.has(issueKey)) {
+            healthConnectivityIssueCounts.delete(issueKey);
+          }
+        });
+        activeIssues.forEach((issue) => {
+          if (issue.issue_type !== 'dm_local') return;
+          const current = Number(healthConnectivityIssueCounts.get(issue.issue_key) || 0);
+          healthConnectivityIssueCounts.set(issue.issue_key, current + 1);
+        });
+        const visibleIssues = activeIssues.filter((issue) => {
+          if (issue.issue_type === 'cloud') return true;
+          if (issue.issue_type !== 'dm_local') return false;
+          return Number(healthConnectivityIssueCounts.get(issue.issue_key) || 0) >= 2;
+        });
+        const signature = connectivityBannerSignature(visibleIssues);
+        connectivityBannerActiveSignature = signature;
+        if (!signature) {
+          connectivityBannerDismissedSignature = '';
+          hideConnectivityBanner();
+          return;
+        }
+        if (connectivityBannerDismissedSignature && connectivityBannerDismissedSignature === signature) {
+          hideConnectivityBanner();
+          return;
+        }
+        renderConnectivityBanner(visibleIssues);
+      }
 
         function scheduleHealth(cfg, isHealthy) {
           if (healthTimer) clearTimeout(healthTimer);
@@ -6350,11 +6494,18 @@
         }
 
         async function pollHealth(cfg) {
+          cmdNaoDisabledByConfig = !cfg.nao_ip_enabled;
           if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) {
             setHealth(healthNao, 'disabled', 'nao');
             setHealth(healthBase, 'disabled', 'base');
             setHealth(healthBehavior, 'disabled', 'behavior manager');
+            healthConnectivityIssueCounts.clear();
+            connectivityBannerDismissedSignature = '';
+            connectivityBannerActiveSignature = '';
+            hideConnectivityBanner();
             cmdNaoHealthAvailable = false;
+            lastNaoOk = null;
+            resetCmdNaoState({ disabled: true });
             lastHealthOk = false;
             return false;
           }
@@ -6373,6 +6524,7 @@
             });
             const j = await r.json();
             lastAutoRestHealth = (j && typeof j.auto_rest === 'object') ? j.auto_rest : null;
+            updateConnectivityBanner(j && Array.isArray(j.connectivity_issues) ? j.connectivity_issues : []);
             if (!cfg.nao_ip_enabled) {
               setHealth(healthNao, 'disabled', 'nao');
               lastNaoOk = null;
@@ -6405,9 +6557,12 @@
             const naoOk = !!(j.nao && j.nao.ping);
             const audioOk = baseOk || behaviorOk;
             const wasCmdNaoAvailable = cmdNaoHealthAvailable;
-            cmdNaoHealthAvailable = audioOk;
-            if (audioOk && !wasCmdNaoAvailable) {
+            cmdNaoHealthAvailable = audioOk && !!cfg.nao_ip_enabled;
+            if (cmdNaoHealthAvailable && !wasCmdNaoAvailable) {
               scheduleCmdNaoRefresh(250, false);
+            }
+            if (!cfg.nao_ip_enabled) {
+              resetCmdNaoState({ disabled: true });
             }
             if (audioOk) {
               setNaoAudioEnabled(true, '');
@@ -6563,6 +6718,7 @@
         refreshProcessStatus();
         refreshProcessLogs();
         refreshCustomLifeState(true);
+        triggerHealthSoon(200);
         return true;
       }
 
@@ -6953,6 +7109,7 @@
           clearActionController(controller);
           setSendBusyPhase('');
           updateSendButton();
+          triggerHealthSoon(150);
         }
       }
 
@@ -6982,6 +7139,7 @@
           updateRecButton();
           updateSendButton();
           btnRec.disabled = false;
+          triggerHealthSoon(150);
         }
       }
 
@@ -7034,6 +7192,7 @@
           updateRecButton();
           updateSendButton();
           btnRec.disabled = false;
+          triggerHealthSoon(150);
         }
       }
 
@@ -7209,8 +7368,16 @@
             setRecState('idle');
           }
           updateSendButton();
+          triggerHealthSoon(150);
         }
       });
+
+      if (btnConnectivityBannerClose) {
+        btnConnectivityBannerClose.addEventListener('click', () => {
+          connectivityBannerDismissedSignature = connectivityBannerActiveSignature || '';
+          hideConnectivityBanner();
+        });
+      }
 
       chatEl.addEventListener('contextmenu', (e) => {
         const target = e.target;

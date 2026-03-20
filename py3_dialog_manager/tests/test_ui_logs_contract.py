@@ -89,6 +89,29 @@ def test_commands_tab_exposes_posture_and_auto_rest_pills(monkeypatch):
 
 
 @pytest.mark.ui_contract
+def test_commands_tab_renders_disabled_state_when_nao_is_disabled(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    render_body = _extract_function_body(html, "renderCmdNaoState")
+    assert "motoren: disabled" in render_body
+    assert "aut life: disabled" in render_body
+    assert "posture: disabled" in render_body
+    assert "auto-rest: disabled" in render_body
+    assert "cmdNaoLifeStatus.textContent = 'disabled';" in render_body
+    assert "async function refreshCmdNaoState(opts = {})" in html
+    assert "if (cmdNaoDisabledByConfig) {" in html
+    assert "resetCmdNaoState({ disabled: true });" in html
+    assert "cmdNaoDisabledByConfig = !cfg.nao_ip_enabled;" in html
+    assert "cmdNaoHealthAvailable = audioOk && !!cfg.nao_ip_enabled;" in html
+    assert "if (cmdNaoHealthAvailable && !wasCmdNaoAvailable)" in html
+
+
+@pytest.mark.ui_contract
 def test_logs_sync_behavior_is_manual_when_logs_tab_is_active(monkeypatch):
     app = _make_app(monkeypatch)
     client = app.test_client()

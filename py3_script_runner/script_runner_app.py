@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from collections import deque
@@ -461,6 +462,35 @@ def _iter_script_dm_targets(script: Dict[str, Any]) -> List[Dict[str, str]]:
     return targets
 
 
+def _watch_issue_first_seen_at() -> str:
+    now = time.time()
+    whole = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
+    ms = int((now % 1.0) * 1000.0)
+    return f"{whole}.{ms:03d}Z"
+
+
+def _normalize_connectivity_issues(raw_items: Any) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for raw in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        issue_key = str(raw.get("issue_key") or "").strip()
+        if not issue_key:
+            continue
+        items.append(
+            {
+                "issue_key": issue_key,
+                "issue_type": str(raw.get("issue_type") or "").strip() or "dm_local",
+                "severity": str(raw.get("severity") or "error").strip() or "error",
+                "message": str(raw.get("message") or "").strip(),
+                "source": str(raw.get("source") or "").strip(),
+                "first_seen_at": str(raw.get("first_seen_at") or "").strip() or None,
+                "active": bool(raw.get("active", False)),
+            }
+        )
+    return items
+
+
 def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
     script_raw = payload.get("script") if isinstance(payload, dict) else None
     if not isinstance(script_raw, dict):
@@ -481,6 +511,9 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
             awake = state.get("awake") if isinstance(state, dict) else {}
             posture = state.get("posture") if isinstance(state, dict) else {}
             auto_rest = state.get("auto_rest") if isinstance(state, dict) else {}
+            connectivity_issues = _normalize_connectivity_issues(
+                state.get("connectivity_issues") if isinstance(state, dict) else []
+            )
             awake = awake if isinstance(awake, dict) else {}
             posture = posture if isinstance(posture, dict) else {}
             auto_rest = auto_rest if isinstance(auto_rest, dict) else {}
@@ -494,6 +527,11 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
                         break
             if not error and isinstance(state, dict):
                 error = str(state.get("error") or "").strip()
+            if not error:
+                for issue in connectivity_issues:
+                    if bool(issue.get("active")) and str(issue.get("message") or "").strip():
+                        error = str(issue.get("message") or "").strip()
+                        break
             remaining_raw = auto_rest.get("seconds_until_rest")
             try:
                 remaining = int(remaining_raw) if remaining_raw is not None else None
@@ -513,9 +551,19 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
                     "posture": posture,
                     "auto_rest": auto_rest,
                     "error": error,
+                    "connectivity_issues": connectivity_issues,
                 }
             )
         except Exception as exc:
+            issue = {
+                "issue_key": "sr_dm:unreachable",
+                "issue_type": "sr_dm",
+                "severity": "error",
+                "message": f"DM niet bereikbaar: {exc}",
+                "source": "sr.auto_rest_watch",
+                "first_seen_at": _watch_issue_first_seen_at(),
+                "active": True,
+            }
             robots_payload.append(
                 {
                     "robot_id": target["robot_id"],
@@ -527,6 +575,7 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
                     "posture": {},
                     "error": str(exc),
                     "auto_rest": {},
+                    "connectivity_issues": [issue],
                 }
             )
 

@@ -102,6 +102,11 @@ async function waitFor(check, attempts = 20) {
   throw new Error("waitFor timed out");
 }
 
+function actionDialogIsOpen() {
+  const dialog = document.getElementById("actionDialog");
+  return !!(dialog && (dialog.open || dialog.hasAttribute("open")));
+}
+
 function dispatchDragEvent(node, type) {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, "dataTransfer", {
@@ -515,10 +520,65 @@ describe("studio layout ui", () => {
     );
   });
 
-  test("robotstatus section renders live DM state with an active auto-rest countdown", async () => {
+  test("robotstatus section renders live DM state only during an active run", async () => {
+    await loadApp(
+      {
+        ok: true,
+        status: "running",
+        waiting_for_next: false,
+        waiting_reason: "none",
+        current_step_id: "say_intro",
+        completed_steps: 0,
+        total_steps: 3,
+        log_tail: [],
+        last_error: null,
+      },
+      {
+        fetchImpl: async (url) => {
+          if (url === "/api/auto_rest_watch/status") {
+            return makeJsonResponse({
+              ok: true,
+              robots: [
+                {
+                  robot_id: "nao1",
+                  dm_url: "http://127.0.0.1:5301",
+                  instance_id: "alex",
+                  ok: true,
+                  reachable: true,
+                  awake: { ok: true, is_awake: true },
+                  posture: { ok: true, posture: "Standing" },
+                  auto_rest: {
+                    enabled_by_config: true,
+                    suspended: false,
+                    timer_active: true,
+                    timeout_s: 180,
+                    seconds_until_rest: 177,
+                  },
+                },
+              ],
+            });
+          }
+          return null;
+        },
+      }
+    );
+
+    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
+    const statusText = document.getElementById("robotStatusList").textContent;
+    expect(statusText).toContain("nao1");
+    expect(statusText).toContain("motoren: wakker");
+    expect(statusText).toContain("posture: Standing");
+    expect(statusText).not.toContain("auto-rest");
+    expect(window.setInterval.mock.calls.find((call) => call[1] === 5000)).toBeTruthy();
+    expect(window.setInterval.mock.calls.find((call) => call[1] === 1000)).toBeUndefined();
+  });
+
+  test("robotstatus section stays hidden and does not poll while idle", async () => {
+    let watchCalls = 0;
     await loadApp(null, {
       fetchImpl: async (url) => {
         if (url === "/api/auto_rest_watch/status") {
+          watchCalls += 1;
           return makeJsonResponse({
             ok: true,
             robots: [
@@ -545,62 +605,42 @@ describe("studio layout ui", () => {
       },
     });
 
-    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
-    const statusText = document.getElementById("robotStatusList").textContent;
-    expect(statusText).toContain("nao1");
-    expect(statusText).toContain("motoren: wakker");
-    expect(statusText).toContain("posture: Standing");
-    expect(statusText).toContain("auto-rest: 177/180s");
-
-    const countdownTick = window.setInterval.mock.calls.find((call) => call[1] === 1000)?.[0];
-    expect(typeof countdownTick).toBe("function");
-    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);
-    countdownTick();
-    await flushUi();
-
-    expect(document.getElementById("robotStatusList").textContent).toContain("auto-rest: 176/180s");
+    expect(document.getElementById("robotStatusSection").classList.contains("is-hidden")).toBe(true);
+    expect(watchCalls).toBe(0);
+    expect(window.setInterval.mock.calls.find((call) => call[1] === 5000)).toBeUndefined();
   });
 
-  test("robotstatus section keeps inactive auto-rest at the configured timeout", async () => {
+  test("robotstatus section hides again once the run is no longer active", async () => {
+    let runStateCalls = 0;
     await loadApp(null, {
       fetchImpl: async (url) => {
-        if (url === "/api/auto_rest_watch/status") {
+        if (url === "/api/run/state") {
+          runStateCalls += 1;
+          if (runStateCalls === 1) {
+            return makeJsonResponse({
+              ok: true,
+              status: "running",
+              waiting_for_next: false,
+              waiting_reason: "none",
+              current_step_id: "say_intro",
+              completed_steps: 0,
+              total_steps: 3,
+              log_tail: [],
+              last_error: null,
+            });
+          }
           return makeJsonResponse({
             ok: true,
-            robots: [
-              {
-                robot_id: "nao1",
-                dm_url: "http://127.0.0.1:5301",
-                instance_id: "alex",
-                ok: true,
-                reachable: true,
-                awake: { ok: true, is_awake: false },
-                posture: { ok: true, posture: "Sitting" },
-                auto_rest: {
-                  enabled_by_config: true,
-                  suspended: false,
-                  timer_active: false,
-                  timeout_s: 180,
-                  seconds_until_rest: 180,
-                },
-              },
-            ],
+            status: "completed",
+            waiting_for_next: false,
+            waiting_reason: "none",
+            current_step_id: "",
+            completed_steps: 3,
+            total_steps: 3,
+            log_tail: [],
+            last_error: null,
           });
         }
-        return null;
-      },
-    });
-
-    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
-    const statusText = document.getElementById("robotStatusList").textContent;
-    expect(statusText).toContain("motoren: rust");
-    expect(statusText).toContain("posture: Sitting");
-    expect(statusText).toContain("auto-rest: 180/180s");
-  });
-
-  test("robotstatus section shows not available labels for unreachable dm", async () => {
-    await loadApp(null, {
-      fetchImpl: async (url) => {
         if (url === "/api/auto_rest_watch/status") {
           return makeJsonResponse({
             ok: true,
@@ -610,14 +650,15 @@ describe("studio layout ui", () => {
                 dm_url: "http://127.0.0.1:5301",
                 instance_id: "alex",
                 ok: false,
-                reachable: false,
-                awake: {},
-                posture: {},
-                auto_rest: {},
-                error: "base down",
-              },
-            ],
-          });
+                  reachable: false,
+                  awake: {},
+                  posture: {},
+                  auto_rest: {},
+                  error: "base down",
+                  connectivity_issues: [],
+                },
+              ],
+            });
         }
         return null;
       },
@@ -627,8 +668,12 @@ describe("studio layout ui", () => {
     const statusText = document.getElementById("robotStatusList").textContent;
     expect(statusText).toContain("motoren: niet beschikbaar");
     expect(statusText).toContain("posture: niet beschikbaar");
-    expect(statusText).toContain("auto-rest: onbekend");
     expect(statusText).toContain("base down");
+
+    const runPollCallback = window.setInterval.mock.calls.find((call) => call[1] === 500)?.[0];
+    expect(typeof runPollCallback).toBe("function");
+    await runPollCallback();
+    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden"));
   });
 
   test("preload audio injects a script_id and posts generate for the current script", async () => {
@@ -889,5 +934,314 @@ describe("studio layout ui", () => {
 
     expect(startPayload).not.toBeNull();
     expect(startPayload.tts_preload.policy_by_robot.nao1.mode).toBe("current");
+  });
+
+  test("connectivity popup opens after a second active-run poll and bundles multiple robots", async () => {
+    let watchCalls = 0;
+    await loadApp(
+      {
+        ok: true,
+        status: "preflight",
+        waiting_for_next: false,
+        waiting_reason: "none",
+        current_step_id: "",
+        completed_steps: 0,
+        total_steps: 3,
+        log_tail: [],
+        last_error: null,
+      },
+      {
+        fetchImpl: async (url) => {
+          if (url === "/api/auto_rest_watch/status") {
+            watchCalls += 1;
+            if (watchCalls === 1) {
+              return makeJsonResponse({
+                ok: true,
+                robots: [
+                  {
+                    robot_id: "nao1",
+                    dm_url: "http://127.0.0.1:5301",
+                    instance_id: "alex",
+                    ok: true,
+                    reachable: true,
+                    awake: { ok: true, is_awake: true },
+                    posture: { ok: true, posture: "Standing" },
+                    auto_rest: { enabled_by_config: true, suspended: false, timer_active: false, timeout_s: 180, seconds_until_rest: 180 },
+                    error: "",
+                    connectivity_issues: [],
+                  },
+                  {
+                    robot_id: "nao2",
+                    dm_url: "http://127.0.0.1:5302",
+                    instance_id: "renee",
+                    ok: true,
+                    reachable: true,
+                    awake: { ok: true, is_awake: true },
+                    posture: { ok: true, posture: "Standing" },
+                    auto_rest: { enabled_by_config: true, suspended: false, timer_active: false, timeout_s: 180, seconds_until_rest: 180 },
+                    error: "",
+                    connectivity_issues: [],
+                  },
+                ],
+              });
+            }
+            return makeJsonResponse({
+              ok: true,
+              robots: [
+                {
+                  robot_id: "nao1",
+                  dm_url: "http://127.0.0.1:5301",
+                  instance_id: "alex",
+                  ok: true,
+                  reachable: true,
+                  awake: { ok: true, is_awake: true },
+                  posture: { ok: true, posture: "Standing" },
+                  auto_rest: { enabled_by_config: true, suspended: false, timer_active: false, timeout_s: 180, seconds_until_rest: 180 },
+                  error: "Base connector is niet bereikbaar.",
+                  connectivity_issues: [
+                    {
+                      issue_key: "dm_local:base_ping",
+                      issue_type: "dm_local",
+                      severity: "error",
+                      message: "Base connector is niet bereikbaar.",
+                      source: "runtime_health.base_ping",
+                      first_seen_at: "2026-03-20T12:00:00.000Z",
+                      active: true,
+                    },
+                  ],
+                },
+                {
+                  robot_id: "nao2",
+                  dm_url: "http://127.0.0.1:5302",
+                  instance_id: "renee",
+                  ok: false,
+                  reachable: false,
+                  awake: {},
+                  posture: {},
+                  auto_rest: {},
+                  error: "DM niet bereikbaar: connection refused",
+                  connectivity_issues: [
+                    {
+                      issue_key: "sr_dm:unreachable",
+                      issue_type: "sr_dm",
+                      severity: "error",
+                      message: "DM niet bereikbaar: connection refused",
+                      source: "sr.auto_rest_watch",
+                      first_seen_at: "2026-03-20T12:00:02.000Z",
+                      active: true,
+                    },
+                  ],
+                },
+              ],
+            });
+          }
+          return null;
+        },
+      }
+    );
+
+    expect(watchCalls).toBeGreaterThanOrEqual(1);
+    expect(actionDialogIsOpen()).toBe(false);
+
+    const pollCallback = window.setInterval.mock.calls.find((call) => call[1] === 5000)?.[0];
+    expect(typeof pollCallback).toBe("function");
+    await pollCallback();
+    await waitFor(() => actionDialogIsOpen());
+
+    expect(document.getElementById("actionDialogTitle").textContent).toContain("Verbindingsverlies");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("nao1");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("nao2");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("Base connector is niet bereikbaar.");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("DM niet bereikbaar: connection refused");
+  });
+
+  test("connectivity popup stays hidden while the builder is idle", async () => {
+    let watchCalls = 0;
+    await loadApp(null, {
+      fetchImpl: async (url) => {
+        if (url === "/api/auto_rest_watch/status") {
+          watchCalls += 1;
+          return makeJsonResponse({
+            ok: true,
+            robots: [
+              {
+                robot_id: "nao1",
+                dm_url: "http://127.0.0.1:5301",
+                instance_id: "alex",
+                ok: true,
+                reachable: true,
+                awake: { ok: true, is_awake: true },
+                posture: { ok: true, posture: "Standing" },
+                auto_rest: { enabled_by_config: true, suspended: false, timer_active: false, timeout_s: 180, seconds_until_rest: 180 },
+                error: "Base connector is niet bereikbaar.",
+                connectivity_issues: [
+                  {
+                    issue_key: "dm_local:base_ping",
+                    issue_type: "dm_local",
+                    severity: "error",
+                    message: "Base connector is niet bereikbaar.",
+                    source: "runtime_health.base_ping",
+                    first_seen_at: "2026-03-20T12:00:00.000Z",
+                    active: true,
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        return null;
+      },
+    });
+
+    expect(window.setInterval.mock.calls.find((call) => call[1] === 5000)).toBeUndefined();
+    expect(watchCalls).toBe(0);
+    expect(actionDialogIsOpen()).toBe(false);
+  });
+
+  test("connectivity popup closes again after recovery", async () => {
+    let watchCalls = 0;
+    await loadApp(
+      {
+        ok: true,
+        status: "running",
+        waiting_for_next: false,
+        waiting_reason: "none",
+        current_step_id: "say_intro",
+        completed_steps: 0,
+        total_steps: 3,
+        log_tail: [],
+        last_error: null,
+      },
+      {
+        fetchImpl: async (url) => {
+          if (url === "/api/auto_rest_watch/status") {
+            watchCalls += 1;
+            if (watchCalls <= 2) {
+              return makeJsonResponse({
+                ok: true,
+                robots: [
+                  {
+                    robot_id: "nao1",
+                    dm_url: "http://127.0.0.1:5301",
+                    instance_id: "alex",
+                    ok: true,
+                    reachable: true,
+                    awake: { ok: true, is_awake: true },
+                    posture: { ok: true, posture: "Standing" },
+                    auto_rest: { enabled_by_config: true, suspended: false, timer_active: false, timeout_s: 180, seconds_until_rest: 180 },
+                    error: "Behavior manager is niet bereikbaar.",
+                    connectivity_issues: [
+                      {
+                        issue_key: "dm_local:behavior_ping",
+                        issue_type: "dm_local",
+                        severity: "error",
+                        message: "Behavior manager is niet bereikbaar.",
+                        source: "runtime_health.behavior_ping",
+                        first_seen_at: "2026-03-20T12:00:00.000Z",
+                        active: true,
+                      },
+                    ],
+                  },
+                ],
+              });
+            }
+            return makeJsonResponse({
+              ok: true,
+              robots: [
+                {
+                  robot_id: "nao1",
+                  dm_url: "http://127.0.0.1:5301",
+                  instance_id: "alex",
+                  ok: true,
+                  reachable: true,
+                  awake: { ok: true, is_awake: true },
+                  posture: { ok: true, posture: "Standing" },
+                  auto_rest: { enabled_by_config: true, suspended: false, timer_active: false, timeout_s: 180, seconds_until_rest: 180 },
+                  error: "",
+                  connectivity_issues: [],
+                },
+              ],
+            });
+          }
+          return null;
+        },
+      }
+    );
+
+    const pollCallback = window.setInterval.mock.calls.find((call) => call[1] === 5000)?.[0];
+    expect(typeof pollCallback).toBe("function");
+    await pollCallback();
+    await waitFor(() => actionDialogIsOpen());
+
+    await pollCallback();
+    await waitFor(() => actionDialogIsOpen() === false);
+  });
+
+  test("run start hard connectivity failure opens the popup immediately", async () => {
+    let runStateCalls = 0;
+    await loadApp(null, {
+      fetchImpl: async (url, fetchOptions) => {
+        if (url === "/api/run/state") {
+          runStateCalls += 1;
+          if (runStateCalls === 1) {
+            return makeJsonResponse({
+              ok: true,
+              status: "idle",
+              waiting_for_next: false,
+              waiting_reason: "none",
+              current_step_id: "",
+              completed_steps: 0,
+              total_steps: 0,
+              log_tail: [],
+              last_error: null,
+            });
+          }
+          return makeJsonResponse({
+            ok: true,
+            status: "failed",
+            waiting_for_next: false,
+            waiting_reason: "none",
+            current_step_id: "",
+            completed_steps: 0,
+            total_steps: 3,
+            log_tail: [],
+            last_error: "DM niet bereikbaar: connection refused",
+          });
+        }
+        if (url === "/api/tts_preload/status") {
+          return makeJsonResponse({
+            ok: true,
+            script_id: "script-1",
+            has_say_steps: true,
+            say_count: 1,
+            robots: [
+              {
+                robot_id: "nao1",
+                status: "current_ready",
+                current_ready: true,
+                existing_ready: false,
+                current_missing_count: 0,
+                current_profile: { fingerprint: "fp-current", summary: "Azure | current", details: { voice: "current" } },
+                existing_profile: null,
+              },
+            ],
+          });
+        }
+        if (url === "/api/run/start") {
+          const payload = JSON.parse(fetchOptions.body);
+          expect(payload.tts_preload.policy_by_robot.nao1.mode).toBe("current");
+          return makeJsonResponse({ ok: false, error: "DM niet bereikbaar: connection refused" }, 502);
+        }
+        return null;
+      },
+    });
+
+    document.getElementById("btnRunStart").click();
+    await waitFor(() => actionDialogIsOpen());
+
+    expect(document.getElementById("actionDialogTitle").textContent).toContain("Verbindingsverlies");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("Run-start faalde");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("nao1");
+    expect(document.getElementById("actionDialogBody").textContent).toContain("DM niet bereikbaar: connection refused");
   });
 });

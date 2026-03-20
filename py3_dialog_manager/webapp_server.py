@@ -1297,6 +1297,8 @@ def create_app(
         "acquired_at": 0.0,
         "suppress_logged": False,
     }
+    connectivity_issue_lock = threading.RLock()
+    connectivity_issue_state: Dict[str, Dict[str, Any]] = {}
 
     confirm_method = parse_confirm_method(cfg.get("confirm_method", "web"))
     confirm_timeout_s = float(cfg.get("confirm_timeout_s", 10.0))
@@ -1380,6 +1382,145 @@ def create_app(
         whole = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts))
         ms = int((ts % 1.0) * 1000.0)
         return f"{whole}.{ms:03d}Z"
+
+    def _connectivity_issue_snapshot() -> List[Dict[str, Any]]:
+        with connectivity_issue_lock:
+            items = [
+                {
+                    "issue_key": str(issue_key),
+                    "issue_type": str(entry.get("issue_type") or ""),
+                    "severity": str(entry.get("severity") or "error"),
+                    "message": str(entry.get("message") or "").strip(),
+                    "source": str(entry.get("source") or "").strip(),
+                    "first_seen_at": entry.get("first_seen_at"),
+                    "active": bool(entry.get("active")),
+                }
+                for issue_key, entry in connectivity_issue_state.items()
+            ]
+        items.sort(key=lambda item: (0 if item.get("active") else 1, item.get("issue_type") or "", item.get("issue_key") or ""))
+        return items
+
+    def _set_connectivity_issue(
+        issue_key: str,
+        *,
+        issue_type: str,
+        severity: str,
+        message: str,
+        source: str,
+    ) -> None:
+        normalized_key = str(issue_key or "").strip()
+        if not normalized_key:
+            return
+        normalized_message = str(message or "").strip()
+        normalized_source = str(source or "").strip()
+        now_iso = _dm_now_iso()
+        with connectivity_issue_lock:
+            existing = connectivity_issue_state.get(normalized_key)
+            first_seen_at = now_iso
+            if existing and bool(existing.get("active")) and existing.get("first_seen_at"):
+                first_seen_at = existing.get("first_seen_at")
+            connectivity_issue_state[normalized_key] = {
+                "issue_type": str(issue_type or "").strip(),
+                "severity": str(severity or "error").strip() or "error",
+                "message": normalized_message,
+                "source": normalized_source,
+                "first_seen_at": first_seen_at,
+                "active": True,
+            }
+
+    def _clear_connectivity_issue(issue_key: str) -> None:
+        normalized_key = str(issue_key or "").strip()
+        if not normalized_key:
+            return
+        with connectivity_issue_lock:
+            existing = connectivity_issue_state.get(normalized_key)
+            if not existing:
+                return
+            if not bool(existing.get("active")):
+                return
+            existing = dict(existing)
+            existing["active"] = False
+            connectivity_issue_state[normalized_key] = existing
+
+    def _sync_dm_local_connectivity_issues(local_issues: List[Dict[str, Any]]) -> None:
+        incoming_keys: set[str] = set()
+        for issue in local_issues:
+            issue_key = str(issue.get("issue_key") or "").strip()
+            if not issue_key:
+                continue
+            incoming_keys.add(issue_key)
+            _set_connectivity_issue(
+                issue_key,
+                issue_type="dm_local",
+                severity=str(issue.get("severity") or "error"),
+                message=str(issue.get("message") or ""),
+                source=str(issue.get("source") or "runtime_health"),
+            )
+        with connectivity_issue_lock:
+            local_keys = [
+                key
+                for key, entry in connectivity_issue_state.items()
+                if str(entry.get("issue_type") or "").strip() == "dm_local"
+            ]
+        for issue_key in local_keys:
+            if issue_key not in incoming_keys:
+                _clear_connectivity_issue(issue_key)
+
+    def _runtime_uses_cloud_stt(runtime_cfg_local: JsonLike) -> bool:
+        return str(runtime_cfg_local.get("stt_type") or "").strip().lower() == "azure"
+
+    def _runtime_uses_cloud_llm(runtime_cfg_local: JsonLike) -> bool:
+        return str(runtime_cfg_local.get("llm_type") or "").strip().lower() in {"ollama", "ollama_cloud"}
+
+    def _runtime_uses_cloud_tts(runtime_cfg_local: JsonLike) -> bool:
+        return str(runtime_cfg_local.get("tts_engine") or "").strip().lower() == "azure"
+
+    def _cloud_connectivity_issue_key(kind: str) -> str:
+        return f"cloud:{str(kind or '').strip().lower()}"
+
+    def _cloud_connectivity_issue_source(runtime_cfg_local: JsonLike, kind: str) -> Optional[str]:
+        kind_norm = str(kind or "").strip().lower()
+        if kind_norm == "stt" and _runtime_uses_cloud_stt(runtime_cfg_local):
+            return "stt.azure"
+        if kind_norm == "llm" and _runtime_uses_cloud_llm(runtime_cfg_local):
+            llm_type = str(runtime_cfg_local.get("llm_type") or "").strip().lower() or "ollama_cloud"
+            return f"llm.{llm_type}"
+        if kind_norm == "tts" and _runtime_uses_cloud_tts(runtime_cfg_local):
+            return "tts.azure"
+        return None
+
+    def _cloud_connectivity_issue_message(kind: str, detail: str) -> str:
+        labels = {"stt": "Cloud STT", "llm": "Cloud LLM", "tts": "Cloud TTS"}
+        label = labels.get(str(kind or "").strip().lower(), "Cloud")
+        cleaned_detail = str(detail or "").strip()
+        if cleaned_detail:
+            return f"{label} mislukt: {cleaned_detail}"
+        return f"{label} mislukt."
+
+    def _mark_cloud_connectivity_issue(runtime_cfg_local: JsonLike, kind: str, detail: str) -> None:
+        source = _cloud_connectivity_issue_source(runtime_cfg_local, kind)
+        if not source:
+            return
+        _set_connectivity_issue(
+            _cloud_connectivity_issue_key(kind),
+            issue_type="cloud",
+            severity="error",
+            message=_cloud_connectivity_issue_message(kind, detail),
+            source=source,
+        )
+
+    def _clear_cloud_connectivity_issue(runtime_cfg_local: JsonLike, kind: str) -> None:
+        if not _cloud_connectivity_issue_source(runtime_cfg_local, kind):
+            return
+        _clear_connectivity_issue(_cloud_connectivity_issue_key(kind))
+
+    def _prune_disabled_cloud_connectivity_issues(runtime_cfg_local: JsonLike) -> None:
+        if not _runtime_uses_cloud_stt(runtime_cfg_local):
+            _clear_connectivity_issue(_cloud_connectivity_issue_key("stt"))
+        if not _runtime_uses_cloud_llm(runtime_cfg_local):
+            _clear_connectivity_issue(_cloud_connectivity_issue_key("llm"))
+        if not _runtime_uses_cloud_tts(runtime_cfg_local):
+            _clear_connectivity_issue(_cloud_connectivity_issue_key("tts"))
 
     def _auto_rest_suspend_snapshot_locked(*, now: Optional[float] = None) -> Dict[str, Any]:
         now_ts = float(now if now is not None else time.time())
@@ -1543,6 +1684,100 @@ def create_app(
             "activity_age_s": float(activity_age_s),
             "timer_active": bool(countdown_active),
             "seconds_until_rest": seconds_until_rest,
+        }
+
+    def _runtime_health_snapshot(health_payload: Dict[str, Any], *, request_host: Optional[str]) -> Dict[str, Any]:
+        base_url = _normalize_url(health_payload.get("nao_base_url"))
+        behavior_url = _normalize_url(health_payload.get("behavior_manager_url"))
+        base_enabled = bool(health_payload.get("base_enabled", True))
+        behavior_enabled = bool(health_payload.get("behavior_enabled", True))
+        nao_ip_enabled = bool(health_payload.get("nao_ip_enabled", False))
+        nao_host, nao_port = _parse_host_port(health_payload.get("nao_ip"), 9559)
+        auto_rest_timeout_s = _auto_rest_timeout_s(health_payload if isinstance(health_payload, dict) else {})
+        nao_ping = _check_tcp(nao_host, nao_port) if nao_ip_enabled else False
+        probe_nao_via_services = bool(nao_ip_enabled and nao_ping)
+        base_conflict = _url_conflicts_with_webapp(base_url, request_host) if base_enabled else False
+        behavior_conflict = _url_conflicts_with_webapp(behavior_url, request_host) if behavior_enabled else False
+        base_ping = _check_ping(base_url, "/ping") if (base_enabled and not base_conflict) else False
+        base_nao_ping = _check_ping(base_url, "/is_awake") if (base_enabled and base_ping and probe_nao_via_services) else False
+        behavior_ping = _check_ping(behavior_url, "/ping") if (behavior_enabled and not behavior_conflict) else False
+        behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/is_awake") if (
+            behavior_enabled and behavior_ping and probe_nao_via_services
+        ) else False
+
+        local_issues: List[Dict[str, Any]] = []
+        if base_enabled and base_conflict:
+            local_issues.append(
+                {
+                    "issue_key": "dm_local:base_conflict",
+                    "severity": "error",
+                    "message": "nao_base_url wijst naar deze dialog manager.",
+                    "source": "runtime_health.base_conflict",
+                }
+            )
+        if behavior_enabled and behavior_conflict:
+            local_issues.append(
+                {
+                    "issue_key": "dm_local:behavior_conflict",
+                    "severity": "error",
+                    "message": "behavior_manager_url wijst naar deze dialog manager.",
+                    "source": "runtime_health.behavior_conflict",
+                }
+            )
+        if nao_ip_enabled and not nao_ping:
+            local_issues.append(
+                {
+                    "issue_key": "dm_local:nao_tcp",
+                    "severity": "error",
+                    "message": "NAO TCP is niet bereikbaar.",
+                    "source": "runtime_health.nao_tcp",
+                }
+            )
+        if base_enabled and not base_conflict:
+            if not base_ping:
+                local_issues.append(
+                    {
+                        "issue_key": "dm_local:base_ping",
+                        "severity": "error",
+                        "message": "Base connector is niet bereikbaar.",
+                        "source": "runtime_health.base_ping",
+                    }
+                )
+            elif nao_ip_enabled and not base_nao_ping:
+                local_issues.append(
+                    {
+                        "issue_key": "dm_local:base_nao",
+                        "severity": "error",
+                        "message": "Base connector bereikt de NAO niet.",
+                        "source": "runtime_health.base_nao",
+                    }
+                )
+        if behavior_enabled and not behavior_conflict:
+            if not behavior_ping:
+                local_issues.append(
+                    {
+                        "issue_key": "dm_local:behavior_ping",
+                        "severity": "error",
+                        "message": "Behavior manager is niet bereikbaar.",
+                        "source": "runtime_health.behavior_ping",
+                    }
+                )
+            elif nao_ip_enabled and not behavior_nao_ping:
+                local_issues.append(
+                    {
+                        "issue_key": "dm_local:behavior_nao",
+                        "severity": "error",
+                        "message": "Behavior manager bereikt de NAO niet.",
+                        "source": "runtime_health.behavior_nao",
+                    }
+                )
+
+        return {
+            "base": {"ping": base_ping, "nao_ping": base_nao_ping, "conflict": base_conflict},
+            "behavior": {"ping": behavior_ping, "nao_ping": behavior_nao_ping, "conflict": behavior_conflict},
+            "nao": {"ping": nao_ping},
+            "auto_rest": _runtime_health_auto_rest(auto_rest_timeout_s),
+            "local_connectivity_issues": local_issues,
         }
 
     def _note_auto_rest_suppressed(runtime_cfg: JsonLike, *, timeout_s: float) -> None:
@@ -2365,6 +2600,107 @@ def create_app(
         _ensure_sid_runtime_pipeline(sid)
         return stt_by_sid.get(sid, base_stt)
 
+    def _transcribe_with_connectivity_tracking(
+        sid: str,
+        audio: UtteranceAudio,
+        *,
+        stt_backend: Optional[Any] = None,
+        runtime_cfg_local: Optional[JsonLike] = None,
+    ):
+        runtime_cfg = runtime_cfg_local if runtime_cfg_local is not None else _get_runtime_cfg(sid)
+        backend = stt_backend if stt_backend is not None else _get_stt(sid)
+        try:
+            result = backend.transcribe(audio)
+        except Exception as exc:
+            _mark_cloud_connectivity_issue(runtime_cfg, "stt", str(exc))
+            raise
+        _clear_cloud_connectivity_issue(runtime_cfg, "stt")
+        return result
+
+    def _reset_output_backend_error_state(output_backend: Any) -> None:
+        if hasattr(output_backend, "_last_error_message"):
+            try:
+                output_backend._last_error_message = ""
+            except Exception:
+                return
+
+    def _output_backend_last_error(output_backend: Any) -> str:
+        getter = getattr(output_backend, "last_error_message", None)
+        if callable(getter):
+            try:
+                return str(getter() or "").strip()
+            except Exception:
+                return ""
+        return ""
+
+    def _emit_output_with_connectivity_tracking(
+        sid: str,
+        runtime_cfg_local: JsonLike,
+        output_backend: Any,
+        text: str,
+    ) -> Any:
+        _reset_output_backend_error_state(output_backend)
+        try:
+            result = output_backend.emit(text)
+        except Exception as exc:
+            _mark_cloud_connectivity_issue(runtime_cfg_local, "tts", str(exc))
+            raise
+        detail = re.sub(r"^\[output\]\s*", "", _output_backend_last_error(output_backend))
+        if detail:
+            _mark_cloud_connectivity_issue(runtime_cfg_local, "tts", detail)
+        else:
+            _clear_cloud_connectivity_issue(runtime_cfg_local, "tts")
+        return result
+
+    def _render_tts_with_connectivity_tracking(
+        runtime_cfg_local: JsonLike,
+        router: OutputRouterBackend,
+        text: str,
+    ) -> Optional[bytes]:
+        wav_bytes = router.render_wav_bytes(text)
+        if wav_bytes:
+            _clear_cloud_connectivity_issue(runtime_cfg_local, "tts")
+            return wav_bytes
+        detail = re.sub(r"^\[output\]\s*", "", str(router.last_error_message() or "").strip())
+        _mark_cloud_connectivity_issue(runtime_cfg_local, "tts", detail)
+        return None
+
+    class _TrackedLlmBackend:
+        def __init__(self, sid_value: str, runtime_cfg_local: JsonLike, backend: Any) -> None:
+            self._sid = sid_value
+            self._runtime_cfg = runtime_cfg_local
+            self._backend = backend
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._backend, name)
+
+        def generate(self, messages: History):
+            try:
+                result = self._backend.generate(messages)
+            except Exception as exc:
+                _mark_cloud_connectivity_issue(self._runtime_cfg, "llm", str(exc))
+                raise
+            _clear_cloud_connectivity_issue(self._runtime_cfg, "llm")
+            return result
+
+    class _TrackedOutputBackend:
+        def __init__(self, sid_value: str, runtime_cfg_local: JsonLike, backend: Any) -> None:
+            self._sid = sid_value
+            self._runtime_cfg = runtime_cfg_local
+            self._backend = backend
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._backend, name)
+
+        def emit(self, text: str) -> Any:
+            return _emit_output_with_connectivity_tracking(self._sid, self._runtime_cfg, self._backend, text)
+
+        def emit_preloaded_wav_bytes(self, *args: Any, **kwargs: Any) -> Any:
+            emitter = getattr(self._backend, "emit_preloaded_wav_bytes", None)
+            if callable(emitter):
+                return emitter(*args, **kwargs)
+            return False
+
     def _rebuild_pipeline_for_sid(sid: str, cfg_src: JsonLike) -> None:
         with pipeline_lock:
             pipeline_by_sid[sid] = build_pipeline_from_config(cfg_src, config_path=base_config_path)
@@ -2616,7 +2952,7 @@ def create_app(
                     if emitted:
                         _touch_activity()
                         return
-            pipeline.output.emit(spoken_text)
+            _emit_output_with_connectivity_tracking("system", runtime_cfg, pipeline.output, spoken_text)
             _touch_activity()
         except Exception:
             return
@@ -4107,7 +4443,11 @@ def create_app(
             return jsonify({"ok": False, "error": "Geen audio ontvangen."}), 400
 
         audio = UtteranceAudio(pcm=wav_bytes, sample_rate=16000, channels=1, sample_width=2)
-        res = _get_stt(sid).transcribe(audio)
+        runtime_cfg = _get_runtime_cfg(sid)
+        try:
+            res = _transcribe_with_connectivity_tracking(sid, audio, runtime_cfg_local=runtime_cfg)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
         return jsonify(
             {
                 "ok": True,
@@ -4129,7 +4469,10 @@ def create_app(
         mic = _make_mic_from_config(merged, mode="ptt")
         timeout_s = _resolve_start_timeout((input_cfg.get("params") or {}), default=10.0)
         audio = mic.capture_utterance(timeout_s=timeout_s)
-        res = _get_stt(sid).transcribe(audio)
+        try:
+            res = _transcribe_with_connectivity_tracking(sid, audio, runtime_cfg_local=runtime_cfg)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
         return jsonify(
             {
                 "ok": True,
@@ -4212,7 +4555,10 @@ def create_app(
             except Exception:
                 pass
 
-        res = _get_stt(sid).transcribe(audio)
+        try:
+            res = _transcribe_with_connectivity_tracking(sid, audio, runtime_cfg_local=runtime_cfg)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
         state["audio"] = None
         return jsonify(
             {
@@ -4606,6 +4952,9 @@ def create_app(
         if not output_enabled:
             emit_used = "none"
         output_backend = pipeline.output if emit_used == "pipeline" else NoOpOutputBackend()
+        llm_backend = _TrackedLlmBackend(sid, runtime_cfg, pipeline.llm)
+        if emit_used == "pipeline":
+            output_backend = _TrackedOutputBackend(sid, runtime_cfg, output_backend)
         status_to_console = pipeline.status_to_console if emit_used == "pipeline" else False
 
         base_prompt = getattr(pipeline, "system_prompt_base", None)
@@ -4622,7 +4971,7 @@ def create_app(
 
         pipeline = InputLLMOutputPipeline(
             input_backend=FixedTextInputBackend(text),
-            llm=pipeline.llm,
+            llm=llm_backend,
             output_backend=output_backend,
             status_to_console=status_to_console,
             system_prompt=base_prompt,
@@ -4968,7 +5317,7 @@ def create_app(
                         runtime_cfg_local=runtime_cfg,
                     )
                     try:
-                        res = _get_stt(sid).transcribe(audio)
+                        res = _transcribe_with_connectivity_tracking(sid, audio, runtime_cfg_local=runtime_cfg)
                     except Exception as exc:
                         state["last_error"] = str(exc)
                         _set_continuous_phase(
@@ -6573,6 +6922,7 @@ def create_app(
         with behavior_catalog_cache_lock:
             behavior_catalog_cache.clear()
         runtime_cfg = _get_runtime_cfg(sid)
+        _prune_disabled_cloud_connectivity_issues(runtime_cfg)
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
             _release_custom_life_lock(sid, runtime_cfg)
@@ -6601,31 +6951,17 @@ def create_app(
     @app.post("/api/runtime_health")
     def api_runtime_health():
         payload = request.get_json(force=True, silent=True) or {}
-        base_url = _normalize_url(payload.get("nao_base_url"))
-        behavior_url = _normalize_url(payload.get("behavior_manager_url"))
-        base_enabled = bool(payload.get("base_enabled", True))
-        behavior_enabled = bool(payload.get("behavior_enabled", True))
-        nao_ip_enabled = bool(payload.get("nao_ip_enabled", False))
-        nao_host, nao_port = _parse_host_port(payload.get("nao_ip"), 9559)
-        auto_rest_timeout_s = _auto_rest_timeout_s(payload if isinstance(payload, dict) else {})
-        nao_ping = _check_tcp(nao_host, nao_port) if nao_ip_enabled else False
-        # Only probe /is_awake when NAO checks are explicitly enabled and TCP is up.
-        probe_nao_via_services = bool(nao_ip_enabled and nao_ping)
-        base_conflict = _url_conflicts_with_webapp(base_url, request.host) if base_enabled else False
-        behavior_conflict = _url_conflicts_with_webapp(behavior_url, request.host) if behavior_enabled else False
-        base_ping = _check_ping(base_url, "/ping") if (base_enabled and not base_conflict) else False
-        base_nao_ping = _check_ping(base_url, "/is_awake") if (base_enabled and base_ping and probe_nao_via_services) else False
-        behavior_ping = _check_ping(behavior_url, "/ping") if (behavior_enabled and not behavior_conflict) else False
-        behavior_nao_ping = _check_ping(behavior_url + "/nao" if behavior_url else None, "/is_awake") if (
-            behavior_enabled and behavior_ping and probe_nao_via_services
-        ) else False
+        snapshot = _runtime_health_snapshot(payload if isinstance(payload, dict) else {}, request_host=request.host)
+        _sync_dm_local_connectivity_issues(snapshot.get("local_connectivity_issues") or [])
+        _prune_disabled_cloud_connectivity_issues(_get_runtime_cfg(_get_sid()))
         return jsonify(
             {
                 "ok": True,
-                "base": {"ping": base_ping, "nao_ping": base_nao_ping, "conflict": base_conflict},
-                "behavior": {"ping": behavior_ping, "nao_ping": behavior_nao_ping, "conflict": behavior_conflict},
-                "nao": {"ping": nao_ping},
-                "auto_rest": _runtime_health_auto_rest(auto_rest_timeout_s),
+                "base": snapshot["base"],
+                "behavior": snapshot["behavior"],
+                "nao": snapshot["nao"],
+                "auto_rest": snapshot["auto_rest"],
+                "connectivity_issues": _connectivity_issue_snapshot(),
             }
         )
 
@@ -7908,10 +8244,13 @@ def create_app(
     @app.get("/api/nao_command_state")
     def api_nao_command_state():
         runtime_cfg = _get_runtime_cfg(_get_sid())
+        health_snapshot = _runtime_health_snapshot(runtime_cfg, request_host=request.host)
+        _sync_dm_local_connectivity_issues(health_snapshot.get("local_connectivity_issues") or [])
+        _prune_disabled_cloud_connectivity_issues(runtime_cfg)
         awake = _get_nao_awake_state(runtime_cfg)
         custom_life = _get_nao_custom_life_ui_state(runtime_cfg)
         posture = _get_nao_posture_state(runtime_cfg)
-        auto_rest = _runtime_health_auto_rest(_auto_rest_timeout_s(runtime_cfg))
+        auto_rest = health_snapshot.get("auto_rest") or _runtime_health_auto_rest(_auto_rest_timeout_s(runtime_cfg))
         reachable = bool(awake.get("ok") or custom_life.get("ok") or posture.get("ok"))
         warnings: List[str] = []
         errors: List[str] = []
@@ -7938,6 +8277,7 @@ def create_app(
                 "auto_rest": auto_rest,
                 "warnings": warnings,
                 "errors": errors,
+                "connectivity_issues": _connectivity_issue_snapshot(),
             }
         )
 
@@ -8614,7 +8954,7 @@ def create_app(
                     "engine": str(profile.get("engine") or ""),
                 }
             ), 400
-        wav_bytes = router.render_wav_bytes(text)
+        wav_bytes = _render_tts_with_connectivity_tracking(runtime_cfg, router, text)
         if not wav_bytes:
             detail = re.sub(r"^\[output\]\s*", "", str(router.last_error_message() or "").strip())
             payload = {"ok": False, "error": "tts_render_failed"}
@@ -8887,7 +9227,11 @@ def create_app(
                             stats = state.get("capture_stats")
                             if isinstance(stats, dict):
                                 stats["stt_calls"] = int(stats.get("stt_calls") or 0) + 1
-                        stt_res = _get_stt(sid).transcribe(queued_audio)
+                        stt_res = _transcribe_with_connectivity_tracking(
+                            sid,
+                            queued_audio,
+                            runtime_cfg_local=_get_runtime_cfg(sid),
+                        )
                         text = str(getattr(stt_res, "text", "") or "").strip()
                     except Exception as exc:
                         with summary_state_lock:
@@ -8989,7 +9333,7 @@ def create_app(
 
         pipeline = _get_pipeline(sid)
         try:
-            llm_res = pipeline.llm.generate(messages)
+            llm_res = _TrackedLlmBackend(sid, _get_runtime_cfg(sid), pipeline.llm).generate(messages)
         except Exception as exc:
             with summary_state_lock:
                 state["phase"] = "idle"

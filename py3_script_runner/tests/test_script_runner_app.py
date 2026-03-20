@@ -120,6 +120,82 @@ def test_poll_auto_rest_watch_reports_unreachable_dm(monkeypatch):
     assert robot["posture"]["ok"] is False
 
 
+def test_poll_auto_rest_watch_surfaces_active_connectivity_issues(monkeypatch):
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def nao_command_state(self, timeout_s=None):
+            assert timeout_s == 4.0
+            return {
+                "ok": True,
+                "reachable": True,
+                "awake": {"ok": True, "is_awake": True},
+                "posture": {"ok": True, "posture": "Standing"},
+                "auto_rest": {
+                    "enabled_by_config": True,
+                    "suspended": False,
+                    "timer_active": True,
+                    "timeout_s": 180,
+                    "seconds_until_rest": 12,
+                },
+                "connectivity_issues": [
+                    {
+                        "issue_key": "dm_local:base_ping",
+                        "issue_type": "dm_local",
+                        "severity": "error",
+                        "message": "Base connector is niet bereikbaar.",
+                        "source": "runtime_health.base_ping",
+                        "first_seen_at": "2026-03-20T12:00:00.000Z",
+                        "active": True,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(script_runner_app, "DMClient", FakeClient)
+
+    code, payload = script_runner_app.poll_auto_rest_watch(_watch_payload())
+    assert code == HTTPStatus.OK
+    robot = payload["robots"][0]
+    assert robot["ok"] is True
+    assert robot["reachable"] is True
+    assert robot["error"] == "Base connector is niet bereikbaar."
+    assert robot["connectivity_issues"] == [
+        {
+            "issue_key": "dm_local:base_ping",
+            "issue_type": "dm_local",
+            "severity": "error",
+            "message": "Base connector is niet bereikbaar.",
+            "source": "runtime_health.base_ping",
+            "first_seen_at": "2026-03-20T12:00:00.000Z",
+            "active": True,
+        }
+    ]
+
+
+def test_poll_auto_rest_watch_wraps_dm_exception_as_sr_issue(monkeypatch):
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def nao_command_state(self, timeout_s=None):
+            assert timeout_s == 4.0
+            raise OSError("connection refused")
+
+    monkeypatch.setattr(script_runner_app, "DMClient", FakeClient)
+
+    code, payload = script_runner_app.poll_auto_rest_watch(_watch_payload())
+    assert code == HTTPStatus.OK
+    robot = payload["robots"][0]
+    assert robot["ok"] is False
+    assert robot["reachable"] is False
+    assert robot["error"] == "connection refused"
+    assert robot["connectivity_issues"][0]["issue_key"] == "sr_dm:unreachable"
+    assert robot["connectivity_issues"][0]["issue_type"] == "sr_dm"
+    assert robot["connectivity_issues"][0]["message"] == "DM niet bereikbaar: connection refused"
+    assert robot["connectivity_issues"][0]["active"] is True
+
+
 def test_iter_script_dm_targets_skips_robots_without_dm_url():
     targets = script_runner_app._iter_script_dm_targets(
         {

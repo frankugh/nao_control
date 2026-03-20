@@ -120,10 +120,15 @@ import {
   let pendingCommandLabelFetchKey = "";
   let commandLabelLookup = new Map();
   let actionDialogResolve = null;
+  let currentActionDialogKind = "";
   let autoRestWatchTimer = null;
   let autoRestWatchBusy = false;
-  let robotStatusCountdownTimer = null;
   let robotStatusEntries = [];
+  let connectivityDialogIssueCounts = new Map();
+  let lastConnectivityDialogSignature = "";
+  let dismissedConnectivityDialogSignature = "";
+  let currentConnectivityDialogSource = "";
+  let lastDirectConnectivitySignal = "";
 
   function setStatus(message, level) {
     statusMessage.textContent = message;
@@ -276,34 +281,22 @@ import {
     return next;
   }
 
-  function closeActionDialog(result) {
+  function isActionDialogOpen() {
     const hasDialogElement = typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement;
     if (hasDialogElement) {
-      if (typeof actionDialog.close === "function" && actionDialog.open) {
-        try {
-          actionDialog.close();
-        } catch (_err) {
-          actionDialog.removeAttribute("open");
-        }
-      } else {
-        actionDialog.removeAttribute("open");
-      }
+      return !!actionDialog.open;
     }
-    if (typeof actionDialogResolve === "function") {
-      const resolve = actionDialogResolve;
-      actionDialogResolve = null;
-      resolve(result || "cancel");
-    }
+    return actionDialog instanceof HTMLElement ? actionDialog.hasAttribute("open") : false;
   }
 
-  function openActionDialog(options) {
+  function populateActionDialog(options) {
     if (
       !(actionDialog instanceof HTMLElement) ||
       !(actionDialogTitle instanceof HTMLElement) ||
       !(actionDialogBody instanceof HTMLElement) ||
       !(actionDialogActions instanceof HTMLElement)
     ) {
-      return Promise.resolve("cancel");
+      return false;
     }
     actionDialogTitle.textContent = options && options.title ? String(options.title) : "Actie";
     actionDialogBody.replaceChildren();
@@ -356,20 +349,75 @@ import {
       });
       actionDialogActions.appendChild(button);
     });
+    return true;
+  }
 
-    return new Promise((resolve) => {
-      actionDialogResolve = resolve;
-      const hasDialogElement = typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement;
-      if (hasDialogElement && typeof actionDialog.showModal === "function") {
-        try {
+  function showActionDialogElement() {
+    const hasDialogElement = typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement;
+    if (hasDialogElement && typeof actionDialog.showModal === "function") {
+      try {
+        if (!actionDialog.open) {
           actionDialog.showModal();
-          return;
-        } catch (_err) {
-          // Fall through to plain open attribute for jsdom/older browsers.
         }
+        return;
+      } catch (_err) {
+        // Fall through to plain open attribute for jsdom/older browsers.
       }
+    }
+    if (actionDialog instanceof HTMLElement) {
       actionDialog.setAttribute("open", "");
+    }
+  }
+
+  function closeActionDialog(result) {
+    const hasDialogElement = typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement;
+    if (hasDialogElement) {
+      if (typeof actionDialog.close === "function" && actionDialog.open) {
+        try {
+          actionDialog.close();
+        } catch (_err) {
+          actionDialog.removeAttribute("open");
+        }
+      } else {
+        actionDialog.removeAttribute("open");
+      }
+    }
+    currentActionDialogKind = "";
+    if (typeof actionDialogResolve === "function") {
+      const resolve = actionDialogResolve;
+      actionDialogResolve = null;
+      resolve(result || "cancel");
+    }
+  }
+
+  function openActionDialog(options) {
+    if (!populateActionDialog(options)) {
+      return Promise.resolve("cancel");
+    }
+    return new Promise((resolve) => {
+      currentActionDialogKind = options && options.kind ? String(options.kind) : "choice";
+      actionDialogResolve = resolve;
+      showActionDialogElement();
     });
+  }
+
+  function openConnectivityDialog(options) {
+    if (typeof actionDialogResolve === "function" && currentActionDialogKind !== "connectivity") {
+      return false;
+    }
+    if (!populateActionDialog({ ...options, kind: "connectivity" })) {
+      return false;
+    }
+    currentActionDialogKind = "connectivity";
+    showActionDialogElement();
+    return true;
+  }
+
+  function dismissConnectivityDialog() {
+    if (lastConnectivityDialogSignature) {
+      dismissedConnectivityDialogSignature = lastConnectivityDialogSignature;
+    }
+    closeActionDialog("dismiss");
   }
 
   function currentScriptForAutoRestWatch() {
@@ -383,57 +431,290 @@ import {
     return parsed.value;
   }
 
-  function currentAutoRestRemaining(entry) {
-    if (!entry || !Number.isFinite(Number(entry.remaining_base_s))) {
-      return null;
-    }
-    const sampledAtMs = Number(entry.sampled_at_ms || 0);
-    const elapsedSeconds = Math.floor(Math.max(0, Date.now() - sampledAtMs) / 1000);
-    return Math.max(0, Number(entry.remaining_base_s) - elapsedSeconds);
+  function collectScriptDmTargets(script) {
+    const robots = isObject(script) && isObject(script.robots) ? script.robots : {};
+    return Object.keys(robots)
+      .sort((left, right) => left.localeCompare(right, "nl", { sensitivity: "base" }))
+      .map((robotId) => {
+        const robotCfg = robots[robotId];
+        return {
+          robot_id: String(robotId || "?"),
+          dm_url: isObject(robotCfg) ? String(robotCfg.dm_url || "").trim() : "",
+          instance_id: isObject(robotCfg) ? String(robotCfg.instance_id || "").trim() : "",
+        };
+      })
+      .filter((target) => target.dm_url || target.robot_id);
   }
 
-  function hasRobotStatusCountdown(entries) {
-    return (Array.isArray(entries) ? entries : []).some((entry) => {
-      if (!entry || entry.ok !== true) {
-        return false;
+  function normalizeConnectivityIssues(rawIssues) {
+    return (Array.isArray(rawIssues) ? rawIssues : [])
+      .map((issue) => {
+        if (!isObject(issue)) {
+          return null;
+        }
+        const issueKey = String(issue.issue_key || "").trim();
+        if (!issueKey) {
+          return null;
+        }
+        return {
+          issue_key: issueKey,
+          issue_type: String(issue.issue_type || "").trim() || "dm_local",
+          severity: String(issue.severity || "error").trim() || "error",
+          message: String(issue.message || "").trim(),
+          source: String(issue.source || "").trim(),
+          first_seen_at: String(issue.first_seen_at || "").trim(),
+          active: !!issue.active,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function connectivityDialogCounterKey(entry, issue) {
+    return [String(entry && entry.robot_id ? entry.robot_id : "?"), String(entry && entry.dm_url ? entry.dm_url : ""), String(issue.issue_key || "")].join("|");
+  }
+
+  function connectivityDialogRobotMeta(entry) {
+    const parts = [];
+    if (entry && entry.dm_url) {
+      parts.push(String(entry.dm_url));
+    }
+    if (entry && entry.instance_id) {
+      parts.push("instance_id=" + String(entry.instance_id));
+    }
+    return parts.join(" | ");
+  }
+
+  function buildConnectivityDialogRobot(entry, issues, fallbackMessage) {
+    const issueLines = (Array.isArray(issues) ? issues : [])
+      .map((issue) => String(issue && issue.message ? issue.message : "").trim())
+      .filter((text) => text);
+    const summary = issueLines.length > 0 ? issueLines.join(" | ") : String(fallbackMessage || "").trim();
+    if (!summary) {
+      return null;
+    }
+    return {
+      title: String(entry && entry.robot_id ? entry.robot_id : "?"),
+      meta: connectivityDialogRobotMeta(entry),
+      diff: summary,
+    };
+  }
+
+  function isConnectivityFailureMessage(message) {
+    const text = String(message || "").trim().toLowerCase();
+    if (!text) {
+      return false;
+    }
+    return [
+      "niet bereikbaar",
+      "unreachable",
+      "connection refused",
+      "refused",
+      "timed out",
+      "timeout",
+      "socket",
+      "dns",
+      "no route",
+      "host unreachable",
+      "base down",
+      "behavior manager",
+      "nao tcp",
+      "verbinding",
+      "connector",
+    ].some((needle) => text.includes(needle));
+  }
+
+  function closeConnectivityDialog(options) {
+    const preserveDismissal = !!(options && options.preserveDismissal);
+    if (!preserveDismissal) {
+      dismissedConnectivityDialogSignature = "";
+    }
+    lastConnectivityDialogSignature = "";
+    currentConnectivityDialogSource = "";
+    if (currentActionDialogKind === "connectivity" && isActionDialogOpen()) {
+      closeActionDialog(options && options.result ? options.result : "cancel");
+    }
+  }
+
+  function showConnectivityDialogState(dialogState) {
+    if (!dialogState || !Array.isArray(dialogState.robots) || dialogState.robots.length === 0) {
+      closeConnectivityDialog();
+      return false;
+    }
+    const signature = String(dialogState.signature || "").trim();
+    if (!signature) {
+      closeConnectivityDialog();
+      return false;
+    }
+    lastConnectivityDialogSignature = signature;
+    currentConnectivityDialogSource = String(dialogState.source || "poll");
+    if (dismissedConnectivityDialogSignature && dismissedConnectivityDialogSignature === signature) {
+      if (currentActionDialogKind === "connectivity" && isActionDialogOpen()) {
+        closeActionDialog("dismiss");
       }
-      if (entry.auto_rest_enabled !== true) {
-        return false;
-      }
-      if (entry.auto_rest_suspended) {
-        return false;
-      }
-      if (entry.auto_rest_timer_active !== true) {
-        return false;
-      }
-      return Number.isFinite(Number(entry.remaining_base_s));
+      return false;
+    }
+    return openConnectivityDialog({
+      title: dialogState.title || "Verbindingsverlies",
+      intro: Array.isArray(dialogState.intro) ? dialogState.intro : [],
+      robots: dialogState.robots,
+      buttons: [],
     });
   }
 
-  function ensureRobotStatusCountdown() {
-    const needsCountdown = hasRobotStatusCountdown(robotStatusEntries);
-    if (!needsCountdown) {
-      if (robotStatusCountdownTimer !== null) {
-        window.clearInterval(robotStatusCountdownTimer);
-        robotStatusCountdownTimer = null;
+  function buildPollingConnectivityDialogState(entries) {
+    const status = runtimeState && runtimeState.status ? String(runtimeState.status) : "idle";
+    if (!isActiveRunStatus(status)) {
+      connectivityDialogIssueCounts.clear();
+      if (currentConnectivityDialogSource === "poll") {
+        closeConnectivityDialog();
       }
-      return;
+      return null;
     }
-    if (robotStatusCountdownTimer !== null) {
-      return;
+    const activeCounterKeys = new Set();
+    const signatureParts = [];
+    const robots = [];
+    (Array.isArray(entries) ? entries : []).forEach((entry) => {
+      const activeIssues = normalizeConnectivityIssues(entry && entry.connectivity_issues).filter((issue) => issue.active);
+      const visibleIssues = [];
+      activeIssues.forEach((issue) => {
+        const counterKey = connectivityDialogCounterKey(entry, issue);
+        activeCounterKeys.add(counterKey);
+        const current = Number(connectivityDialogIssueCounts.get(counterKey) || 0) + 1;
+        connectivityDialogIssueCounts.set(counterKey, current);
+        if (current >= 2) {
+          visibleIssues.push(issue);
+          signatureParts.push(
+            [
+              String(entry && entry.robot_id ? entry.robot_id : "?"),
+              String(entry && entry.dm_url ? entry.dm_url : ""),
+              String(issue.issue_key || ""),
+              String(issue.first_seen_at || ""),
+              String(issue.message || ""),
+            ].join("|")
+          );
+        }
+      });
+      const robot = buildConnectivityDialogRobot(entry, visibleIssues, entry && entry.error ? entry.error : "");
+      if (robot) {
+        robots.push(robot);
+      }
+    });
+    [...connectivityDialogIssueCounts.keys()].forEach((counterKey) => {
+      if (!activeCounterKeys.has(counterKey)) {
+        connectivityDialogIssueCounts.delete(counterKey);
+      }
+    });
+    if (robots.length === 0) {
+      if (currentConnectivityDialogSource === "poll") {
+        closeConnectivityDialog();
+      }
+      return null;
     }
-    robotStatusCountdownTimer = window.setInterval(function () {
-      renderRobotStatusSection(robotStatusEntries);
-    }, 1000);
+    return {
+      source: "poll",
+      title: "Verbindingsverlies tijdens run",
+      intro: [
+        status === "preflight"
+          ? "Preflight ziet verbindingsproblemen bij een of meer robots."
+          : "Actieve run ziet verbindingsproblemen bij een of meer robots.",
+      ],
+      robots: robots,
+      signature: "poll|" + signatureParts.sort().join("||"),
+    };
   }
 
-  function normalizeRobotStatusEntry(entry, sampledAtMs) {
-    const autoRest = entry && isObject(entry.auto_rest) ? entry.auto_rest : {};
+  function buildDirectConnectivityDialogState(message, script) {
+    const normalizedMessage = String(message || "").trim();
+    if (!isConnectivityFailureMessage(normalizedMessage)) {
+      return null;
+    }
+    const signatureParts = [];
+    let robots = [];
+    const activeRobotEntries = (Array.isArray(robotStatusEntries) ? robotStatusEntries : [])
+      .map((entry) => {
+        const issues = normalizeConnectivityIssues(entry && entry.connectivity_issues).filter((issue) => issue.active);
+        return { entry: entry, issues: issues };
+      })
+      .filter((item) => item.issues.length > 0);
+    if (activeRobotEntries.length > 0) {
+      robots = activeRobotEntries
+        .map((item) => {
+          item.issues.forEach((issue) => {
+            signatureParts.push(
+              [
+                String(item.entry && item.entry.robot_id ? item.entry.robot_id : "?"),
+                String(item.entry && item.entry.dm_url ? item.entry.dm_url : ""),
+                String(issue.issue_key || ""),
+                String(issue.first_seen_at || ""),
+                String(issue.message || ""),
+              ].join("|")
+            );
+          });
+          return buildConnectivityDialogRobot(item.entry, item.issues, normalizedMessage);
+        })
+        .filter(Boolean);
+    } else {
+      const targets = collectScriptDmTargets(script);
+      const fallbackTargets = targets.length > 0 ? targets : [{ robot_id: "robot", dm_url: "", instance_id: "" }];
+      robots = fallbackTargets
+        .map((target) => {
+          signatureParts.push([String(target.robot_id || "?"), String(target.dm_url || ""), normalizedMessage].join("|"));
+          return buildConnectivityDialogRobot(target, [], normalizedMessage);
+        })
+        .filter(Boolean);
+    }
+    if (robots.length === 0) {
+      return null;
+    }
+    return {
+      source: "direct",
+      title: "Verbindingsverlies",
+      intro: ["Run-start faalde door een verbindings- of procesverlies."],
+      robots: robots,
+      signature: "direct|" + signatureParts.sort().join("||"),
+    };
+  }
+
+  function syncConnectivityDialogFromWatch(entries) {
+    const dialogState = buildPollingConnectivityDialogState(entries);
+    if (!dialogState) {
+      return;
+    }
+    showConnectivityDialogState(dialogState);
+  }
+
+  function maybeShowDirectConnectivityDialog(message, script, signalSeed) {
+    const normalizedMessage = String(message || "").trim();
+    if (!isConnectivityFailureMessage(normalizedMessage)) {
+      return false;
+    }
+    const signal = [String(signalSeed || ""), normalizedMessage].join("|");
+    if (signal && signal === lastDirectConnectivitySignal) {
+      return true;
+    }
+    lastDirectConnectivitySignal = signal;
+    const dialogState = buildDirectConnectivityDialogState(normalizedMessage, script);
+    if (!dialogState) {
+      return false;
+    }
+    return showConnectivityDialogState(dialogState);
+  }
+
+  function maybeClearDirectConnectivityDialog(state) {
+    const runError = state && typeof state.last_error === "string" ? state.last_error.trim() : "";
+    if (runError && isConnectivityFailureMessage(runError)) {
+      return;
+    }
+    lastDirectConnectivitySignal = "";
+    if (currentConnectivityDialogSource === "direct") {
+      closeConnectivityDialog();
+    }
+  }
+
+  function normalizeRobotStatusEntry(entry) {
     const awake = entry && isObject(entry.awake) ? entry.awake : {};
     const posture = entry && isObject(entry.posture) ? entry.posture : {};
-    const remainingBase = Number.isFinite(Number(autoRest.seconds_until_rest))
-      ? Number(autoRest.seconds_until_rest)
-      : null;
+    const connectivityIssues = normalizeConnectivityIssues(entry && entry.connectivity_issues);
     return {
       robot_id: String((entry && entry.robot_id) || "?"),
       dm_url: String((entry && entry.dm_url) || "").trim(),
@@ -443,13 +724,7 @@ import {
       error: String((entry && entry.error) || "").trim(),
       awake_value: awake && awake.ok && typeof awake.is_awake === "boolean" ? awake.is_awake : null,
       posture_value: posture && posture.ok && posture.posture ? String(posture.posture) : "",
-      auto_rest_enabled: typeof autoRest.enabled_by_config === "boolean" ? !!autoRest.enabled_by_config : null,
-      auto_rest_timeout_s: Number(autoRest.timeout_s || 0),
-      auto_rest_suspended: !!autoRest.suspended,
-      auto_rest_suspend_owner: String(autoRest.suspend_owner || "").trim(),
-      auto_rest_timer_active: !!autoRest.timer_active,
-      remaining_base_s: remainingBase,
-      sampled_at_ms: sampledAtMs,
+      connectivity_issues: connectivityIssues,
     };
   }
 
@@ -473,35 +748,25 @@ import {
     return "posture: " + entry.posture_value;
   }
 
-  function formatRobotAutoRestText(entry) {
-    if (!entry || entry.auto_rest_enabled == null) {
-      return "auto-rest: onbekend";
-    }
-    if (entry.auto_rest_suspended) {
-      const owner = entry.auto_rest_suspend_owner || "onbekend";
-      return "auto-rest: gesusp. (" + owner + ")";
-    }
-    if (!entry.auto_rest_enabled) {
-      return "auto-rest: uit";
-    }
-    const remaining = currentAutoRestRemaining(entry);
-    const timeoutS = Math.max(0, Number(entry.auto_rest_timeout_s || 0));
-    if (remaining == null) {
-      return "auto-rest: aan (" + String(timeoutS) + "s)";
-    }
-    return "auto-rest: " + String(remaining) + "/" + String(timeoutS) + "s";
-  }
-
   function renderRobotStatusSection(entries) {
+    const status = runtimeState && runtimeState.status ? String(runtimeState.status) : "idle";
+    if (!isActiveRunStatus(status)) {
+      robotStatusEntries = [];
+      if (robotStatusSection instanceof HTMLElement) {
+        robotStatusSection.classList.add("is-hidden");
+      }
+      if (robotStatusList instanceof HTMLElement) {
+        robotStatusList.replaceChildren();
+      }
+      return;
+    }
     robotStatusEntries = Array.isArray(entries) ? entries.slice() : [];
     if (!(robotStatusSection instanceof HTMLElement) || !(robotStatusList instanceof HTMLElement)) {
-      ensureRobotStatusCountdown();
       return;
     }
     robotStatusList.replaceChildren();
     if (robotStatusEntries.length === 0) {
       robotStatusSection.classList.add("is-hidden");
-      ensureRobotStatusCountdown();
       return;
     }
     robotStatusEntries.forEach((entry) => {
@@ -529,7 +794,7 @@ import {
 
       const lines = document.createElement("div");
       lines.className = "robot-status-lines";
-      [formatRobotMotorText(entry), formatRobotPostureText(entry), formatRobotAutoRestText(entry)].forEach((text) => {
+      [formatRobotMotorText(entry), formatRobotPostureText(entry)].forEach((text) => {
         const line = document.createElement("div");
         line.className = "robot-status-line";
         line.textContent = text;
@@ -537,7 +802,7 @@ import {
       });
       card.appendChild(lines);
 
-      if (entry.ok !== true && entry.error) {
+      if (entry.error) {
         const error = document.createElement("div");
         error.className = "robot-status-error";
         error.textContent = entry.error;
@@ -547,7 +812,6 @@ import {
       robotStatusList.appendChild(card);
     });
     robotStatusSection.classList.remove("is-hidden");
-    ensureRobotStatusCountdown();
   }
 
   async function refreshAutoRestWatch(options) {
@@ -555,9 +819,20 @@ import {
       return;
     }
     const silent = !!(options && options.silent);
+    const status = runtimeState && runtimeState.status ? String(runtimeState.status) : "idle";
+    if (!isActiveRunStatus(status)) {
+      renderRobotStatusSection([]);
+      if (currentConnectivityDialogSource === "poll") {
+        closeConnectivityDialog();
+      }
+      return;
+    }
     const script = currentScriptForAutoRestWatch();
     if (!script) {
       renderRobotStatusSection([]);
+      if (currentConnectivityDialogSource === "poll") {
+        closeConnectivityDialog();
+      }
       return;
     }
     autoRestWatchBusy = true;
@@ -568,18 +843,28 @@ import {
         body: JSON.stringify({ script: script }),
       });
       const robots = Array.isArray(payload && payload.robots) ? payload.robots : [];
-      const nowMs = Date.now();
       const normalizedEntries = robots
-        .map((entry) => normalizeRobotStatusEntry(entry, nowMs))
+        .map((entry) => normalizeRobotStatusEntry(entry))
         .filter((entry) => entry.dm_url || entry.robot_id);
       renderRobotStatusSection(normalizedEntries);
+      syncConnectivityDialogFromWatch(normalizedEntries);
     } catch (err) {
+      if (currentConnectivityDialogSource === "poll") {
+        closeConnectivityDialog();
+      }
       if (!silent) {
         const message = err && err.message ? err.message : String(err);
         setStatus("Auto-rest status ophalen mislukt: " + message, "error");
       }
     } finally {
       autoRestWatchBusy = false;
+    }
+  }
+
+  function stopAutoRestWatchPolling() {
+    if (autoRestWatchTimer !== null) {
+      window.clearInterval(autoRestWatchTimer);
+      autoRestWatchTimer = null;
     }
   }
 
@@ -593,6 +878,20 @@ import {
       }
       refreshAutoRestWatch({ silent: true });
     }, 5000);
+  }
+
+  function syncAutoRestWatchPolling(state) {
+    const status = state && state.status ? String(state.status) : "idle";
+    if (!isActiveRunStatus(status)) {
+      stopAutoRestWatchPolling();
+      renderRobotStatusSection([]);
+      return;
+    }
+    const shouldRefreshImmediately = autoRestWatchTimer === null;
+    ensureAutoRestWatchPolling();
+    if (shouldRefreshImmediately) {
+      void refreshAutoRestWatch({ silent: true });
+    }
   }
 
   function describeProfile(profile) {
@@ -1111,6 +1410,13 @@ import {
     maybeAutoOpenRunLog(state, logLines, runError);
     setRuntimeButtons(state);
     applyRunStepHighlights(runtimeState);
+    syncAutoRestWatchPolling(runtimeState);
+    if (!isActiveRunStatus(status)) {
+      connectivityDialogIssueCounts.clear();
+      if (currentConnectivityDialogSource === "poll") {
+        closeConnectivityDialog();
+      }
+    }
   }
 
   async function fetchJson(url, options) {
@@ -1314,6 +1620,11 @@ import {
       renderRuntimeState(state);
       const err = state && typeof state.last_error === "string" ? state.last_error.trim() : "";
       const status = state && typeof state.status === "string" ? state.status : "";
+      if (err && isConnectivityFailureMessage(err) && (status === "failed" || isActiveRunStatus(status))) {
+        maybeShowDirectConnectivityDialog(err, currentScriptForAutoRestWatch(), [String(state.run_id || ""), status].join("|"));
+      } else {
+        maybeClearDirectConnectivityDialog(state);
+      }
       if (err && err !== lastRuntimeError) {
         if (status === "failed") {
           setStatus("Run failed: " + err, "error");
@@ -1326,6 +1637,7 @@ import {
       }
       if (!err) {
         lastRuntimeError = "";
+        lastDirectConnectivitySignal = "";
       }
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
@@ -2597,6 +2909,7 @@ import {
       } catch (err) {
         const message = err && err.message ? err.message : String(err);
         setStatus("Run starten mislukt: " + message, "error");
+        maybeShowDirectConnectivityDialog(message, script, "start_run");
       }
     } finally {
       setRunStartRequestBusy(false);
@@ -3214,9 +3527,7 @@ import {
       renderDmStartResults([]);
       renderRobotStatusSection([]);
       ensureRunPolling();
-      ensureAutoRestWatchPolling();
       await refreshRunState({ silent: true });
-      await refreshAutoRestWatch({ silent: true });
       const currentStatus = runtimeState && typeof runtimeState.status === "string" ? runtimeState.status : "idle";
       const currentError = runtimeState && typeof runtimeState.last_error === "string" ? runtimeState.last_error.trim() : "";
       const keepRuntimeMessage =
@@ -3318,12 +3629,20 @@ import {
   }
   if (actionDialogClose) {
     actionDialogClose.addEventListener("click", function () {
+      if (currentActionDialogKind === "connectivity") {
+        dismissConnectivityDialog();
+        return;
+      }
       closeActionDialog("cancel");
     });
   }
   if (typeof HTMLDialogElement !== "undefined" && actionDialog instanceof HTMLDialogElement) {
     actionDialog.addEventListener("cancel", function (event) {
       event.preventDefault();
+      if (currentActionDialogKind === "connectivity") {
+        dismissConnectivityDialog();
+        return;
+      }
       closeActionDialog("cancel");
     });
   }
