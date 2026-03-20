@@ -159,6 +159,9 @@ async function loadApp(runState, options = {}) {
         last_error: null,
       });
     }
+    if (url === "/api/auto_rest_watch/status") {
+      return makeJsonResponse({ ok: true, robots: [] });
+    }
     throw new Error("Unexpected fetch: " + String(url));
   });
 
@@ -510,6 +513,122 @@ describe("studio layout ui", () => {
     expect(document.querySelector('#stepsCards .step-row[data-index="2"]').classList.contains("is-run-next")).toBe(
       true
     );
+  });
+
+  test("robotstatus section renders live DM state with an active auto-rest countdown", async () => {
+    await loadApp(null, {
+      fetchImpl: async (url) => {
+        if (url === "/api/auto_rest_watch/status") {
+          return makeJsonResponse({
+            ok: true,
+            robots: [
+              {
+                robot_id: "nao1",
+                dm_url: "http://127.0.0.1:5301",
+                instance_id: "alex",
+                ok: true,
+                reachable: true,
+                awake: { ok: true, is_awake: true },
+                posture: { ok: true, posture: "Standing" },
+                auto_rest: {
+                  enabled_by_config: true,
+                  suspended: false,
+                  timer_active: true,
+                  timeout_s: 180,
+                  seconds_until_rest: 177,
+                },
+              },
+            ],
+          });
+        }
+        return null;
+      },
+    });
+
+    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
+    const statusText = document.getElementById("robotStatusList").textContent;
+    expect(statusText).toContain("nao1");
+    expect(statusText).toContain("motoren: wakker");
+    expect(statusText).toContain("posture: Standing");
+    expect(statusText).toContain("auto-rest: 177/180s");
+
+    const countdownTick = window.setInterval.mock.calls.find((call) => call[1] === 1000)?.[0];
+    expect(typeof countdownTick).toBe("function");
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);
+    countdownTick();
+    await flushUi();
+
+    expect(document.getElementById("robotStatusList").textContent).toContain("auto-rest: 176/180s");
+  });
+
+  test("robotstatus section keeps inactive auto-rest at the configured timeout", async () => {
+    await loadApp(null, {
+      fetchImpl: async (url) => {
+        if (url === "/api/auto_rest_watch/status") {
+          return makeJsonResponse({
+            ok: true,
+            robots: [
+              {
+                robot_id: "nao1",
+                dm_url: "http://127.0.0.1:5301",
+                instance_id: "alex",
+                ok: true,
+                reachable: true,
+                awake: { ok: true, is_awake: false },
+                posture: { ok: true, posture: "Sitting" },
+                auto_rest: {
+                  enabled_by_config: true,
+                  suspended: false,
+                  timer_active: false,
+                  timeout_s: 180,
+                  seconds_until_rest: 180,
+                },
+              },
+            ],
+          });
+        }
+        return null;
+      },
+    });
+
+    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
+    const statusText = document.getElementById("robotStatusList").textContent;
+    expect(statusText).toContain("motoren: rust");
+    expect(statusText).toContain("posture: Sitting");
+    expect(statusText).toContain("auto-rest: 180/180s");
+  });
+
+  test("robotstatus section shows not available labels for unreachable dm", async () => {
+    await loadApp(null, {
+      fetchImpl: async (url) => {
+        if (url === "/api/auto_rest_watch/status") {
+          return makeJsonResponse({
+            ok: true,
+            robots: [
+              {
+                robot_id: "nao1",
+                dm_url: "http://127.0.0.1:5301",
+                instance_id: "alex",
+                ok: false,
+                reachable: false,
+                awake: {},
+                posture: {},
+                auto_rest: {},
+                error: "base down",
+              },
+            ],
+          });
+        }
+        return null;
+      },
+    });
+
+    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
+    const statusText = document.getElementById("robotStatusList").textContent;
+    expect(statusText).toContain("motoren: niet beschikbaar");
+    expect(statusText).toContain("posture: niet beschikbaar");
+    expect(statusText).toContain("auto-rest: onbekend");
+    expect(statusText).toContain("base down");
   });
 
   test("preload audio injects a script_id and posts generate for the current script", async () => {

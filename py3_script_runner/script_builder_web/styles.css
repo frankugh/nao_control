@@ -765,6 +765,54 @@ textarea {
   gap: 8px;
 }
 
+.robot-status-section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(142, 168, 196, 0.35);
+  background: rgba(243, 248, 255, 0.72);
+}
+
+.robot-status-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.robot-status-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 9px 10px;
+}
+
+.robot-status-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.robot-status-meta,
+.robot-status-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.robot-status-error {
+  color: var(--error);
+}
+
+.robot-status-lines {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.robot-status-line {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .dm-start-result {
   border: 1px solid var(--line);
   border-radius: 12px;

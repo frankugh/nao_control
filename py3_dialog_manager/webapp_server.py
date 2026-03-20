@@ -1227,17 +1227,24 @@ def create_app(
         "log": [],
     }
     proc_lock = threading.Lock()
+
+    def _new_proc_state_entry() -> Dict[str, Any]:
+        return {
+            "proc": None,
+            "exit_code": None,
+            "log_path": None,
+            "log_port": None,
+            "log_instance_id": resolved_instance_id,
+            "buffer_log_path": None,
+        }
+
     proc_logs: Dict[str, List[str]] = {"base": [], "behavior": []}
     proc_state: Dict[str, Dict[str, Any]] = {
-        "base": {"proc": None, "exit_code": None},
-        "behavior": {"proc": None, "exit_code": None},
+        "base": _new_proc_state_entry(),
+        "behavior": _new_proc_state_entry(),
     }
     max_log_lines = 400
     proc_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "process")
-    proc_log_paths: Dict[str, str] = {
-        "base": os.path.join(proc_log_dir, "base.log"),
-        "behavior": os.path.join(proc_log_dir, "behavior.log"),
-    }
     proc_log_backup_suffix = ".1"
     proc_log_max_bytes = 5 * 1024 * 1024
     dm_event_lock = threading.Lock()
@@ -1277,6 +1284,7 @@ def create_app(
     auto_rest_idle_state: Dict[str, Any] = {
         "rested_since_activity": False,
         "already_resting_logged": False,
+        "countdown_active": False,
     }
     auto_rest_suspend_lock = threading.RLock()
     auto_rest_suspend_state: Dict[str, Any] = {
@@ -1421,20 +1429,59 @@ def create_app(
             ttl = 0.0
         return max(1.0, min(ttl, 300.0))
 
-    def _clear_auto_rest_idle_state() -> None:
+    def _arm_auto_rest_idle_countdown() -> None:
         with auto_rest_idle_lock:
             auto_rest_idle_state["rested_since_activity"] = False
             auto_rest_idle_state["already_resting_logged"] = False
+            auto_rest_idle_state["countdown_active"] = True
 
     def _mark_auto_rest_idle_resting(*, reset_logged: bool) -> None:
         with auto_rest_idle_lock:
             auto_rest_idle_state["rested_since_activity"] = True
+            auto_rest_idle_state["countdown_active"] = False
             if reset_logged:
                 auto_rest_idle_state["already_resting_logged"] = False
 
     def _auto_rest_idle_is_settled() -> bool:
         with auto_rest_idle_lock:
             return bool(auto_rest_idle_state.get("rested_since_activity"))
+
+    def _auto_rest_idle_countdown_active() -> bool:
+        with auto_rest_idle_lock:
+            return bool(auto_rest_idle_state.get("countdown_active"))
+
+    def _apply_auto_rest_command_outcome(label: Any) -> None:
+        normalized = _normalize_command_label(str(label or ""))
+        if normalized == "REST":
+            _mark_auto_rest_idle_resting(reset_logged=True)
+
+    def _execute_command_with_dm_awake_helper(
+        runtime_cfg: JsonLike,
+        behavior_executor,
+        cmd: CommandDecision,
+    ) -> None:
+        normalized = _normalize_command_label(str(getattr(cmd, "label", "") or ""))
+        nao_base_url, _nao_mode = _resolve_nao_audio_url(runtime_cfg)
+
+        if normalized == "REST":
+            if nao_base_url:
+                result = _set_nao_awake_state(runtime_cfg, False)
+                if not result.get("ok"):
+                    raise RuntimeError(str(result.get("error") or "REST failed"))
+                return
+            if behavior_executor is not None:
+                behavior_executor.execute(cmd)
+            return
+
+        if normalized == "STAND_UP" and behavior_executor is not None and nao_base_url:
+            awake_state = _get_nao_awake_state(runtime_cfg)
+            if awake_state.get("ok") and awake_state.get("is_awake") is False:
+                result = _set_nao_awake_state(runtime_cfg, True)
+                if not result.get("ok"):
+                    raise RuntimeError(str(result.get("error") or "Wake up failed"))
+
+        if behavior_executor is not None:
+            behavior_executor.execute(cmd)
 
     def _get_auto_rest_suspend_state() -> Dict[str, Any]:
         expired: Optional[Dict[str, Any]] = None
@@ -1478,9 +1525,13 @@ def create_app(
     def _runtime_health_auto_rest(timeout_s: float) -> Dict[str, Any]:
         suspend = _get_auto_rest_suspend_state()
         activity_age_s = _activity_age_s()
+        countdown_active = _auto_rest_idle_countdown_active()
         seconds_until_rest: Optional[int] = None
         if timeout_s > 0 and not suspend.get("active"):
-            seconds_until_rest = int(max(0.0, math.ceil(float(timeout_s) - activity_age_s)))
+            if countdown_active:
+                seconds_until_rest = int(max(0.0, math.ceil(float(timeout_s) - activity_age_s)))
+            else:
+                seconds_until_rest = int(max(0.0, math.ceil(float(timeout_s))))
         return {
             "enabled_by_config": bool(timeout_s > 0),
             "timeout_s": float(timeout_s if timeout_s > 0 else 0.0),
@@ -1490,6 +1541,7 @@ def create_app(
             "lease_expires_at": _dm_ts_iso(suspend.get("expires_at")),
             "lease_ttl_s": float(suspend.get("ttl_s") or 0.0) if suspend.get("active") else None,
             "activity_age_s": float(activity_age_s),
+            "timer_active": bool(countdown_active),
             "seconds_until_rest": seconds_until_rest,
         }
 
@@ -2084,7 +2136,9 @@ def create_app(
             delay_s = _post_stop_standup_delay_s(runtime_cfg_local)
             if delay_s > 0.0:
                 time.sleep(delay_s)
-            behavior_executor.execute(
+            _execute_command_with_dm_awake_helper(
+                runtime_cfg_local or {},
+                behavior_executor,
                 CommandDecision(
                     label="STAND_UP",
                     confidence=1.0,
@@ -2285,10 +2339,11 @@ def create_app(
         except Exception:
             return 0.0
 
-    def _touch_activity() -> None:
+    def _touch_activity(*, activate_auto_rest: bool = False) -> None:
         with activity_lock:
             last_activity["ts"] = time.time()
-        _clear_auto_rest_idle_state()
+        if activate_auto_rest or _auto_rest_idle_countdown_active():
+            _arm_auto_rest_idle_countdown()
 
     def _activity_age_s() -> float:
         with activity_lock:
@@ -2720,6 +2775,14 @@ def create_app(
     def _append_assistant(history: History, text: str) -> None:
         history.append({"role": "assistant", "content": text, "ts": time.time()})
 
+    def _append_assistant_to_all_sessions(text: str) -> None:
+        message = str(text or "").strip()
+        if not message:
+            return
+        for history in list(sessions.values()):
+            if isinstance(history, list):
+                _append_assistant(history, message)
+
     def _append_user(history: History, text: str) -> None:
         history.append({"role": "user", "content": text, "ts": time.time()})
 
@@ -3037,9 +3100,10 @@ def create_app(
         lock_mode = _custom_life_lock_mode_for_command(cmd)
         if lock_mode:
             _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
-        if behavior_executor:
+        if behavior_executor or _normalize_command_label(cmd.label) == "REST":
             _set_behavior_executor_custom_life_management(behavior_executor, False)
-            behavior_executor.execute(cmd)
+            _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
+        _apply_auto_rest_command_outcome(cmd.label)
         _touch_activity()
         _set_cmd_state(
             sid,
@@ -3114,8 +3178,56 @@ def create_app(
         except OSError:
             pass
 
+    def _proc_log_default_port(name: str) -> int:
+        if str(name or "").strip().lower() == "behavior":
+            return 5001
+        return 5000
+
+    def _proc_log_port_from_runtime_cfg(name: str, runtime_cfg_local: Optional[JsonLike] = None) -> int:
+        cfg_local = runtime_cfg_local if isinstance(runtime_cfg_local, dict) else _runtime_cfg_snapshot()
+        if str(name or "").strip().lower() == "behavior":
+            return _url_port(cfg_local.get("behavior_manager_url"), default_port=_proc_log_default_port(name))
+        return _url_port(cfg_local.get("nao_base_url"), default_port=_proc_log_default_port(name))
+
+    def _proc_log_path_for(name: str, *, port: Optional[int] = None, instance_id: Optional[str] = None) -> str:
+        safe_name = str(name or "").strip().lower() or "process"
+        safe_instance = _runtime_state_key(str(instance_id or resolved_instance_id or "default"))
+        try:
+            safe_port = int(port if port is not None else _proc_log_default_port(safe_name))
+        except Exception:
+            safe_port = _proc_log_default_port(safe_name)
+        return os.path.join(proc_log_dir, f"{safe_name}_{safe_instance}_{safe_port}.log")
+
+    def _proc_log_resolved_info(name: str) -> Dict[str, Any]:
+        with proc_lock:
+            entry = proc_state.setdefault(name, _new_proc_state_entry())
+            log_path = str(entry.get("log_path") or "").strip()
+            log_port = entry.get("log_port")
+            log_instance_id = str(entry.get("log_instance_id") or resolved_instance_id or "default")
+        if log_path:
+            try:
+                port_i = int(log_port if log_port is not None else _proc_log_default_port(name))
+            except Exception:
+                port_i = _proc_log_default_port(name)
+            return {
+                "path": log_path,
+                "port": port_i,
+                "instance_id": log_instance_id,
+                "bound": True,
+            }
+        fallback_port = _proc_log_port_from_runtime_cfg(name)
+        return {
+            "path": _proc_log_path_for(name, port=fallback_port, instance_id=resolved_instance_id),
+            "port": fallback_port,
+            "instance_id": resolved_instance_id,
+            "bound": False,
+        }
+
     def _proc_log_path(name: str) -> Optional[str]:
-        return proc_log_paths.get(name)
+        try:
+            return str(_proc_log_resolved_info(name).get("path") or "").strip() or None
+        except Exception:
+            return None
 
     def _rotate_proc_log_if_needed(path: str) -> None:
         if not path:
@@ -3132,8 +3244,7 @@ def create_app(
         except OSError:
             pass
 
-    def _append_proc_log_file(name: str, entry: str) -> None:
-        path = _proc_log_path(name)
+    def _append_proc_log_file_path(path: Optional[str], entry: str) -> None:
         if not path:
             return
         _ensure_proc_log_dir()
@@ -3144,8 +3255,10 @@ def create_app(
         except OSError:
             pass
 
-    def _load_proc_log_tail(name: str, limit: int) -> List[str]:
-        path = _proc_log_path(name)
+    def _append_proc_log_file(name: str, entry: str) -> None:
+        _append_proc_log_file_path(_proc_log_path(name), entry)
+
+    def _load_proc_log_tail_path(path: Optional[str], limit: int) -> List[str]:
         if not path or not os.path.exists(path):
             return []
         try:
@@ -3157,8 +3270,10 @@ def create_app(
             return lines
         return lines[-limit:]
 
-    def _clear_proc_log_files(name: str) -> None:
-        path = _proc_log_path(name)
+    def _load_proc_log_tail(name: str, limit: int) -> List[str]:
+        return _load_proc_log_tail_path(_proc_log_path(name), limit)
+
+    def _clear_proc_log_files_path(path: Optional[str]) -> None:
         if not path:
             return
         for candidate in (path, path + proc_log_backup_suffix):
@@ -3168,22 +3283,51 @@ def create_app(
             except OSError:
                 pass
 
+    def _clear_proc_log_files(name: str) -> None:
+        _clear_proc_log_files_path(_proc_log_path(name))
+
+    def _sync_proc_log_buffer_locked(name: str, path: Optional[str]) -> None:
+        entry = proc_state.setdefault(name, _new_proc_state_entry())
+        target = str(path or "").strip()
+        if str(entry.get("buffer_log_path") or "").strip() == target:
+            return
+        proc_logs[name] = _load_proc_log_tail_path(target, max_log_lines)
+        entry["buffer_log_path"] = target or None
+
+    def _bind_proc_log(name: str, *, port: int, instance_id: Optional[str] = None) -> str:
+        resolved_port = _proc_log_default_port(name)
+        try:
+            resolved_port = int(port)
+        except Exception:
+            pass
+        resolved_instance = str(instance_id or resolved_instance_id or "default")
+        path = _proc_log_path_for(name, port=resolved_port, instance_id=resolved_instance)
+        with proc_lock:
+            entry = proc_state.setdefault(name, _new_proc_state_entry())
+            entry["log_path"] = path
+            entry["log_port"] = resolved_port
+            entry["log_instance_id"] = resolved_instance
+            _sync_proc_log_buffer_locked(name, path)
+        return path
+
     def _append_proc_log(name: str, line: str) -> None:
         line = line.rstrip("\r\n")
         if not line:
             return
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         entry = f"[{ts}] {line}"
+        path = _proc_log_path(name)
         with proc_lock:
+            _sync_proc_log_buffer_locked(name, path)
             buf = proc_logs.setdefault(name, [])
             buf.append(entry)
             if len(buf) > max_log_lines:
                 del buf[: len(buf) - max_log_lines]
-            _append_proc_log_file(name, entry)
+            _append_proc_log_file_path(path, entry)
 
     _ensure_proc_log_dir()
     for _proc_name in list(proc_logs.keys()):
-        proc_logs[_proc_name] = _load_proc_log_tail(_proc_name, max_log_lines)
+        _sync_proc_log_buffer_locked(_proc_name, _proc_log_path(_proc_name))
     _ensure_dm_event_dir()
     dm_events[:] = _load_dm_event_tail(dm_event_tail_limit)
     dm_event_writer_thread = threading.Thread(target=_dm_event_writer_loop, daemon=True)
@@ -3211,12 +3355,19 @@ def create_app(
                 proc_state[name]["exit_code"] = exit_code
         return {"running": running, "pid": proc.pid if proc else None, "exit_code": exit_code}
 
-    def _start_process(name: str, cmd: List[str], cwd: str) -> Dict[str, Any]:
+    def _start_process(name: str, cmd: List[str], cwd: str, *, log_port: Optional[int] = None) -> Dict[str, Any]:
         with proc_lock:
             entry = proc_state.get(name)
             proc = entry.get("proc") if entry else None
         if proc and proc.poll() is None:
             return {"ok": False, "error": f"{name} draait al."}
+        resolved_log_port = _proc_log_port_from_runtime_cfg(name)
+        try:
+            if log_port is not None:
+                resolved_log_port = int(log_port)
+        except Exception:
+            resolved_log_port = _proc_log_port_from_runtime_cfg(name)
+        _bind_proc_log(name, port=resolved_log_port, instance_id=resolved_instance_id)
         try:
             env = os.environ.copy()
             env.pop("WERKZEUG_SERVER_FD", None)
@@ -3236,7 +3387,9 @@ def create_app(
             return {"ok": False, "error": str(exc)}
 
         with proc_lock:
-            proc_state[name] = {"proc": proc, "exit_code": None}
+            entry = proc_state.setdefault(name, _new_proc_state_entry())
+            entry["proc"] = proc
+            entry["exit_code"] = None
         _append_proc_log(name, "--- started ---")
 
         if proc.stdout:
@@ -3339,6 +3492,8 @@ def create_app(
         if suspend.get("active"):
             _note_auto_rest_suppressed(runtime_cfg, timeout_s=timeout_s)
             return
+        if not _auto_rest_idle_countdown_active():
+            return
         with activity_lock:
             last_ts = last_activity["ts"]
         if time.time() - last_ts < timeout_s:
@@ -3349,11 +3504,11 @@ def create_app(
                 _mark_auto_rest_idle_resting(reset_logged=False)
                 _note_auto_rest_already_resting(runtime_cfg, timeout_s=timeout_s)
                 return
-            _clear_auto_rest_idle_state()
-        elif _auto_rest_idle_is_settled():
-            return
         if _try_nao_rest(runtime_cfg, reason="idle"):
             _mark_auto_rest_idle_resting(reset_logged=True)
+            _append_assistant_to_all_sessions(
+                "NAO ging automatisch in ruststand ter bescherming van de motoren."
+            )
 
     def _auto_rest_loop() -> None:
         while True:
@@ -3366,9 +3521,13 @@ def create_app(
         with activity_lock:
             last_activity["ts"] = time.time() - max(0.0, float(seconds_ago))
 
+    def _auto_rest_debug_touch_activity(*, activate_auto_rest: bool = False) -> None:
+        _touch_activity(activate_auto_rest=activate_auto_rest)
+
     try:
         setattr(app, "_auto_rest_debug_tick", _auto_rest_tick)
         setattr(app, "_auto_rest_debug_set_last_activity_ago", _auto_rest_debug_set_last_activity_ago)
+        setattr(app, "_auto_rest_debug_touch_activity", _auto_rest_debug_touch_activity)
     except Exception:
         pass
 
@@ -5635,8 +5794,8 @@ def create_app(
             lock_mode = _custom_life_lock_mode_for_command(cmd)
             if lock_mode:
                 _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
-            if behavior_executor:
-                behavior_executor.execute(cmd)
+            if behavior_executor or _normalize_command_label(cmd.label) == "REST":
+                _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
                 if _normalize_command_label(cmd.label) == "STOP":
                     _execute_standup_after_stop_if_needed(
                         sid,
@@ -5645,6 +5804,7 @@ def create_app(
                         source="system_auto",
                         request_id=confirm_request_id,
                     )
+            _apply_auto_rest_command_outcome(cmd.label)
             if _normalize_command_label(cmd.label) == "STOP":
                 _release_custom_life_lock(sid, runtime_cfg)
                 _clear_command_stop_available(sid)
@@ -6684,7 +6844,7 @@ def create_app(
             resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
             return resp
 
-        _touch_activity()
+        _touch_activity(activate_auto_rest=True)
         _log_dm_event(
             sid=released.get("sid") or sid,
             level="info",
@@ -7020,7 +7180,7 @@ def create_app(
 
         state = _get_nao_awake_state(runtime_cfg)
         if awake:
-            _clear_auto_rest_idle_state()
+            _touch_activity(activate_auto_rest=True)
         else:
             _mark_auto_rest_idle_resting(reset_logged=True)
         if not state.get("ok"):
@@ -8110,6 +8270,7 @@ def create_app(
             if not resolved:
                 resolved = _default_dance_resolution(cmdrec, runtime_cfg=runtime_cfg)
         cmd = CommandDecision(label=label, confidence=1.0, raw_text=label, resolved=resolved)
+        normalized_label = _normalize_command_label(cmd.label)
         _log_dm_event(
             sid=sid,
             level="info",
@@ -8124,7 +8285,7 @@ def create_app(
         if lock_mode:
             _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
         try:
-            behavior_executor.execute(cmd)
+            _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
         except Exception as exc:
             _log_dm_event(
                 sid=sid,
@@ -8137,7 +8298,8 @@ def create_app(
                 data={"command": cmd.label, "error": str(exc), "type": exc.__class__.__name__},
             )
             return {"ok": False, "error": str(exc)}, 400
-        if _normalize_command_label(cmd.label) == "STOP":
+        _apply_auto_rest_command_outcome(normalized_label)
+        if normalized_label == "STOP":
             _execute_standup_after_stop_if_needed(
                 sid,
                 behavior_executor,
@@ -9097,7 +9259,9 @@ def create_app(
         name = (request.args.get("name") or "").strip().lower()
         if name not in ("base", "behavior"):
             return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        path = _proc_log_path(name)
         with proc_lock:
+            _sync_proc_log_buffer_locked(name, path)
             lines = list(proc_logs.get(name, []))
         return jsonify({"ok": True, "name": name, "lines": lines})
 
@@ -9107,9 +9271,12 @@ def create_app(
         name = (payload.get("name") or "").strip().lower()
         if name not in ("base", "behavior"):
             return jsonify({"ok": False, "error": "Unknown process name."}), 400
+        path = _proc_log_path(name)
         with proc_lock:
             proc_logs[name] = []
-            _clear_proc_log_files(name)
+            entry = proc_state.setdefault(name, _new_proc_state_entry())
+            entry["buffer_log_path"] = str(path or "").strip() or None
+            _clear_proc_log_files_path(path)
         return jsonify({"ok": True, "name": name})
 
     @app.get("/api/dm_events")
@@ -9230,6 +9397,7 @@ def create_app(
             if not nao_ip or not nao_ip_enabled:
                 return jsonify({"ok": False, "error": "NAO IP ontbreekt of is disabled."}), 400
             base_port = _url_port(runtime_cfg.get("nao_base_url"), default_port=5000)
+            log_port = base_port
             cmd, cwd, err = _base_controller_cmd(nao_ip, base_port)
         else:
             runtime_cfg = _get_runtime_cfg(sid)
@@ -9280,12 +9448,13 @@ def create_app(
                     reason="process_start_behavior",
                 )
             behavior_port = _url_port(runtime_cfg.get("behavior_manager_url"), default_port=5001)
+            log_port = behavior_port
             py2_api_url = _normalize_url(runtime_cfg.get("nao_base_url")) or "http://127.0.0.1:5000"
             cmd, cwd, err = _behavior_manager_cmd(behavior_port, py2_api_url)
 
         if err:
             return jsonify({"ok": False, "error": err}), 400
-        result = _start_process(name, cmd, cwd)
+        result = _start_process(name, cmd, cwd, log_port=log_port)
         resp = jsonify(result)
         resp.headers["X-Request-Id"] = request_id
         return resp

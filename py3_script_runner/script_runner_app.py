@@ -25,10 +25,12 @@ if __package__ in (None, ""):
     _REPO_ROOT = Path(__file__).resolve().parent.parent
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
+    from py3_script_runner.client import DMClient, DMClientError
     from py3_script_runner.runner import ScriptRunner
     from py3_script_runner.schema import ScriptSchemaError, validate_script
     from py3_script_runner.tts_preload import TtsPreloadService
 else:
+    from .client import DMClient, DMClientError
     from .runner import ScriptRunner
     from .schema import ScriptSchemaError, validate_script
     from .tts_preload import TtsPreloadService
@@ -439,6 +441,98 @@ def fetch_cmdrec_labels(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
     }
 
 
+def _iter_script_dm_targets(script: Dict[str, Any]) -> List[Dict[str, str]]:
+    targets: List[Dict[str, str]] = []
+    robots = script.get("robots") or {}
+    if not isinstance(robots, dict):
+        return targets
+    for robot_id, robot_cfg_raw in robots.items():
+        robot_cfg = robot_cfg_raw if isinstance(robot_cfg_raw, dict) else {}
+        dm_url = str(robot_cfg.get("dm_url") or "").strip()
+        if not dm_url:
+            continue
+        targets.append(
+            {
+                "robot_id": str(robot_id or ""),
+                "dm_url": dm_url,
+                "instance_id": str(robot_cfg.get("instance_id") or "").strip(),
+            }
+        )
+    return targets
+
+
+def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
+    script_raw = payload.get("script") if isinstance(payload, dict) else None
+    if not isinstance(script_raw, dict):
+        return HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload("Expected JSON body with object field 'script'.")
+    try:
+        script = validate_script(script_raw)
+    except ScriptSchemaError as exc:
+        return HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(f"Schema error: {exc}")
+
+    robots_payload: List[Dict[str, Any]] = []
+    for target in _iter_script_dm_targets(script):
+        dm_url = target["dm_url"]
+        try:
+            client = DMClient(dm_url, timeout_s=4.0)
+            state = client.nao_command_state(timeout_s=4.0)
+            reachable_raw = state.get("reachable") if isinstance(state, dict) else None
+            reachable = bool(reachable_raw) if isinstance(reachable_raw, bool) else bool(state.get("ok"))
+            awake = state.get("awake") if isinstance(state, dict) else {}
+            posture = state.get("posture") if isinstance(state, dict) else {}
+            auto_rest = state.get("auto_rest") if isinstance(state, dict) else {}
+            awake = awake if isinstance(awake, dict) else {}
+            posture = posture if isinstance(posture, dict) else {}
+            auto_rest = auto_rest if isinstance(auto_rest, dict) else {}
+            errors = state.get("errors") if isinstance(state, dict) else []
+            error = ""
+            if isinstance(errors, list):
+                for item in errors:
+                    text = str(item or "").strip()
+                    if text:
+                        error = text
+                        break
+            if not error and isinstance(state, dict):
+                error = str(state.get("error") or "").strip()
+            remaining_raw = auto_rest.get("seconds_until_rest")
+            try:
+                remaining = int(remaining_raw) if remaining_raw is not None else None
+            except Exception:
+                remaining = None
+            if remaining is not None:
+                auto_rest = dict(auto_rest)
+                auto_rest["seconds_until_rest"] = remaining
+            robots_payload.append(
+                {
+                    "robot_id": target["robot_id"],
+                    "dm_url": dm_url,
+                    "instance_id": target["instance_id"],
+                    "ok": reachable,
+                    "reachable": reachable,
+                    "awake": awake,
+                    "posture": posture,
+                    "auto_rest": auto_rest,
+                    "error": error,
+                }
+            )
+        except Exception as exc:
+            robots_payload.append(
+                {
+                    "robot_id": target["robot_id"],
+                    "dm_url": dm_url,
+                    "instance_id": target["instance_id"],
+                    "ok": False,
+                    "reachable": False,
+                    "awake": {},
+                    "posture": {},
+                    "error": str(exc),
+                    "auto_rest": {},
+                }
+            )
+
+    return HTTPStatus.OK, {"ok": True, "robots": robots_payload}
+
+
 class RunSessionManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -738,6 +832,14 @@ class ScriptBuilderHandler(SimpleHTTPRequestHandler):
                 self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
                 return
             status, response = fetch_cmdrec_labels(payload)
+            self._send_json(status, response)
+            return
+        if parsed.path == "/api/auto_rest_watch/status":
+            ok, payload, error = self._read_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            status, response = poll_auto_rest_watch(payload)
             self._send_json(status, response)
             return
         if parsed.path == "/api/tts_preload/status":

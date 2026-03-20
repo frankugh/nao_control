@@ -66,6 +66,8 @@ import {
   const runLogDetails = document.getElementById("runLogDetails");
   const runLog = document.getElementById("runLog");
   const dmStartResults = document.getElementById("dmStartResults");
+  const robotStatusSection = document.getElementById("robotStatusSection");
+  const robotStatusList = document.getElementById("robotStatusList");
   const templateInspector = document.getElementById("templateInspector");
   const templateStepCount = document.getElementById("templateStepCount");
   const commandLabelSuggestions = document.getElementById("commandLabelSuggestions");
@@ -118,6 +120,10 @@ import {
   let pendingCommandLabelFetchKey = "";
   let commandLabelLookup = new Map();
   let actionDialogResolve = null;
+  let autoRestWatchTimer = null;
+  let autoRestWatchBusy = false;
+  let robotStatusCountdownTimer = null;
+  let robotStatusEntries = [];
 
   function setStatus(message, level) {
     statusMessage.textContent = message;
@@ -364,6 +370,229 @@ import {
       }
       actionDialog.setAttribute("open", "");
     });
+  }
+
+  function currentScriptForAutoRestWatch() {
+    if (blocksSessionActive && scriptState && isObject(scriptState.root) && !hasPendingBlockErrors()) {
+      return cloneJson(scriptState.root);
+    }
+    const parsed = parseJsonText(editorJson.value, "Editor");
+    if (!parsed.ok || !isObject(parsed.value)) {
+      return null;
+    }
+    return parsed.value;
+  }
+
+  function currentAutoRestRemaining(entry) {
+    if (!entry || !Number.isFinite(Number(entry.remaining_base_s))) {
+      return null;
+    }
+    const sampledAtMs = Number(entry.sampled_at_ms || 0);
+    const elapsedSeconds = Math.floor(Math.max(0, Date.now() - sampledAtMs) / 1000);
+    return Math.max(0, Number(entry.remaining_base_s) - elapsedSeconds);
+  }
+
+  function hasRobotStatusCountdown(entries) {
+    return (Array.isArray(entries) ? entries : []).some((entry) => {
+      if (!entry || entry.ok !== true) {
+        return false;
+      }
+      if (entry.auto_rest_enabled !== true) {
+        return false;
+      }
+      if (entry.auto_rest_suspended) {
+        return false;
+      }
+      if (entry.auto_rest_timer_active !== true) {
+        return false;
+      }
+      return Number.isFinite(Number(entry.remaining_base_s));
+    });
+  }
+
+  function ensureRobotStatusCountdown() {
+    const needsCountdown = hasRobotStatusCountdown(robotStatusEntries);
+    if (!needsCountdown) {
+      if (robotStatusCountdownTimer !== null) {
+        window.clearInterval(robotStatusCountdownTimer);
+        robotStatusCountdownTimer = null;
+      }
+      return;
+    }
+    if (robotStatusCountdownTimer !== null) {
+      return;
+    }
+    robotStatusCountdownTimer = window.setInterval(function () {
+      renderRobotStatusSection(robotStatusEntries);
+    }, 1000);
+  }
+
+  function normalizeRobotStatusEntry(entry, sampledAtMs) {
+    const autoRest = entry && isObject(entry.auto_rest) ? entry.auto_rest : {};
+    const awake = entry && isObject(entry.awake) ? entry.awake : {};
+    const posture = entry && isObject(entry.posture) ? entry.posture : {};
+    const remainingBase = Number.isFinite(Number(autoRest.seconds_until_rest))
+      ? Number(autoRest.seconds_until_rest)
+      : null;
+    return {
+      robot_id: String((entry && entry.robot_id) || "?"),
+      dm_url: String((entry && entry.dm_url) || "").trim(),
+      instance_id: String((entry && entry.instance_id) || "").trim(),
+      ok: !!(entry && entry.ok),
+      reachable: !!(entry && entry.reachable),
+      error: String((entry && entry.error) || "").trim(),
+      awake_value: awake && awake.ok && typeof awake.is_awake === "boolean" ? awake.is_awake : null,
+      posture_value: posture && posture.ok && posture.posture ? String(posture.posture) : "",
+      auto_rest_enabled: typeof autoRest.enabled_by_config === "boolean" ? !!autoRest.enabled_by_config : null,
+      auto_rest_timeout_s: Number(autoRest.timeout_s || 0),
+      auto_rest_suspended: !!autoRest.suspended,
+      auto_rest_suspend_owner: String(autoRest.suspend_owner || "").trim(),
+      auto_rest_timer_active: !!autoRest.timer_active,
+      remaining_base_s: remainingBase,
+      sampled_at_ms: sampledAtMs,
+    };
+  }
+
+  function formatRobotMotorText(entry) {
+    if (!entry || entry.ok !== true) {
+      return "motoren: niet beschikbaar";
+    }
+    if (entry.awake_value == null) {
+      return "motoren: onbekend";
+    }
+    return entry.awake_value ? "motoren: wakker" : "motoren: rust";
+  }
+
+  function formatRobotPostureText(entry) {
+    if (!entry || entry.ok !== true) {
+      return "posture: niet beschikbaar";
+    }
+    if (!entry.posture_value) {
+      return "posture: onbekend";
+    }
+    return "posture: " + entry.posture_value;
+  }
+
+  function formatRobotAutoRestText(entry) {
+    if (!entry || entry.auto_rest_enabled == null) {
+      return "auto-rest: onbekend";
+    }
+    if (entry.auto_rest_suspended) {
+      const owner = entry.auto_rest_suspend_owner || "onbekend";
+      return "auto-rest: gesusp. (" + owner + ")";
+    }
+    if (!entry.auto_rest_enabled) {
+      return "auto-rest: uit";
+    }
+    const remaining = currentAutoRestRemaining(entry);
+    const timeoutS = Math.max(0, Number(entry.auto_rest_timeout_s || 0));
+    if (remaining == null) {
+      return "auto-rest: aan (" + String(timeoutS) + "s)";
+    }
+    return "auto-rest: " + String(remaining) + "/" + String(timeoutS) + "s";
+  }
+
+  function renderRobotStatusSection(entries) {
+    robotStatusEntries = Array.isArray(entries) ? entries.slice() : [];
+    if (!(robotStatusSection instanceof HTMLElement) || !(robotStatusList instanceof HTMLElement)) {
+      ensureRobotStatusCountdown();
+      return;
+    }
+    robotStatusList.replaceChildren();
+    if (robotStatusEntries.length === 0) {
+      robotStatusSection.classList.add("is-hidden");
+      ensureRobotStatusCountdown();
+      return;
+    }
+    robotStatusEntries.forEach((entry) => {
+      const card = document.createElement("div");
+      card.className = "robot-status-card";
+
+      const title = document.createElement("div");
+      title.className = "robot-status-title";
+      title.textContent = String(entry.robot_id || "?");
+      card.appendChild(title);
+
+      const metaParts = [];
+      if (entry.dm_url) {
+        metaParts.push(entry.dm_url);
+      }
+      if (entry.instance_id) {
+        metaParts.push("instance_id=" + entry.instance_id);
+      }
+      if (metaParts.length > 0) {
+        const meta = document.createElement("div");
+        meta.className = "robot-status-meta";
+        meta.textContent = metaParts.join(" | ");
+        card.appendChild(meta);
+      }
+
+      const lines = document.createElement("div");
+      lines.className = "robot-status-lines";
+      [formatRobotMotorText(entry), formatRobotPostureText(entry), formatRobotAutoRestText(entry)].forEach((text) => {
+        const line = document.createElement("div");
+        line.className = "robot-status-line";
+        line.textContent = text;
+        lines.appendChild(line);
+      });
+      card.appendChild(lines);
+
+      if (entry.ok !== true && entry.error) {
+        const error = document.createElement("div");
+        error.className = "robot-status-error";
+        error.textContent = entry.error;
+        card.appendChild(error);
+      }
+
+      robotStatusList.appendChild(card);
+    });
+    robotStatusSection.classList.remove("is-hidden");
+    ensureRobotStatusCountdown();
+  }
+
+  async function refreshAutoRestWatch(options) {
+    if (autoRestWatchBusy) {
+      return;
+    }
+    const silent = !!(options && options.silent);
+    const script = currentScriptForAutoRestWatch();
+    if (!script) {
+      renderRobotStatusSection([]);
+      return;
+    }
+    autoRestWatchBusy = true;
+    try {
+      const payload = await fetchJson("/api/auto_rest_watch/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: script }),
+      });
+      const robots = Array.isArray(payload && payload.robots) ? payload.robots : [];
+      const nowMs = Date.now();
+      const normalizedEntries = robots
+        .map((entry) => normalizeRobotStatusEntry(entry, nowMs))
+        .filter((entry) => entry.dm_url || entry.robot_id);
+      renderRobotStatusSection(normalizedEntries);
+    } catch (err) {
+      if (!silent) {
+        const message = err && err.message ? err.message : String(err);
+        setStatus("Auto-rest status ophalen mislukt: " + message, "error");
+      }
+    } finally {
+      autoRestWatchBusy = false;
+    }
+  }
+
+  function ensureAutoRestWatchPolling() {
+    if (autoRestWatchTimer !== null) {
+      return;
+    }
+    autoRestWatchTimer = window.setInterval(function () {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      refreshAutoRestWatch({ silent: true });
+    }, 5000);
   }
 
   function describeProfile(profile) {
@@ -2983,8 +3212,11 @@ import {
       applyNewDefaultScript();
       renderRuntimeState({ status: "idle", waiting_for_next: false, waiting_reason: "none", current_step_id: "", completed_steps: 0, total_steps: 0, log_tail: [] });
       renderDmStartResults([]);
+      renderRobotStatusSection([]);
       ensureRunPolling();
+      ensureAutoRestWatchPolling();
       await refreshRunState({ silent: true });
+      await refreshAutoRestWatch({ silent: true });
       const currentStatus = runtimeState && typeof runtimeState.status === "string" ? runtimeState.status : "idle";
       const currentError = runtimeState && typeof runtimeState.last_error === "string" ? runtimeState.last_error.trim() : "";
       const keepRuntimeMessage =
@@ -3095,7 +3327,6 @@ import {
       closeActionDialog("cancel");
     });
   }
-
   templateInspector.addEventListener("change", function (event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {

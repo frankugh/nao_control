@@ -87,6 +87,7 @@ def test_nao_command_state_includes_posture_auto_rest_and_warning(monkeypatch):
         },
     )
     assert cfg_resp.status_code == 200
+    app._auto_rest_debug_touch_activity(activate_auto_rest=True)
     app._auto_rest_debug_set_last_activity_ago(3)
 
     resp = client.get("/api/nao_command_state")
@@ -99,6 +100,7 @@ def test_nao_command_state_includes_posture_auto_rest_and_warning(monkeypatch):
     assert data["posture"]["posture"] == "Sitting"
     assert data["auto_rest"]["enabled_by_config"] is True
     assert data["auto_rest"]["timeout_s"] == 180.0
+    assert data["auto_rest"]["timer_active"] is True
     assert 176 <= data["auto_rest"]["seconds_until_rest"] <= 177
     assert data["warnings"]
     assert "posture" in data["warnings"][0].lower()
@@ -156,3 +158,38 @@ def test_nao_command_state_reports_suspended_auto_rest(monkeypatch):
     assert data["auto_rest"]["suspended"] is True
     assert data["auto_rest"]["suspend_owner"] == "script_runner"
     assert data["auto_rest"]["seconds_until_rest"] is None
+
+
+def test_nao_command_state_starts_with_disarmed_auto_rest_timer(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": False}})
+        if url.endswith("/custom_life_state"):
+            return _Resp({"status": "ok", "data": {"life_state": "disabled", "modules": {}}})
+        if url.endswith("/posture"):
+            return _Resp({"status": "ok", "data": {"posture": "Sitting", "is_sitting": True, "is_standing": False}})
+        raise AssertionError(f"unexpected GET {url}")
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_base_url": "http://base:5000",
+                "base_enabled": True,
+                "behavior_enabled": False,
+                "nao_auto_rest_after_s": 180,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.get("/api/nao_command_state")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["auto_rest"]["timer_active"] is False
+    assert data["auto_rest"]["seconds_until_rest"] == 180

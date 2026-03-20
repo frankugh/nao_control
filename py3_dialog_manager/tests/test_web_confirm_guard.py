@@ -138,6 +138,49 @@ def test_confirm_policy_never_executes_guarded_without_confirm(monkeypatch):
     assert "Uitgevoerd: REST" in data["history"][-1]["content"]
 
 
+def test_voice_rest_disarms_auto_rest_timer(monkeypatch):
+    decisions = {
+        "actie": RouteDecision(
+            is_command=True,
+            command=CommandDecision(label="REST", confidence=0.9, raw_text="actie"),
+            top3=[("REST", 0.9)],
+        )
+    }
+    app, executor = _make_app(monkeypatch, decisions, set(), confirm_policy="never")
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_auto_rest_after_s": 180,
+                "base_enabled": False,
+                "behavior_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    app._auto_rest_debug_touch_activity(activate_auto_rest=True)
+    resp = client.post("/api/send", json={"text": "actie", "emit": "none"})
+    assert resp.status_code == 200
+    assert executor.calls == 1
+
+    health = client.post(
+        "/api/runtime_health",
+        json={
+            "nao_auto_rest_after_s": 180,
+            "base_enabled": False,
+            "behavior_enabled": False,
+            "nao_ip_enabled": False,
+        },
+    )
+    assert health.status_code == 200
+    auto_rest = health.get_json()["auto_rest"]
+    assert auto_rest["timer_active"] is False
+    assert auto_rest["seconds_until_rest"] == 180
+
+
 def test_confirm_policy_always_confirms_even_unguarded(monkeypatch):
     decisions = {
         "actie": RouteDecision(

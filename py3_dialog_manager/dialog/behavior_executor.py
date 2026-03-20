@@ -188,9 +188,6 @@ class BehaviorExecutor(ICommandExecutor):
             if exec_error is not None:
                 raise exec_error
             return
-        if label == "STAND_UP":
-            self._wake_up_if_rest(timeout_s=self.timeout_s)
-
         behavior = self._behavior_for_command(cmd)
         if not behavior:
             self._log_exec(
@@ -253,30 +250,6 @@ class BehaviorExecutor(ICommandExecutor):
                 requests.post(f"{self.base_url}/stop_all_behaviors", json=payload, timeout=timeout_s)
         except requests.RequestException as exc:
             print(f"[NAO] stop request failed: {exc}")
-
-    def _wake_up_if_rest(self, *, timeout_s: float) -> None:
-        payload = {}
-        try:
-            if self.api_router is not None:
-                resp = self.api_router.get("/is_awake", timeout=timeout_s)
-            else:
-                resp = requests.get(f"{self.base_url}/is_awake", timeout=timeout_s)
-            data = resp.json() if resp.ok else {}
-            is_awake = bool((data.get("data") or {}).get("is_awake"))
-        except Exception as exc:
-            print(f"[NAO] is_awake failed: {exc}")
-            return
-
-        if is_awake:
-            return
-
-        try:
-            if self.api_router is not None:
-                self.api_router.post("/wake_up", json=payload, timeout=timeout_s)
-            else:
-                requests.post(f"{self.base_url}/wake_up", json=payload, timeout=timeout_s)
-        except requests.RequestException as exc:
-            print(f"[NAO] wake_up failed: {exc}")
 
     def _rest(self, *, timeout_s: float) -> None:
         payload = {}

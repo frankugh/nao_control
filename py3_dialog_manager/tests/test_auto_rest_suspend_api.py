@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from dialog.behavior_executor import BehaviorExecutor
 from dialog.interfaces import LLMResult
 
 import webapp_server
@@ -22,6 +23,7 @@ class _Resp:
         self._payload = payload
         self.status_code = status_code
         self.ok = status_code < 400
+        self.content = b"{}"
 
     def json(self):
         return self._payload
@@ -31,7 +33,7 @@ class _Resp:
             raise RuntimeError(f"status={self.status_code}")
 
 
-def _make_app(monkeypatch):
+def _make_app(monkeypatch, *, behavior_executor=None):
     base_pipeline = SimpleNamespace(
         llm=StubLLMBackend(),
         output=None,
@@ -40,6 +42,9 @@ def _make_app(monkeypatch):
         log_messages_path=None,
         log_meta={},
         max_history_turns=None,
+        _behavior_executor=behavior_executor,
+        _cmdrec=None,
+        _debug_cmdrec=False,
     )
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
     monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
@@ -162,6 +167,7 @@ def test_auto_rest_tick_is_suppressed_once_and_release_resets_timer(monkeypatch)
     )
     assert acquire.status_code == 200
 
+    app._auto_rest_debug_touch_activity(activate_auto_rest=True)
     app._auto_rest_debug_set_last_activity_ago(20)
     app._auto_rest_debug_tick()
     app._auto_rest_debug_tick()
@@ -217,12 +223,13 @@ def test_auto_rest_tick_does_not_repeat_rest_when_robot_is_already_resting(monke
     )
     assert cfg_resp.status_code == 200
 
+    app._auto_rest_debug_touch_activity(activate_auto_rest=True)
     app._auto_rest_debug_set_last_activity_ago(20)
     app._auto_rest_debug_tick()
     app._auto_rest_debug_tick()
 
     assert post_calls == []
-    assert len(awake_calls) == 2
+    assert len(awake_calls) == 1
     events = _dm_events(client, event="auto_rest_idle_already_resting")
     assert len(events) == 1
 
@@ -264,9 +271,295 @@ def test_auto_rest_tick_does_not_repeat_rest_if_awake_probe_fails_after_successf
     )
     assert cfg_resp.status_code == 200
 
+    app._auto_rest_debug_touch_activity(activate_auto_rest=True)
     app._auto_rest_debug_set_last_activity_ago(20)
     app._auto_rest_debug_tick()
     app._auto_rest_debug_tick()
     app._auto_rest_debug_tick()
 
     assert post_calls == ["http://base:5000/rest"]
+
+
+def test_explicit_rest_disarms_timer_and_explicit_wake_reactivates_it(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    robot_state = {"is_awake": True}
+    post_calls = []
+
+    def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok"})
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": robot_state["is_awake"]}})
+        return _Resp({"status": "ok"})
+
+    def fake_post(url, json=None, timeout=0, **_kwargs):
+        post_calls.append(url)
+        if url.endswith("/wake_up"):
+            robot_state["is_awake"] = True
+            return _Resp({"status": "ok", "data": "NAO woken up"})
+        if url.endswith("/rest"):
+            robot_state["is_awake"] = False
+            return _Resp({"status": "ok", "data": "NAO resting"})
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_auto_rest_after_s": 10,
+                "nao_base_url": "http://base:5000",
+                "base_enabled": True,
+                "behavior_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    rest_resp = client.post("/api/nao_rest")
+    assert rest_resp.status_code == 200
+    health_rest = client.post(
+        "/api/runtime_health",
+        json={"nao_auto_rest_after_s": 10, "base_enabled": True, "behavior_enabled": False, "nao_base_url": "http://base:5000"},
+    )
+    auto_rest_rest = health_rest.get_json()["auto_rest"]
+    assert auto_rest_rest["timer_active"] is False
+    assert auto_rest_rest["seconds_until_rest"] == 10
+
+    app._auto_rest_debug_set_last_activity_ago(20)
+    app._auto_rest_debug_tick()
+    assert post_calls == ["http://base:5000/rest"]
+
+    wake_resp = client.post("/api/nao_wake_up")
+    assert wake_resp.status_code == 200
+    health_wake = client.post(
+        "/api/runtime_health",
+        json={"nao_auto_rest_after_s": 10, "base_enabled": True, "behavior_enabled": False, "nao_base_url": "http://base:5000"},
+    )
+    auto_rest_wake = health_wake.get_json()["auto_rest"]
+    assert auto_rest_wake["timer_active"] is True
+    assert 9 <= auto_rest_wake["seconds_until_rest"] <= 10
+
+    app._auto_rest_debug_set_last_activity_ago(20)
+    app._auto_rest_debug_tick()
+    assert post_calls == [
+        "http://base:5000/rest",
+        "http://base:5000/wake_up",
+        "http://base:5000/rest",
+    ]
+
+
+def test_touch_activity_during_rest_does_not_reactivate_timer(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    robot_state = {"is_awake": True}
+    post_calls = []
+
+    def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok"})
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": robot_state["is_awake"]}})
+        return _Resp({"status": "ok"})
+
+    def fake_post(url, json=None, timeout=0, **_kwargs):
+        post_calls.append(url)
+        if url.endswith("/rest"):
+            robot_state["is_awake"] = False
+            return _Resp({"status": "ok", "data": "NAO resting"})
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_auto_rest_after_s": 10,
+                "nao_base_url": "http://base:5000",
+                "base_enabled": True,
+                "behavior_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    rest_resp = client.post("/api/nao_rest")
+    assert rest_resp.status_code == 200
+
+    app._auto_rest_debug_touch_activity(activate_auto_rest=False)
+    health_after_touch = client.post(
+        "/api/runtime_health",
+        json={"nao_auto_rest_after_s": 10, "base_enabled": True, "behavior_enabled": False, "nao_base_url": "http://base:5000"},
+    )
+    auto_rest_after_touch = health_after_touch.get_json()["auto_rest"]
+    assert auto_rest_after_touch["timer_active"] is False
+    assert auto_rest_after_touch["seconds_until_rest"] == 10
+
+    app._auto_rest_debug_set_last_activity_ago(20)
+    app._auto_rest_debug_tick()
+    assert post_calls == ["http://base:5000/rest"]
+
+
+def test_manual_rest_uses_dm_awake_helper_when_base_endpoint_exists(monkeypatch):
+    class FailingExecutor:
+        def execute(self, cmd):  # pragma: no cover - should not run
+            raise AssertionError(f"Behavior executor should not handle {cmd.label}")
+
+    app = _make_app(monkeypatch, behavior_executor=FailingExecutor())
+    client = app.test_client()
+
+    post_calls = []
+
+    def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok"})
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": False}})
+        return _Resp({"status": "ok"})
+
+    def fake_post(url, json=None, timeout=0, **_kwargs):
+        post_calls.append(url)
+        if url.endswith("/rest"):
+            return _Resp({"status": "ok", "data": "NAO resting"})
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_auto_rest_after_s": 10,
+                "nao_base_url": "http://base:5000",
+                "base_enabled": True,
+                "behavior_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/command_execute", json={"label": "REST"})
+    assert resp.status_code == 200
+    assert post_calls == ["http://base:5000/rest"]
+
+    health = client.post(
+        "/api/runtime_health",
+        json={"nao_auto_rest_after_s": 10, "base_enabled": True, "behavior_enabled": False, "nao_base_url": "http://base:5000"},
+    )
+    auto_rest = health.get_json()["auto_rest"]
+    assert auto_rest["timer_active"] is False
+    assert auto_rest["seconds_until_rest"] == 10
+
+
+def test_manual_stand_up_from_rest_uses_dm_wake_helper_once(monkeypatch):
+    executor = BehaviorExecutor(base_url="http://base:5000", timeout_s=1.0)
+    app = _make_app(monkeypatch, behavior_executor=executor)
+    client = app.test_client()
+
+    robot_state = {"is_awake": False}
+    post_calls = []
+
+    def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok"})
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": robot_state["is_awake"]}})
+        return _Resp({"status": "ok"})
+
+    def fake_post(url, json=None, timeout=0, **_kwargs):
+        post_calls.append(url)
+        if url.endswith("/wake_up"):
+            robot_state["is_awake"] = True
+            return _Resp({"status": "ok", "data": "NAO woken up"})
+        if url.endswith("/do_behavior"):
+            return _Resp({"status": "ok", "data": {"behavior": "basic/standup", "ran": True}})
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+    monkeypatch.setattr("dialog.behavior_executor.requests.post", fake_post)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_auto_rest_after_s": 10,
+                "nao_base_url": "http://base:5000",
+                "base_enabled": True,
+                "behavior_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/command_execute", json={"label": "STAND_UP"})
+    assert resp.status_code == 200
+    assert post_calls == [
+        "http://base:5000/wake_up",
+        "http://base:5000/do_behavior",
+    ]
+
+    health = client.post(
+        "/api/runtime_health",
+        json={"nao_auto_rest_after_s": 10, "base_enabled": True, "behavior_enabled": False, "nao_base_url": "http://base:5000"},
+    )
+    auto_rest = health.get_json()["auto_rest"]
+    assert auto_rest["timer_active"] is True
+    assert 9 <= auto_rest["seconds_until_rest"] <= 10
+
+def test_idle_auto_rest_appends_operator_message_to_existing_chat_sessions(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    robot_state = {"is_awake": True}
+
+    def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok"})
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": robot_state["is_awake"]}})
+        return _Resp({"status": "ok"})
+
+    def fake_post(url, json=None, timeout=0, **_kwargs):
+        if url.endswith("/rest"):
+            robot_state["is_awake"] = False
+            return _Resp({"status": "ok", "data": "NAO resting"})
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "nao_auto_rest_after_s": 10,
+                "nao_base_url": "http://base:5000",
+                "base_enabled": True,
+                "behavior_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    state_before = client.get("/api/state")
+    assert state_before.status_code == 200
+    assert state_before.get_json()["history"] == []
+
+    app._auto_rest_debug_touch_activity(activate_auto_rest=True)
+    app._auto_rest_debug_set_last_activity_ago(20)
+    app._auto_rest_debug_tick()
+
+    state_after = client.get("/api/state")
+    history = state_after.get_json()["history"]
+    assert history
+    assert history[-1]["role"] == "assistant"
+    assert history[-1]["content"] == "NAO ging automatisch in ruststand ter bescherming van de motoren."

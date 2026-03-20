@@ -149,6 +149,9 @@ class DMClient:
     def runtime_health(self, payload: Dict[str, Any], timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/runtime_health", payload=dict(payload or {}), timeout_s=timeout_s)
 
+    def nao_command_state(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        return self._request("GET", "/api/nao_command_state", timeout_s=timeout_s)
+
     def auto_rest_suspend_acquire(
         self,
         *,

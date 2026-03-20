@@ -1105,7 +1105,6 @@
                   <label class="enable-row" style="margin:0"><span>Auto-rest:</span><input id="cfgNaoAutoRestEnabled" type="checkbox" /></label>
                   <input id="cfgNaoAutoRestSeconds" type="number" min="10" step="10" placeholder="seconds" style="max-width:140px" />
                 </div>
-                <div id="cfgNaoAutoRestNote" class="small" style="margin-top:6px"></div>
               </div>
             </div>
           </div>
@@ -1550,7 +1549,6 @@
       const presetStatus = document.getElementById('presetStatus');
       const cfgNaoAutoRestEnabled = document.getElementById('cfgNaoAutoRestEnabled');
         const cfgNaoAutoRestSeconds = document.getElementById('cfgNaoAutoRestSeconds');
-        const cfgNaoAutoRestNote = document.getElementById('cfgNaoAutoRestNote');
       const btnStartBase = document.getElementById('btnStartBase');
       const btnStopBase = document.getElementById('btnStopBase');
       const btnStartBehavior = document.getElementById('btnStartBehavior');
@@ -1836,6 +1834,7 @@
       let cmdNaoAutoRestEnabled = null;
       let cmdNaoAutoRestTimeoutS = 0;
       let cmdNaoAutoRestSecondsRemainingBase = null;
+      let cmdNaoAutoRestTimerActive = false;
       let cmdNaoAutoRestSampledAtMs = 0;
       let cmdNaoAutoRestSuspended = false;
       let cmdNaoAutoRestSuspendOwner = '';
@@ -3087,6 +3086,7 @@
         if (cmdNaoAutoRestEnabled !== true) return null;
         if (cmdNaoAutoRestSuspended) return null;
         if (cmdNaoAutoRestSecondsRemainingBase == null) return null;
+        if (cmdNaoAutoRestTimerActive !== true) return Number(cmdNaoAutoRestSecondsRemainingBase);
         const elapsedMs = Math.max(0, Date.now() - cmdNaoAutoRestSampledAtMs);
         const elapsedSeconds = Math.floor(elapsedMs / 1000);
         return Math.max(0, Number(cmdNaoAutoRestSecondsRemainingBase) - elapsedSeconds);
@@ -3162,9 +3162,18 @@
         if (activeTab !== 'commands') return;
         if (cmdNaoAutoRestEnabled !== true) return;
         if (cmdNaoAutoRestSuspended) return;
+        if (cmdNaoAutoRestTimerActive !== true) return;
         if (cmdNaoAutoRestSecondsRemainingBase == null) return;
         renderCmdNaoState();
       }, 1000);
+
+      setInterval(() => {
+        if (activeTab !== 'commands') return;
+        if (document.visibilityState === 'hidden') return;
+        if (cmdNaoActionBusy || cmdNaoRefreshBusy) return;
+        if (!cmdNaoHealthAvailable) return;
+        refreshCmdNaoState({ showErrors: false }).catch(() => {});
+      }, 5000);
 
       function syncConfigAutLifeFromCommand(enabled) {
         if (typeof enabled !== 'boolean') return;
@@ -3210,6 +3219,7 @@
           cmdNaoAutoRestEnabled = null;
           cmdNaoAutoRestTimeoutS = 0;
           cmdNaoAutoRestSecondsRemainingBase = null;
+          cmdNaoAutoRestTimerActive = false;
           cmdNaoAutoRestSampledAtMs = 0;
           cmdNaoAutoRestSuspended = false;
           cmdNaoAutoRestSuspendOwner = '';
@@ -3252,6 +3262,7 @@
           cmdNaoAutoRestSecondsRemainingBase = Number.isFinite(Number(autoRest.seconds_until_rest))
             ? Number(autoRest.seconds_until_rest)
             : null;
+          cmdNaoAutoRestTimerActive = !!autoRest.timer_active;
           cmdNaoAutoRestSampledAtMs = Date.now();
           cmdNaoAutoRestSuspended = !!autoRest.suspended;
           cmdNaoAutoRestSuspendOwner = String(autoRest.suspend_owner || '').trim();
@@ -3287,6 +3298,7 @@
           cmdNaoAutoRestEnabled = null;
           cmdNaoAutoRestTimeoutS = 0;
           cmdNaoAutoRestSecondsRemainingBase = null;
+          cmdNaoAutoRestTimerActive = false;
           cmdNaoAutoRestSampledAtMs = 0;
           cmdNaoAutoRestSuspended = false;
           cmdNaoAutoRestSuspendOwner = '';
@@ -5599,7 +5611,6 @@
         cfgNaoAutoRestEnabled.checked = autoRestValue > 0;
         cfgNaoAutoRestSeconds.value = String(autoRestValue > 0 ? autoRestValue : 180);
         cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
-        renderAutoRestNote(cfg, lastAutoRestHealth);
         if (locomotionFrequency) {
           locomotionFrequency.value = clampLocomotionFrequency(cfg.locomotion_frequency, 0.2).toFixed(2);
         }
@@ -6295,32 +6306,11 @@
         el.classList.toggle('bad', !state);
       }
 
-      function renderAutoRestNote(cfg, autoRestState = null) {
-        if (!cfgNaoAutoRestNote) return;
-        const timeout = Number((autoRestState && autoRestState.timeout_s) || cfg.nao_auto_rest_after_s || 0);
-        const timeoutLabel = timeout > 0 ? `${timeout}s` : `${cfgNaoAutoRestSeconds.value || 180}s`;
-        const suspended = !!(autoRestState && autoRestState.suspended);
-        const owner = suspended ? String(autoRestState.suspend_owner || 'onbekend') : '';
-        const enabledByConfig = autoRestState && Object.prototype.hasOwnProperty.call(autoRestState, 'enabled_by_config')
-          ? !!autoRestState.enabled_by_config
-          : timeout > 0;
-        if (!enabledByConfig) {
-          cfgNaoAutoRestNote.textContent = suspended
-            ? `auto-rest: uit via config (lease actief door ${owner})`
-            : 'auto-rest: uit';
-          return;
-        }
-        cfgNaoAutoRestNote.textContent = suspended
-          ? `auto-rest: tijdelijk gesuspendeerd door ${owner} (${timeoutLabel})`
-          : `auto-rest: aan (${timeoutLabel})`;
-      }
-
       async function refreshHealth(cfg) {
         try {
           if (!cfg.base_enabled && !cfg.behavior_enabled) {
             setHealth(healthBase, false, 'base');
             setHealth(healthBehavior, false, 'behavior');
-            renderAutoRestNote(cfg, lastAutoRestHealth);
             return;
           }
           const r = await fetch('/api/runtime_health', {
@@ -6339,7 +6329,6 @@
           const behaviorOk = !!(j.behavior && j.behavior.ping);
           setHealth(healthBase, baseOk, 'base');
           setHealth(healthBehavior, behaviorOk, 'behavior');
-          renderAutoRestNote(cfg, lastAutoRestHealth);
         } catch (_) {}
       }
 
@@ -6411,7 +6400,6 @@
               const behaviorOk = !!(j.behavior && j.behavior.ping);
               setHealth(healthBehavior, behaviorOk, 'behavior manager');
             }
-            renderAutoRestNote(cfg, lastAutoRestHealth);
             const baseOk = !!(j.base && j.base.ping);
             const behaviorOk = !!(j.behavior && j.behavior.ping);
             const naoOk = !!(j.nao && j.nao.ping);
@@ -7197,6 +7185,9 @@
           txt.focus();
           lastTranscript = null;
           setStatus('Klaar. Je kunt opnieuw opnemen.');
+          if (cmdNaoHealthAvailable && activeTab === 'commands') {
+            scheduleCmdNaoRefresh(150, false);
+          }
           if (j.emit_used === 'pipeline' && (j.reply || '').trim()) {
             speakingWindowStarted = startSpeakingWindow(j.reply || '');
           } else if (clientOutputMode === 'client' && (j.reply || '').trim()) {
@@ -7245,6 +7236,9 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'confirm failed');
+          if (cmdNaoHealthAvailable && activeTab === 'commands') {
+            scheduleCmdNaoRefresh(150, false);
+          }
           syncStopAvailability(j);
           resolvedConfirms.add(confirmId);
           renderHistory(j.history || []);
@@ -7703,13 +7697,11 @@
       if (cfgNaoAutoRestEnabled) {
         cfgNaoAutoRestEnabled.addEventListener('change', () => {
           cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
-          renderAutoRestNote(getConfigFromForm(), lastAutoRestHealth);
           applyRuntimeConfig(getConfigFromForm(), false, false);
         });
       }
       if (cfgNaoAutoRestSeconds) {
         cfgNaoAutoRestSeconds.addEventListener('change', () => {
-          renderAutoRestNote(getConfigFromForm(), lastAutoRestHealth);
           applyRuntimeConfig(getConfigFromForm(), false, false);
         });
       }
