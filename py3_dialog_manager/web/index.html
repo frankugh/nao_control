@@ -1854,7 +1854,6 @@
       let cmdNaoReachable = false;
       let cmdNaoIsAwake = null;
       let cmdNaoAutLifeEnabled = null;
-      let cmdNaoAutLifeValue = '';
       let cmdNaoPostureValue = '';
       let cmdNaoAutoRestEnabled = null;
       let cmdNaoAutoRestTimeoutS = 0;
@@ -3150,8 +3149,7 @@
           } else if (cmdNaoAutLifeEnabled == null) {
             cmdNaoAutLifeState.textContent = 'aut life: onbekend';
           } else {
-            const suffix = cmdNaoAutLifeValue ? ` (${cmdNaoAutLifeValue})` : '';
-            cmdNaoAutLifeState.textContent = cmdNaoAutLifeEnabled ? `aut life: aan${suffix}` : `aut life: uit${suffix}`;
+            cmdNaoAutLifeState.textContent = cmdNaoAutLifeEnabled ? 'aut life: aan' : 'aut life: uit';
           }
         }
         if (cmdNaoPostureState) {
@@ -3201,7 +3199,6 @@
         cmdNaoReachable = false;
         cmdNaoIsAwake = null;
         cmdNaoAutLifeEnabled = null;
-        cmdNaoAutLifeValue = '';
         cmdNaoPostureValue = '';
         cmdNaoAutoRestEnabled = null;
         cmdNaoAutoRestTimeoutS = 0;
@@ -3306,11 +3303,6 @@
           } else {
             cmdNaoAutLifeEnabled = null;
           }
-          if (lifeOk) {
-            cmdNaoAutLifeValue = String(life.life_state || '').trim();
-          } else {
-            cmdNaoAutLifeValue = '';
-          }
           cmdNaoPostureValue = postureOk ? String(posture.posture || '').trim() : '';
           cmdNaoAutoRestEnabled = typeof autoRest.enabled_by_config === 'boolean' ? !!autoRest.enabled_by_config : null;
           cmdNaoAutoRestTimeoutS = Number(autoRest.timeout_s || 0);
@@ -3409,7 +3401,6 @@
             cmdNaoAutLifeEnabled = !!j.enabled;
             syncConfigAutLifeFromCommand(cmdNaoAutLifeEnabled);
           }
-          if (j.life_state != null) cmdNaoAutLifeValue = String(j.life_state || '').trim();
           if (j.warning) {
             setCmdNaoStatus(`Aut life opgeslagen, maar status is nog niet beschikbaar: ${j.warning}`);
           } else {
@@ -3492,7 +3483,6 @@
           const modules = (state.modules && typeof state.modules === 'object') ? state.modules : {};
           const parts = [];
           if (state.is_awake != null) parts.push(`awake:${state.is_awake ? 'ja' : 'nee'}`);
-          if (state.life_state != null) parts.push(`life:${state.life_state}`);
           const onOff = (val) => (val ? 'aan' : 'uit');
           if ('basic_awareness' in modules) parts.push(`awareness:${onOff(modules.basic_awareness)}`);
           if ('background_movement' in modules) parts.push(`background:${onOff(modules.background_movement)}`);
@@ -3502,7 +3492,6 @@
             if (!key.endsWith('_error')) return;
             errors.push(`${key.replace('_error', '')}: ${val}`);
           });
-          if (state.life_error) errors.push(`life: ${state.life_error}`);
           const base = parts.join(' | ');
           cfgCustomLifeStatus.textContent = errors.length ? `${base} | errors: ${errors.join('; ')}` : base;
           if (cfgNaoLifeState) cfgNaoLifeState.textContent = 'autonomous: aan';
@@ -6374,6 +6363,7 @@
       let lastHealthOk = null;
       let lastNaoOk = null;
       let healthConnectivityIssueCounts = new Map();
+      let healthHasActiveConnectivityIssue = false;
       let connectivityBannerDismissedSignature = '';
       let connectivityBannerActiveSignature = '';
 
@@ -6446,6 +6436,7 @@
 
       function updateConnectivityBanner(rawItems) {
         const activeIssues = normalizeConnectivityIssues(rawItems).filter((issue) => issue.active);
+        healthHasActiveConnectivityIssue = activeIssues.length > 0;
         const localIssueKeys = new Set(
           activeIssues
             .filter((issue) => issue.issue_type === 'dm_local')
@@ -6485,7 +6476,8 @@
           if (!cfg.base_enabled && !cfg.behavior_enabled && !cfg.nao_ip_enabled) return;
           const now = Date.now();
           const boost = now < healthBoostUntil;
-          const interval = boost ? 1000 : (isHealthy ? 30000 : 5000);
+          const shouldPollFast = !isHealthy || healthHasActiveConnectivityIssue;
+          const interval = boost ? 1000 : (shouldPollFast ? 5000 : 30000);
           healthTimer = setTimeout(async () => {
             const nextCfg = getConfigFromForm();
             const ok = await pollHealth(nextCfg);
@@ -6500,6 +6492,7 @@
             setHealth(healthBase, 'disabled', 'base');
             setHealth(healthBehavior, 'disabled', 'behavior manager');
             healthConnectivityIssueCounts.clear();
+            healthHasActiveConnectivityIssue = false;
             connectivityBannerDismissedSignature = '';
             connectivityBannerActiveSignature = '';
             hideConnectivityBanner();
@@ -6904,10 +6897,6 @@
         async function startProcess(name) {
           try {
             const cfg = getConfigFromForm();
-            if ((name === 'base' || name === 'behavior') && cfg.nao_ip_enabled && lastNaoOk === false) {
-              setStatus('NAO is down; proces niet gestart.');
-              return;
-            }
             const payload = {
               name,
               nao_base_url: cfg.nao_base_url,

@@ -293,3 +293,69 @@ def test_nao_custom_life_set_uses_custom_life_path_and_updates_runtime(monkeypat
     runtime_data = runtime_resp.get_json()
     assert runtime_data["ok"] is True
     assert runtime_data["config"]["custom_life_enabled"] is True
+
+
+def test_nao_custom_life_set_disable_turns_underlying_services_off(monkeypatch):
+    post_calls = []
+
+    def fake_post(url, **kwargs):
+        post_calls.append((url, kwargs))
+        return _Resp({"status": "ok", "data": {}})
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/custom_life_state"):
+            return _Resp(
+                {
+                    "status": "ok",
+                    "data": {
+                        "modules": {
+                            "basic_awareness": False,
+                            "background_movement": False,
+                            "breathing": False,
+                        },
+                        "is_awake": True,
+                    },
+                }
+            )
+        return _Resp({"status": "ok"})
+
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "behavior_enabled": False,
+                "base_enabled": True,
+                "nao_base_url": "http://base:5000",
+                "custom_life_enabled": True,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/nao_custom_life_set", json={"enabled": False})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["enabled"] is False
+    assert data["active_modules"] is False
+    assert any(url.endswith("/custom_life_apply") for url, _ in post_calls)
+    assert not any(url.endswith("/custom_life_restore") for url, _ in post_calls)
+    apply_calls = [kwargs for url, kwargs in post_calls if url.endswith("/custom_life_apply")]
+    assert apply_calls
+    assert apply_calls[-1]["json"] == {
+        "settings": {
+            "basic_awareness": False,
+            "background_movement": False,
+            "breathing": False,
+        }
+    }
+
+    runtime_resp = client.get("/api/runtime_config")
+    runtime_data = runtime_resp.get_json()
+    assert runtime_data["ok"] is True
+    assert runtime_data["config"]["custom_life_enabled"] is False

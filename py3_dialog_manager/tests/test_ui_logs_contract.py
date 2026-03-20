@@ -112,6 +112,38 @@ def test_commands_tab_renders_disabled_state_when_nao_is_disabled(monkeypatch):
 
 
 @pytest.mark.ui_contract
+def test_connectivity_polling_stays_fast_while_active_issues_exist(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    update_body = _extract_function_body(html, "updateConnectivityBanner")
+    schedule_body = _extract_function_body(html, "scheduleHealth")
+
+    assert "let healthHasActiveConnectivityIssue = false;" in html
+    assert "healthHasActiveConnectivityIssue = activeIssues.length > 0;" in update_body
+    assert "const shouldPollFast = !isHealthy || healthHasActiveConnectivityIssue;" in schedule_body
+    assert "const interval = boost ? 1000 : (shouldPollFast ? 5000 : 30000);" in schedule_body
+
+
+@pytest.mark.ui_contract
+def test_manual_process_start_is_not_blocked_by_last_nao_health_snapshot(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    start_body = _extract_function_body(html, "startProcess")
+
+    assert "lastNaoOk === false" not in start_body
+    assert "setStatus('NAO is down; proces niet gestart.');" not in start_body
+    assert "const r = await fetch('/api/process_start'" in start_body
+
+
+@pytest.mark.ui_contract
 def test_logs_sync_behavior_is_manual_when_logs_tab_is_active(monkeypatch):
     app = _make_app(monkeypatch)
     client = app.test_client()

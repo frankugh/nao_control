@@ -92,3 +92,63 @@
 {"text": "Exact! Als we upgrades uitvoeren wil ik dat jij snel en goed blijft functioneren", "label": "NONE", "source": "ui_review"}
 {"text": "OK, dan ga ik nu slapen. Tot de volgende keer robot", "label": "NONE", "source": "ui_review"}
 {"text": "Dance happy.", "label": "DANCE", "source": "ui_review"}
+{"text": "Hallo Alex.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Hoi Alex.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Alex, Hoe gaat het?", "label": "NONE", "source": "al_reviewed"}
+{"text": "hip", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ja, doe maar.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ja kan goed lopen, hoor.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Top.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Zeg eens hoi", "label": "NONE", "source": "al_reviewed"}
+{"text": "Hoe gaat het, René?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou een dansje klinkt wel leuk.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oh sorry.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Dance, depp.", "label": "DANCE", "source": "al_reviewed"}
+{"text": "test", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou, We gaan vandaag een workshop Samen testen.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou, Ik ga je even optillen, hoor.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oké.", "label": "NONE", "source": "al_reviewed"}
+{"text": "kip enzo", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ik vind happy leuk.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oei.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Doe maar.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ja.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Test test.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Een dansje lijkt me leuk.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Zo, Dat was een leuk dansje.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Snel eens wat leuks.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Lekker weertje, hè?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Zo René, vertel eens wat over jezelf.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Jij bent dus een sociale robot?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Gezellig zo.", "label": "NONE", "source": "al_reviewed"}
+{"text": "kippen eten geen rijst", "label": "NONE", "source": "al_reviewed"}
+{"text": "Zeg nog eens, welke dansjes kon je ook alweer?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Welke dansjes kan jij trouwens?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Welke dansjes kun je echt?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Je kan helemaal niks zien na je camera staat uit.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Kun je jezelf introduceren alex.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Een dansje uit dat land is wat voor dansjes uit Atlantis ken je dan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "haver", "label": "NONE", "source": "al_reviewed"}
+{"text": "Wauw, een robot leerde wat vriendschap is?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ja jij mag ook meedoen met de workshop Alex, zeg maar gedag tegen Iedereen.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Heb je dit dansje in Atlantis geleerd?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ik wil dat je nog een dansje voor me doet.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Laten we een leuke workshop hebben!", "label": "NONE", "source": "al_reviewed"}
+{"text": "Nou de discodan staat niet In de lijst van dansjes die jij kunt, hoor.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Kun je me nu goed verstaan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "We gaan een mooie presentatie geven.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Wat zullen we doen vandaag?", "label": "NONE", "source": "al_reviewed"}
+{"text": "We hoeven niet ver hoor.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Sorry, Ik wilde je geen pijn doen.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens meer over Atlantis, glanzend en licht zeg je.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Dat ziet er niet zo heel bewegelijk uit zo", "label": "NONE", "source": "al_reviewed"}
+{"text": "Leuk joh boks.", "label": "BOX", "source": "al_reviewed"}
+{"text": "hoi hoe gaat het? Gaat het goed?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Dus ben jij dan ook een AI?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ja, ik zal je eens wat vertellen robot, luister je?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens iets over jezelf?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Zo, vertel eens over je dag?", "label": "NONE", "source": "al_reviewed"}
+{"text": "OK, Laten we even Samen een stukje lopen.", "label": "WALK\\_WITH\\_ME", "source": "al_reviewed"}
+{"text": "Je zegt 'ons' ben jij dan een mens?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Leuk hè? Praten?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vind ik wel leuk?", "label": "NONE", "source": "al_reviewed"}

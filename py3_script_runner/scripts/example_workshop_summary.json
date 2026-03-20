@@ -2,7 +2,7 @@
   "version": 1,
   "robots": {
     "nao1": {
-      "dm_url": "http://127.0.0.1:5301",
+      "dm_url": "http://127.0.0.1:5302",
       "runtime_config": {
         "mic_params_continuous": {
           "pre_roll_ms": 1000
@@ -31,8 +31,7 @@
       "id": "create_summary_from_transcript",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 0
+        "mode": "manual"
       },
       "action": {
         "type": "do",
@@ -46,8 +45,7 @@
       "id": "tts_summary",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 0
+        "mode": "manual"
       },
       "request_timeout_s": 120,
       "action": {

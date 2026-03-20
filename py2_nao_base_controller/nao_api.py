@@ -81,8 +81,8 @@ def _setup_naoqi_paths():
 
 _setup_naoqi_paths()
 
-from naoqi import ALProxy
 from nao_utils import NaoUtils, set_eye_color, group_behaviors, DEFAULT_REMOTE_AUDIO_DIR
+from nao_proxy_manager import call_proxy_method, make_proxy_handle
 import ConfigParser
 
 # ====== Defaults ======
@@ -201,20 +201,59 @@ def make_response(status="ok", data=None, error=None):
     return jsonify(payload)
 
 
+def _nao_endpoint():
+    return app.config["NAO_IP"], app.config["NAO_PORT"]
+
+
 def get_proxy(name):
     """
     Haal een ALProxy met de NAO_IP/NAO_PORT uit de app-config.
     """
-    ip = app.config["NAO_IP"]
-    port = app.config["NAO_PORT"]
-    return ALProxy(name, ip, port)
+    ip, port = _nao_endpoint()
+    return make_proxy_handle(name, ip, port, logger=app.logger, allow_reconnect=False)
+
+
+def get_read_proxy(name):
+    """
+    Haal een ALProxy-handle op die 1x transparant mag reconnecten voor reads.
+    """
+    ip, port = _nao_endpoint()
+    return make_proxy_handle(name, ip, port, logger=app.logger, allow_reconnect=True)
+
+
+def call_proxy_read(module_name, method_name, *args, **kwargs):
+    ip, port = _nao_endpoint()
+    return call_proxy_method(
+        module_name,
+        method_name,
+        nao_ip=ip,
+        nao_port=port,
+        args=args,
+        kwargs=kwargs,
+        allow_reconnect=True,
+        logger=app.logger,
+    )
+
+
+def call_proxy_write(module_name, method_name, *args, **kwargs):
+    ip, port = _nao_endpoint()
+    return call_proxy_method(
+        module_name,
+        method_name,
+        nao_ip=ip,
+        nao_port=port,
+        args=args,
+        kwargs=kwargs,
+        allow_reconnect=False,
+        logger=app.logger,
+    )
 
 
 def is_awake():
     """
     Checkt of de robot 'wakker' is via ALMotion.robotIsWakeUp.
     """
-    motion = get_proxy("ALMotion")
+    motion = get_read_proxy("ALMotion")
     try:
         return bool(motion.robotIsWakeUp())
     except AttributeError:
@@ -332,9 +371,8 @@ def is_awake_ep():
 def wake_up():
     try:
         _touch_activity()
-        motion = get_proxy("ALMotion")
         if not is_awake():
-            motion.wakeUp()
+            call_proxy_write("ALMotion", "wakeUp")
             return make_response(data="NAO woken up")
         else:
             return make_response(data="NAO already awake")
@@ -345,9 +383,8 @@ def wake_up():
 @app.route("/rest", methods=["POST"])
 def rest():
     try:
-        motion = get_proxy("ALMotion")
         if is_awake():
-            motion.rest()
+            call_proxy_write("ALMotion", "rest")
             return make_response(data="NAO resting")
         else:
             return make_response(data="NAO already resting")
@@ -358,8 +395,7 @@ def rest():
 @app.route("/autonomous_life", methods=["GET"])
 def autonomous_life_get():
     try:
-        life = get_proxy("ALAutonomousLife")
-        state = life.getState()
+        state = call_proxy_read("ALAutonomousLife", "getState")
         enabled = str(state).lower() != "disabled"
         return make_response(data={"state": state, "enabled": enabled})
     except Exception as e:
@@ -377,9 +413,8 @@ def autonomous_life_set():
             if enabled is None:
                 return make_response(status="error", error="Missing 'state' or 'enabled'")
             state = "solitary" if bool(enabled) else "disabled"
-        life = get_proxy("ALAutonomousLife")
-        life.setState(state)
-        state_now = life.getState()
+        call_proxy_write("ALAutonomousLife", "setState", state)
+        state_now = call_proxy_read("ALAutonomousLife", "getState")
         enabled_now = str(state_now).lower() != "disabled"
         return make_response(data={"state": state_now, "enabled": enabled_now})
     except Exception as e:
@@ -396,121 +431,10 @@ def _as_bool(value):
         return False
 
 
-@app.route("/autonomous_motion_pause", methods=["POST"])
-def autonomous_motion_pause():
-    try:
-        _touch_activity()
-        state = {}
-
-        try:
-            awareness = get_proxy("ALBasicAwareness")
-            enabled = bool(awareness.isEnabled())
-            state["basic_awareness"] = enabled
-            if enabled:
-                awareness.setEnabled(False)
-        except Exception as e:
-            state["basic_awareness_error"] = repr(e)
-
-        try:
-            bg = get_proxy("ALBackgroundMovement")
-            enabled = bool(bg.isEnabled())
-            state["background_movement"] = enabled
-            if enabled:
-                bg.setEnabled(False)
-        except Exception as e:
-            state["background_movement_error"] = repr(e)
-
-        try:
-            sm = get_proxy("ALSpeakingMovement")
-            enabled = bool(sm.isEnabled())
-            state["speaking_movement"] = enabled
-            if enabled:
-                sm.setEnabled(False)
-        except Exception as e:
-            state["speaking_movement_error"] = repr(e)
-
-        try:
-            motion = get_proxy("ALMotion")
-            enabled = bool(motion.getBreathEnabled("Body"))
-            state["breath_body"] = enabled
-            if enabled:
-                motion.setBreathEnabled("Body", False)
-        except Exception as e:
-            state["breath_body_error"] = repr(e)
-
-        return make_response(data=state)
-    except Exception as e:
-        return make_response(status="error", error=repr(e))
-
-
-@app.route("/autonomous_motion_restore", methods=["POST"])
-def autonomous_motion_restore():
-    try:
-        _touch_activity()
-        payload = request.get_json(force=True) or {}
-        state = payload.get("state") or {}
-        if not isinstance(state, dict):
-            state = {}
-        errors = {}
-
-        try:
-            if "basic_awareness" in state:
-                awareness = get_proxy("ALBasicAwareness")
-                awareness.setEnabled(_as_bool(state.get("basic_awareness")))
-        except Exception as e:
-            errors["basic_awareness"] = repr(e)
-
-        try:
-            if "background_movement" in state:
-                bg = get_proxy("ALBackgroundMovement")
-                bg.setEnabled(_as_bool(state.get("background_movement")))
-        except Exception as e:
-            errors["background_movement"] = repr(e)
-
-        try:
-            if "speaking_movement" in state:
-                sm = get_proxy("ALSpeakingMovement")
-                sm.setEnabled(_as_bool(state.get("speaking_movement")))
-        except Exception as e:
-            errors["speaking_movement"] = repr(e)
-
-        try:
-            if "breath_body" in state:
-                motion = get_proxy("ALMotion")
-                motion.setBreathEnabled("Body", _as_bool(state.get("breath_body")))
-        except Exception as e:
-            errors["breath_body"] = repr(e)
-
-        resp = {"restored": True}
-        if errors:
-            resp["errors"] = errors
-        return make_response(data=resp)
-    except Exception as e:
-        return make_response(status="error", error=repr(e))
-
-
 def _custom_life_state():
     state = {}
-    abilities = {}
     try:
-        life = get_proxy("ALAutonomousLife")
-        if hasattr(life, "getAutonomousAbilityEnabled"):
-            try:
-                abilities["basic_awareness"] = bool(life.getAutonomousAbilityEnabled("BasicAwareness"))
-            except Exception as e:
-                abilities["basic_awareness_error"] = repr(e)
-            try:
-                abilities["background_movement"] = bool(life.getAutonomousAbilityEnabled("BackgroundMovement"))
-            except Exception as e:
-                abilities["background_movement_error"] = repr(e)
-            try:
-                abilities["speaking_movement"] = bool(life.getAutonomousAbilityEnabled("SpeakingMovement"))
-            except Exception as e:
-                abilities["speaking_movement_error"] = repr(e)
-    except Exception as e:
-        abilities["life_error"] = repr(e)
-    try:
-        awareness = get_proxy("ALBasicAwareness")
+        awareness = get_read_proxy("ALBasicAwareness")
         if hasattr(awareness, "isAwarenessRunning"):
             state["basic_awareness"] = bool(awareness.isAwarenessRunning())
         elif hasattr(awareness, "isEnabled"):
@@ -520,47 +444,39 @@ def _custom_life_state():
     except Exception as e:
         state["basic_awareness_error"] = repr(e)
     try:
-        moves = get_proxy("ALAutonomousMoves")
-        if hasattr(moves, "getExpressiveListeningEnabled"):
-            state["background_movement"] = bool(moves.getExpressiveListeningEnabled())
-        elif hasattr(moves, "isExpressiveListeningEnabled"):
-            state["background_movement"] = bool(moves.isExpressiveListeningEnabled())
+        bg = get_read_proxy("ALBackgroundMovement")
+        if hasattr(bg, "isEnabled"):
+            state["background_movement"] = bool(bg.isEnabled())
+        elif hasattr(bg, "getEnabled"):
+            state["background_movement"] = bool(bg.getEnabled())
         else:
-            raise AttributeError("ALAutonomousMoves has no get/isExpressiveListeningEnabled")
+            raise AttributeError("ALBackgroundMovement has no isEnabled/getEnabled")
     except Exception as e:
-        state["background_movement_error"] = repr(e)
+        try:
+            moves = get_read_proxy("ALAutonomousMoves")
+            if hasattr(moves, "getExpressiveListeningEnabled"):
+                state["background_movement"] = bool(moves.getExpressiveListeningEnabled())
+            elif hasattr(moves, "isExpressiveListeningEnabled"):
+                state["background_movement"] = bool(moves.isExpressiveListeningEnabled())
+            else:
+                raise AttributeError("ALAutonomousMoves has no get/isExpressiveListeningEnabled")
+        except Exception:
+            state["background_movement_error"] = repr(e)
     try:
-        motion = get_proxy("ALMotion")
+        motion = get_read_proxy("ALMotion")
         state["breathing"] = bool(motion.getBreathEnabled("Body"))
     except Exception as e:
         state["breathing_error"] = repr(e)
-    if abilities:
-        state["abilities"] = abilities
     return state
 
 
 def _apply_custom_life_state(state):
     if not isinstance(state, dict):
         return
-    abilities = state.get("abilities") if isinstance(state.get("abilities"), dict) else None
     def _get_setting(key):
-        if abilities is not None and key in abilities:
-            return abilities.get(key)
         if key in state:
             return state.get(key)
         return None
-
-    try:
-        life = get_proxy("ALAutonomousLife")
-        if hasattr(life, "setAutonomousAbilityEnabled"):
-            basic = _get_setting("basic_awareness")
-            if basic is not None:
-                life.setAutonomousAbilityEnabled("BasicAwareness", _as_bool(basic))
-            background = _get_setting("background_movement")
-            if background is not None:
-                life.setAutonomousAbilityEnabled("BackgroundMovement", _as_bool(background))
-    except Exception:
-        pass
     try:
         basic = _get_setting("basic_awareness")
         if basic is not None:
@@ -577,9 +493,17 @@ def _apply_custom_life_state(state):
     try:
         background = _get_setting("background_movement")
         if background is not None:
-            moves = get_proxy("ALAutonomousMoves")
-            if hasattr(moves, "setExpressiveListeningEnabled"):
-                moves.setExpressiveListeningEnabled(_as_bool(background))
+            enabled = _as_bool(background)
+            try:
+                bg = get_proxy("ALBackgroundMovement")
+                if hasattr(bg, "setEnabled"):
+                    bg.setEnabled(enabled)
+                else:
+                    raise AttributeError("ALBackgroundMovement has no setEnabled")
+            except Exception:
+                moves = get_proxy("ALAutonomousMoves")
+                if hasattr(moves, "setExpressiveListeningEnabled"):
+                    moves.setExpressiveListeningEnabled(enabled)
     except Exception:
         pass
     try:
@@ -613,7 +537,7 @@ def _people_call(proxy, methods, method_name, args=None):
 def _people_read_memory(keys):
     out = {}
     try:
-        memory = get_proxy("ALMemory")
+        memory = get_read_proxy("ALMemory")
     except Exception:
         return out
     for key in keys:
@@ -724,7 +648,7 @@ def _people_detection_state():
             "errors": [],
         }
         try:
-            proxy = get_proxy(module_name)
+            proxy = get_read_proxy(module_name)
             methods = _people_method_list(proxy)
             item["available"] = True
             item["toggle_supported"] = _people_toggle_supported(methods)
@@ -801,11 +725,6 @@ def custom_life_apply():
         if not isinstance(settings, dict):
             settings = {}
         prev_state = {"modules": _custom_life_state()}
-        try:
-            life = get_proxy("ALAutonomousLife")
-            prev_state["life_state"] = life.getState()
-        except Exception:
-            pass
         _apply_custom_life_state(settings)
         return make_response(data={"prev_state": prev_state, "applied": settings})
     except Exception as e:
@@ -901,13 +820,6 @@ def custom_life_restore():
         state = payload.get("state") or {}
         if not isinstance(state, dict):
             state = {}
-        life_state = state.get("life_state", None)
-        if life_state is not None:
-            try:
-                life = get_proxy("ALAutonomousLife")
-                life.setState(life_state)
-            except Exception:
-                pass
         modules = state.get("modules") or {}
         _apply_custom_life_state(modules)
         return make_response(data={"restored": True})
@@ -937,13 +849,6 @@ def custom_life_state():
     try:
         _touch_activity()
         data = {"modules": _custom_life_state()}
-        try:
-            life = get_proxy("ALAutonomousLife")
-            state = life.getState()
-            data["life_state"] = state
-            data["life_enabled"] = str(state).lower() != "disabled"
-        except Exception as e:
-            data["life_error"] = repr(e)
         try:
             data["is_awake"] = bool(is_awake())
         except Exception:
@@ -1066,8 +971,7 @@ def list_behaviors_ep():
     Geef alle geïnstalleerde behaviors gegroepeerd per folder terug.
     """
     try:
-        mgr = get_proxy("ALBehaviorManager")
-        behaviors = mgr.getInstalledBehaviors()
+        behaviors = call_proxy_read("ALBehaviorManager", "getInstalledBehaviors")
         grouped = group_behaviors(behaviors)
         return make_response(data=grouped)
     except Exception as e:
@@ -1098,9 +1002,7 @@ def do_behavior():
         sys.stderr.write("[NAO] do_behavior request: %s\n" % bname_u.encode("utf-8"))
         sys.stderr.flush()
 
-        behavior = get_proxy("ALBehaviorManager")
-
-        installed = behavior.isBehaviorInstalled(bname_qi)
+        installed = call_proxy_read("ALBehaviorManager", "isBehaviorInstalled", bname_qi)
         if not installed:
             sys.stderr.write("[NAO] Behavior not installed: %s\n" % bname_u.encode("utf-8"))
             sys.stderr.flush()
@@ -1113,8 +1015,7 @@ def do_behavior():
         if not is_awake():
             if bname_u == u"basic/standup":
                 try:
-                    motion = get_proxy("ALMotion")
-                    motion.wakeUp()
+                    call_proxy_write("ALMotion", "wakeUp")
                 except Exception:
                     pass
             else:
@@ -1128,7 +1029,7 @@ def do_behavior():
         sys.stderr.write("[NAO] runBehavior start: %s\n" % bname_u.encode("utf-8"))
         sys.stderr.flush()
         try:
-            behavior.runBehavior(bname_qi)
+            call_proxy_write("ALBehaviorManager", "runBehavior", bname_qi)
         except Exception:
             sys.stderr.write("[NAO] runBehavior failed: %s\n" % bname_u.encode("utf-8"))
             sys.stderr.write(traceback.format_exc())
@@ -1167,14 +1068,14 @@ def stop_behavior():
             else:
                 bname = unicode_type(bname)
 
-        behavior = get_proxy("ALBehaviorManager")
-        if not behavior.isBehaviorInstalled(bname):
+        if not call_proxy_read("ALBehaviorManager", "isBehaviorInstalled", bname):
             return make_response(status="error", error="Behavior not installed: " + bname)
 
-        if hasattr(behavior, "isBehaviorRunning") and not behavior.isBehaviorRunning(bname):
+        behavior_read = get_read_proxy("ALBehaviorManager")
+        if hasattr(behavior_read, "isBehaviorRunning") and not behavior_read.isBehaviorRunning(bname):
             return make_response(status="warning", data="Behavior not running: " + bname)
 
-        behavior.stopBehavior(bname)
+        call_proxy_write("ALBehaviorManager", "stopBehavior", bname)
         return make_response(data="Stopped behavior: " + bname)
     except Exception as e:
         return make_response(status="error", error=repr(e))
@@ -1183,8 +1084,7 @@ def stop_behavior():
 @app.route("/stop_all_behaviors", methods=["POST"])
 def stop_all_behaviors():
     try:
-        behavior = get_proxy("ALBehaviorManager")
-        behavior.stopAllBehaviors()
+        call_proxy_write("ALBehaviorManager", "stopAllBehaviors")
         return make_response(data="Stopped all behaviors")
     except Exception as e:
         return make_response(status="error", error=repr(e))
@@ -1193,8 +1093,7 @@ def stop_all_behaviors():
 @app.route("/stop_move", methods=["POST"])
 def stop_move():
     try:
-        motion = get_proxy("ALMotion")
-        motion.stopMove()
+        call_proxy_write("ALMotion", "stopMove")
         return make_response(data="Stopped motion")
     except Exception as e:
         return make_response(status="error", error=repr(e))
@@ -1213,8 +1112,7 @@ def tts_speed():
             return make_response(status="error", error="Missing 'speed'")
         speed = int(speed)
 
-        tts = get_proxy("ALTextToSpeech")
-        tts.setParameter("speed", speed)
+        call_proxy_write("ALTextToSpeech", "setParameter", "speed", speed)
 
         return make_response(data={"speed": speed})
     except Exception as e:
@@ -1226,8 +1124,7 @@ def get_tts_speed():
     Haal TTS-snelheid op.
     """
     try:
-        tts = get_proxy("ALTextToSpeech")
-        speed = tts.getParameter("speed")
+        speed = call_proxy_read("ALTextToSpeech", "getParameter", "speed")
         return make_response(data={"speed": speed})
     except Exception as e:
         return make_response(status="error", error=repr(e))
@@ -1246,8 +1143,7 @@ def set_volume():
             return make_response(status="error", error="Missing 'volume'")
         volume = int(volume)
 
-        audio_dev = get_proxy("ALAudioDevice")
-        audio_dev.setOutputVolume(volume)
+        call_proxy_write("ALAudioDevice", "setOutputVolume", volume)
 
         return make_response(data={"volume": volume})
     except Exception as e:
@@ -1259,8 +1155,7 @@ def get_volume():
     Haal outputvolume op.
     """
     try:
-        audio_dev = get_proxy("ALAudioDevice")
-        volume = audio_dev.getOutputVolume()
+        volume = call_proxy_read("ALAudioDevice", "getOutputVolume")
         return make_response(data={"volume": volume})
     except Exception as e:
         return make_response(status="error", error=repr(e))
@@ -1326,8 +1221,7 @@ def posture():
     Geef huidige houding terug via ALRobotPosture.
     """
     try:
-        posture_proxy = get_proxy("ALRobotPosture")
-        posture = posture_proxy.getPosture()
+        posture = call_proxy_read("ALRobotPosture", "getPosture")
         # Posture names are typically: Stand, StandInit, StandZero, Sit, SitRelax, Crouch, etc.
         posture_s = posture.decode("utf-8") if isinstance(posture, str) else unicode_type(posture)
         posture_l = posture_s.lower()
@@ -1346,7 +1240,15 @@ def posture():
             "status": "error",
             "error": repr(e)
         })
-    
+     
+
+def _naoqi_call_is_read(method_name):
+    method_s = method_name
+    if isinstance(method_s, unicode_type):
+        method_s = method_s.encode("utf-8")
+    method_l = str(method_s).strip().lower()
+    return method_l.startswith(("get", "is", "has")) or method_l in ("robotiswakeup",)
+
 
 def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
     if args is None:
@@ -1359,9 +1261,6 @@ def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
         module_name = module_name.encode("utf-8")
     if isinstance(method_name, unicode_type):
         method_name = method_name.encode("utf-8")
-
-    proxy = get_proxy(module_name)
-    method = getattr(proxy, method_name)
 
     # 2) args/kwargs recursief converteren naar NAOqi-veilige types.
     # NAOqi 2.1 verwacht bytes (std::string) in nested ALValue structs.
@@ -1383,7 +1282,16 @@ def naoqi_call_generic(module_name, method_name, args=None, kwargs=None):
     args = [ensure_naoqi_arg(a) for a in args]
     kwargs = {ensure_naoqi_arg(k): ensure_naoqi_arg(v) for (k, v) in kwargs.items()}
 
-    return method(*args, **kwargs)
+    return call_proxy_method(
+        module_name,
+        method_name,
+        nao_ip=app.config["NAO_IP"],
+        nao_port=app.config["NAO_PORT"],
+        args=args,
+        kwargs=kwargs,
+        allow_reconnect=_naoqi_call_is_read(method_name),
+        logger=app.logger,
+    )
 
 
 # === DEPRECATED ===
@@ -1495,7 +1403,6 @@ if __name__ == "__main__":
         root_dir = os.path.dirname(base_dir)
         map_path = os.path.join(root_dir, "tts_word_map.json")
     try:
-        global TTS_REPLACE_MAP
         TTS_REPLACE_MAP = load_tts_replace_map(map_path)
     except Exception as e:
         sys.stdout.write("[TTS] word map init failed: %s\n" % repr(e))

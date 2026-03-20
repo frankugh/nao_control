@@ -126,6 +126,12 @@ def _patch_requests_post(monkeypatch, calls: list[str]) -> None:
     monkeypatch.setattr(webapp_server.requests, "post", fake_post)
 
 
+def _dm_events(client, *, event: str):
+    resp = client.get(f"/api/dm_events?event={event}&limit=50")
+    assert resp.status_code == 200
+    return resp.get_json()["events"]
+
+
 def test_short_behavior_unlocks_on_next_user_turn(monkeypatch):
     decisions = {
         "dans": RouteDecision(
@@ -263,3 +269,51 @@ def test_manual_walk_behavior_unlocks_on_behavior_stop(monkeypatch):
         "http://behavior.local/nao/do_behavior",
         "http://behavior.local/nao/custom_life_apply",
     ]
+
+
+def test_manual_command_logs_automatic_custom_life_pause_and_release(monkeypatch):
+    app, executor = _make_app(monkeypatch, decisions={})
+    calls: list[str] = []
+    _patch_requests_post(monkeypatch, calls)
+    client = app.test_client()
+    clear_resp = client.post("/api/dm_events_clear", json={})
+    assert clear_resp.status_code == 200
+
+    start_resp = client.post("/api/command_execute", json={"label": "WALK_WITH_ME"})
+    assert start_resp.status_code == 200
+    assert start_resp.get_json()["ok"] is True
+
+    stop_resp = client.post("/api/command_execute", json={"label": "STOP"})
+    assert stop_resp.status_code == 200
+    assert stop_resp.get_json()["ok"] is True
+
+    pause_events = _dm_events(client, event="custom_life_lock_pause")
+    release_events = _dm_events(client, event="custom_life_lock_release")
+
+    assert pause_events
+    assert release_events
+    assert pause_events[-1]["source"] == "manual_command_ui"
+    assert pause_events[-1]["data"] == {"ok": True, "lock_mode": "until_stop"}
+    assert release_events[-1]["source"] == "manual_command_ui"
+    assert release_events[-1]["data"] == {"ok": True, "lock_mode": "until_stop", "action": "apply"}
+    assert executor.labels == ["WALK_WITH_ME", "STOP", "STAND_UP"]
+
+
+def test_manual_command_stop_after_walk_stands_up_without_custom_life_lock(monkeypatch):
+    cfg = _base_cfg()
+    cfg["custom_life_enabled"] = False
+    app, executor = _make_app(monkeypatch, decisions={}, cfg=cfg)
+    calls: list[str] = []
+    _patch_requests_post(monkeypatch, calls)
+    client = app.test_client()
+
+    start_resp = client.post("/api/command_execute", json={"label": "WALK_WITH_ME"})
+    assert start_resp.status_code == 200
+    assert start_resp.get_json()["ok"] is True
+
+    stop_resp = client.post("/api/command_execute", json={"label": "STOP"})
+    assert stop_resp.status_code == 200
+    assert stop_resp.get_json()["ok"] is True
+
+    assert executor.labels == ["WALK_WITH_ME", "STOP", "STAND_UP"]
+    assert calls == ["http://behavior.local/nao/stop_audio"]

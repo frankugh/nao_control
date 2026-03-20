@@ -2,8 +2,9 @@
 import os
 import re
 import posixpath
-from naoqi import ALProxy
 import paramiko
+
+from nao_proxy_manager import get_cached_proxy, make_proxy_handle
 
 # --- Py2/3 shims (houdt editors stil en werkt op Py2) ---
 try:
@@ -51,7 +52,7 @@ class NaoUtils(object):
 
     # --- NAOqi proxy ---
     def get_proxy(self, name):
-        return ALProxy(name, self.nao_ip, self.nao_port)
+        return make_proxy_handle(name, self.nao_ip, self.nao_port, allow_reconnect=False)
 
     # --- SSH/SFTP helpers ---
     def _connect_ssh(self):
@@ -276,7 +277,7 @@ def parse_color(value):
 
 
 def set_eye_color(nao_ip, nao_port, color, duration):
-    leds = ALProxy("ALLeds", nao_ip, nao_port)
+    leds = get_cached_proxy("ALLeds", nao_ip, nao_port)
     rgb = parse_color(color)
     leds.fadeRGB("FaceLeds", int(rgb), float(duration))
     return rgb

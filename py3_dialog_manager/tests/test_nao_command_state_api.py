@@ -52,6 +52,8 @@ def test_nao_command_state_includes_posture_auto_rest_and_warning(monkeypatch):
     client = app.test_client()
 
     def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok", "data": "pong"})
         if url.endswith("/is_awake"):
             return _Resp({"status": "ok", "data": {"is_awake": False}})
         if url.endswith("/custom_life_state"):
@@ -111,6 +113,8 @@ def test_nao_command_state_reports_suspended_auto_rest(monkeypatch):
     client = app.test_client()
 
     def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok", "data": "pong"})
         if url.endswith("/is_awake"):
             return _Resp({"status": "ok", "data": {"is_awake": True}})
         if url.endswith("/custom_life_state"):
@@ -165,6 +169,8 @@ def test_nao_command_state_starts_with_disarmed_auto_rest_timer(monkeypatch):
     client = app.test_client()
 
     def fake_get(url, timeout=0, **_kwargs):
+        if url.endswith("/ping"):
+            return _Resp({"status": "ok", "data": "pong"})
         if url.endswith("/is_awake"):
             return _Resp({"status": "ok", "data": {"is_awake": False}})
         if url.endswith("/custom_life_state"):

@@ -1350,6 +1350,7 @@ def create_app(
             return "speech_ptt" if bool(stt_used) else "chat_text"
         if ep in (
             "/api/command_execute",
+            "/api/confirm",
             "/api/nao_behavior_start",
             "/api/nao_behavior_stop",
             "/api/nao_move_toward",
@@ -2415,19 +2416,52 @@ def create_app(
             except Exception:
                 pass
 
-    def _custom_life_pause_on_endpoint(base_url: str, endpoint_mode: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    def _custom_life_pause_on_endpoint(
+        base_url: str,
+        endpoint_mode: str,
+        *,
+        sid: Optional[str] = None,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        lock_mode: Optional[str] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         pause_url = base_url + ("/nao/custom_life_pause" if endpoint_mode == "behavior" else "/custom_life_pause")
         try:
             resp = requests.post(pause_url, json={}, timeout=3.0)
             resp.raise_for_status()
             data = resp.json()
-        except Exception:
+        except Exception as exc:
+            if sid and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                _log_dm_event(
+                    sid=sid,
+                    level="warn",
+                    category="nao",
+                    event="custom_life_lock_pause",
+                    source=source,
+                    message="Automatic custom life pause failed.",
+                    request_id=request_id,
+                    turn_id=turn_id,
+                    data={"ok": False, "lock_mode": lock_mode, "error": str(exc)},
+                )
             return False, None
         pause_state = None
         if isinstance(data, dict):
             payload = data.get("data") or data.get("state")
             if isinstance(payload, dict):
                 pause_state = payload
+        if sid and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="nao",
+                event="custom_life_lock_pause",
+                source=source,
+                message="Automatic custom life paused.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": True, "lock_mode": lock_mode},
+            )
         return True, pause_state
 
     def _custom_life_restore_on_endpoint(
@@ -2435,17 +2469,80 @@ def create_app(
         endpoint_mode: str,
         runtime_cfg_local: JsonLike,
         pause_state: Optional[Dict[str, Any]],
+        *,
+        sid: Optional[str] = None,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        lock_mode: Optional[str] = None,
     ) -> None:
         settings = runtime_cfg_local.get("custom_life_settings") or {}
+        action = None
         if runtime_cfg_local.get("custom_life_enabled") and settings:
+            action = "apply"
             restore_url = base_url + ("/nao/custom_life_apply" if endpoint_mode == "behavior" else "/custom_life_apply")
-            resp = requests.post(restore_url, json={"settings": settings}, timeout=3.0)
-            resp.raise_for_status()
+            try:
+                resp = requests.post(restore_url, json={"settings": settings}, timeout=3.0)
+                resp.raise_for_status()
+            except Exception as exc:
+                if sid and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                    _log_dm_event(
+                        sid=sid,
+                        level="warn",
+                        category="nao",
+                        event="custom_life_lock_release",
+                        source=source,
+                        message="Automatic custom life release failed.",
+                        request_id=request_id,
+                        turn_id=turn_id,
+                        data={"ok": False, "lock_mode": lock_mode, "action": action, "error": str(exc)},
+                    )
+                raise
+            if sid and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                _log_dm_event(
+                    sid=sid,
+                    level="info",
+                    category="nao",
+                    event="custom_life_lock_release",
+                    source=source,
+                    message="Automatic custom life released.",
+                    request_id=request_id,
+                    turn_id=turn_id,
+                    data={"ok": True, "lock_mode": lock_mode, "action": action},
+                )
             return
         if pause_state:
+            action = "resume"
             restore_url = base_url + ("/nao/custom_life_resume" if endpoint_mode == "behavior" else "/custom_life_resume")
-            resp = requests.post(restore_url, json={"state": pause_state}, timeout=3.0)
-            resp.raise_for_status()
+            try:
+                resp = requests.post(restore_url, json={"state": pause_state}, timeout=3.0)
+                resp.raise_for_status()
+            except Exception as exc:
+                if sid and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                    _log_dm_event(
+                        sid=sid,
+                        level="warn",
+                        category="nao",
+                        event="custom_life_lock_release",
+                        source=source,
+                        message="Automatic custom life release failed.",
+                        request_id=request_id,
+                        turn_id=turn_id,
+                        data={"ok": False, "lock_mode": lock_mode, "action": action, "error": str(exc)},
+                    )
+                raise
+            if sid and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                _log_dm_event(
+                    sid=sid,
+                    level="info",
+                    category="nao",
+                    event="custom_life_lock_release",
+                    source=source,
+                    message="Automatic custom life released.",
+                    request_id=request_id,
+                    turn_id=turn_id,
+                    data={"ok": True, "lock_mode": lock_mode, "action": action},
+                )
 
     def _custom_life_clear_lock_state(state: Dict[str, Any]) -> None:
         state["custom_life_lock_mode"] = None
@@ -2479,6 +2576,9 @@ def create_app(
         *,
         base_url: Optional[str] = None,
         endpoint_mode: Optional[str] = None,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
     ) -> bool:
         if lock_mode not in _CUSTOM_LIFE_LOCK_MODES:
             return False
@@ -2494,7 +2594,15 @@ def create_app(
             resolved_base, resolved_mode = _resolve_nao_audio_url(runtime_cfg_local)
         if not resolved_base or resolved_mode not in ("behavior", "base"):
             return False
-        paused, pause_state = _custom_life_pause_on_endpoint(resolved_base, resolved_mode)
+        paused, pause_state = _custom_life_pause_on_endpoint(
+            resolved_base,
+            resolved_mode,
+            sid=sid,
+            source=source,
+            request_id=request_id,
+            turn_id=turn_id,
+            lock_mode=lock_mode,
+        )
         if not paused:
             return False
         _custom_life_store_lock_state(
@@ -2506,13 +2614,21 @@ def create_app(
         )
         return True
 
-    def _release_custom_life_lock(sid: str, runtime_cfg_local: JsonLike) -> bool:
+    def _release_custom_life_lock(
+        sid: str,
+        runtime_cfg_local: JsonLike,
+        *,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+    ) -> bool:
         state = _get_runtime_state(sid)
         if not _custom_life_lock_is_active(state):
             if state.get("custom_life_lock_mode") in _CUSTOM_LIFE_LOCK_MODES:
                 _custom_life_clear_lock_state(state)
             return False
 
+        lock_mode = state.get("custom_life_lock_mode")
         base_url = state.get("custom_life_pause_base_url")
         endpoint_mode = state.get("custom_life_pause_mode")
         pause_state = state.get("custom_life_pause_state")
@@ -2520,16 +2636,33 @@ def create_app(
             base_url, endpoint_mode = _resolve_nao_audio_url(runtime_cfg_local)
         if base_url and endpoint_mode in ("behavior", "base"):
             try:
-                _custom_life_restore_on_endpoint(base_url, endpoint_mode, runtime_cfg_local, pause_state)
+                _custom_life_restore_on_endpoint(
+                    base_url,
+                    endpoint_mode,
+                    runtime_cfg_local,
+                    pause_state,
+                    sid=sid,
+                    source=source,
+                    request_id=request_id,
+                    turn_id=turn_id,
+                    lock_mode=lock_mode,
+                )
             except Exception as exc:
                 print(f"[NAO] restore custom life lock failed: {exc}")
         _custom_life_clear_lock_state(state)
         return True
 
-    def _release_custom_life_lock_if_needed_on_user_turn(sid: str, runtime_cfg_local: JsonLike) -> None:
+    def _release_custom_life_lock_if_needed_on_user_turn(
+        sid: str,
+        runtime_cfg_local: JsonLike,
+        *,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+    ) -> None:
         state = _get_runtime_state(sid)
         if state.get("custom_life_lock_mode") == _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN:
-            _release_custom_life_lock(sid, runtime_cfg_local)
+            _release_custom_life_lock(sid, runtime_cfg_local, source=source, request_id=request_id, turn_id=turn_id)
         if state.get("command_stop_scope") == _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN:
             _clear_command_stop_available(sid)
 
@@ -3284,7 +3417,7 @@ def create_app(
                     request_id=request_id,
                     turn_id=turn_id,
                 )
-            _release_custom_life_lock(sid, runtime_cfg)
+            _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id, turn_id=turn_id)
             _clear_command_stop_available(sid)
             _stop_nao_audio_best_effort(
                 runtime_cfg,
@@ -3435,7 +3568,7 @@ def create_app(
         _append_user(history, text)
         lock_mode = _custom_life_lock_mode_for_command(cmd)
         if lock_mode:
-            _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
+            _acquire_custom_life_lock(sid, runtime_cfg, lock_mode, source=source, request_id=request_id, turn_id=turn_id)
         if behavior_executor or _normalize_command_label(cmd.label) == "REST":
             _set_behavior_executor_custom_life_management(behavior_executor, False)
             _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
@@ -4636,7 +4769,13 @@ def create_app(
             runtime_cfg=runtime_cfg,
         )
         _set_behavior_executor_custom_life_management(behavior_executor, False)
-        _release_custom_life_lock_if_needed_on_user_turn(sid, runtime_cfg)
+        _release_custom_life_lock_if_needed_on_user_turn(
+            sid,
+            runtime_cfg,
+            source=source,
+            request_id=rid,
+            turn_id=turn_id,
+        )
         if reset:
             sessions[sid] = []
             _set_last_action(sid, None)
@@ -4666,7 +4805,7 @@ def create_app(
                         request_id=rid,
                         turn_id=turn_id,
                     )
-                _release_custom_life_lock(sid, runtime_cfg)
+                _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=rid, turn_id=turn_id)
                 _clear_command_stop_available(sid)
                 _stop_nao_audio_best_effort(
                     runtime_cfg,
@@ -6129,6 +6268,7 @@ def create_app(
         _, _, behavior_executor = _pipeline_props(pipeline)
         _set_behavior_executor_custom_life_management(behavior_executor, False)
         stt_used, stt_edited = _extract_stt_meta(pending.get("input_meta"))
+        source = _infer_event_source(endpoint="/api/confirm", explicit_source=payload.get("source"))
         confirm_request_id = _get_request_id()
 
         if confirmed:
@@ -6142,7 +6282,7 @@ def create_app(
             )
             lock_mode = _custom_life_lock_mode_for_command(cmd)
             if lock_mode:
-                _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
+                _acquire_custom_life_lock(sid, runtime_cfg, lock_mode, source=source, request_id=confirm_request_id)
             if behavior_executor or _normalize_command_label(cmd.label) == "REST":
                 _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
                 if _normalize_command_label(cmd.label) == "STOP":
@@ -6155,7 +6295,7 @@ def create_app(
                     )
             _apply_auto_rest_command_outcome(cmd.label)
             if _normalize_command_label(cmd.label) == "STOP":
-                _release_custom_life_lock(sid, runtime_cfg)
+                _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=confirm_request_id)
                 _clear_command_stop_available(sid)
                 _stop_nao_audio_best_effort(
                     runtime_cfg,
@@ -6848,7 +6988,7 @@ def create_app(
                 behavior_catalog_cache.clear()
             cfg_out = _get_runtime_cfg(sid)
             if not cfg_out.get("custom_life_enabled", False):
-                _release_custom_life_lock(sid, cfg_out)
+                _release_custom_life_lock(sid, cfg_out, source=source, request_id=request_id)
             _log_runtime_cfg_change(
                 sid=sid,
                 before=before_cfg,
@@ -6925,7 +7065,7 @@ def create_app(
         _prune_disabled_cloud_connectivity_issues(runtime_cfg)
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
-            _release_custom_life_lock(sid, runtime_cfg)
+            _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
         _log_runtime_cfg_change(
             sid=sid,
             before=before_cfg,
@@ -7396,6 +7536,11 @@ def create_app(
     def _apply_custom_life(sid: str, runtime_cfg: JsonLike) -> None:
         enabled = bool(runtime_cfg.get("custom_life_enabled", False))
         settings = runtime_cfg.get("custom_life_settings") or {}
+        disabled_settings = {
+            "basic_awareness": False,
+            "background_movement": False,
+            "breathing": False,
+        }
         base_url, mode = _resolve_nao_audio_url(runtime_cfg)
         if not base_url:
             return
@@ -7415,8 +7560,7 @@ def create_app(
                 if isinstance(payload, dict) and payload.get("prev_state") is not None:
                     state["custom_life_prev_state"] = payload.get("prev_state")
             else:
-                if prev_state:
-                    requests.post(restore_url, json={"state": prev_state}, timeout=3.0)
+                requests.post(apply_url, json={"settings": disabled_settings}, timeout=3.0)
                 state.pop("custom_life_prev_state", None)
         except Exception:
             pass
@@ -7626,13 +7770,14 @@ def create_app(
         if not state_resp.get("ok"):
             return {"ok": False, "enabled": enabled, "error": state_resp.get("error")}
         state = state_resp.get("state") if isinstance(state_resp.get("state"), dict) else {}
-        life_state = state.get("life_state")
         modules = state.get("modules") if isinstance(state.get("modules"), dict) else {}
-        active_modules = any(bool(modules.get(key)) for key in ("basic_awareness", "background_movement", "breathing"))
+        active_modules = any(
+            bool(modules.get(key))
+            for key in ("basic_awareness", "background_movement", "breathing")
+        )
         return {
             "ok": True,
             "enabled": enabled,
-            "life_state": life_state,
             "active_modules": active_modules,
             "state": state,
         }
@@ -8432,7 +8577,7 @@ def create_app(
         )
         _apply_custom_life(sid, runtime_cfg)
         if not runtime_cfg.get("custom_life_enabled", False):
-            _release_custom_life_lock(sid, runtime_cfg)
+            _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
         state = _get_nao_custom_life_ui_state(runtime_cfg)
         if not state.get("ok"):
             _log_dm_event(
@@ -8449,7 +8594,6 @@ def create_app(
                 {
                     "ok": True,
                     "enabled": bool(runtime_cfg.get("custom_life_enabled", False)),
-                    "life_state": None,
                     "active_modules": False,
                     "warning": state.get("error"),
                 }
@@ -8470,7 +8614,6 @@ def create_app(
             {
                 "ok": True,
                 "enabled": bool(state.get("enabled")),
-                "life_state": state.get("life_state"),
                 "active_modules": bool(state.get("active_modules")),
                 "state": state.get("state"),
             }
@@ -8595,6 +8738,7 @@ def create_app(
         runtime_cfg = _get_runtime_cfg(sid)
         pipeline = _get_pipeline(sid)
         _, cmdrec, behavior_executor = _pipeline_props(pipeline)
+        state = _get_cmdrec_state(sid)
         _set_behavior_executor_custom_life_management(behavior_executor, False)
         if behavior_executor is None:
             return {"ok": False, "error": "behavior executor niet beschikbaar."}, 400
@@ -8623,7 +8767,7 @@ def create_app(
         )
         lock_mode = _custom_life_lock_mode_for_command(cmd)
         if lock_mode:
-            _acquire_custom_life_lock(sid, runtime_cfg, lock_mode)
+            _acquire_custom_life_lock(sid, runtime_cfg, lock_mode, source=source, request_id=request_id)
         try:
             _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
         except Exception as exc:
@@ -8647,7 +8791,7 @@ def create_app(
                 source="system_auto",
                 request_id=request_id,
             )
-            _release_custom_life_lock(sid, runtime_cfg)
+            _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
             _clear_command_stop_available(sid)
             _stop_nao_audio_best_effort(
                 runtime_cfg,
@@ -8656,10 +8800,35 @@ def create_app(
                 sid=sid,
                 reason="manual_command_stop",
             )
+            _set_cmd_state(
+                sid,
+                state,
+                mode="DIALOG",
+                active_behavior=None,
+                reason="command_stop_executed",
+                command_label=cmd.label,
+                text=cmd.raw_text,
+                confidence=cmd.confidence,
+                source=source,
+                request_id=request_id,
+            )
         elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
             _set_command_stop_available(sid, cmd.label, scope=lock_mode)
         else:
             _clear_command_stop_available(sid)
+        if normalized_label != "STOP":
+            _set_cmd_state(
+                sid,
+                state,
+                mode="PERFORMING",
+                active_behavior=cmd.label,
+                reason="command_executed",
+                command_label=cmd.label,
+                text=cmd.raw_text,
+                confidence=cmd.confidence,
+                source=source,
+                request_id=request_id,
+            )
         _touch_activity()
         out = {"ok": True}
         _attach_command_stop_payload(sid, out)
@@ -8727,7 +8896,14 @@ def create_app(
             paused_now = False
             pause_state = None
             if lock_mode and not lock_active:
-                paused_now, pause_state = _custom_life_pause_on_endpoint(endpoint_base_url, mode)
+                paused_now, pause_state = _custom_life_pause_on_endpoint(
+                    endpoint_base_url,
+                    mode,
+                    sid=sid,
+                    source=source,
+                    request_id=request_id,
+                    lock_mode=lock_mode,
+                )
             try:
                 url = endpoint_base_url + "/nao/do_behavior" if mode == "behavior" else endpoint_base_url + "/do_behavior"
                 resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
@@ -8738,7 +8914,16 @@ def create_app(
                     last_error = "behavior endpoint gaf geen JSON terug"
                     if paused_now:
                         try:
-                            _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
+                            _custom_life_restore_on_endpoint(
+                                endpoint_base_url,
+                                mode,
+                                runtime_cfg,
+                                pause_state,
+                                sid=sid,
+                                source=source,
+                                request_id=request_id,
+                                lock_mode=lock_mode,
+                            )
                         except Exception:
                             pass
                     continue
@@ -8746,7 +8931,16 @@ def create_app(
                 last_error = str(exc)
                 if paused_now:
                     try:
-                        _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
+                        _custom_life_restore_on_endpoint(
+                            endpoint_base_url,
+                            mode,
+                            runtime_cfg,
+                            pause_state,
+                            sid=sid,
+                            source=source,
+                            request_id=request_id,
+                            lock_mode=lock_mode,
+                        )
                     except Exception:
                         pass
                 continue
@@ -8759,7 +8953,16 @@ def create_app(
                 last_error = payload_error
                 if paused_now:
                     try:
-                        _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
+                        _custom_life_restore_on_endpoint(
+                            endpoint_base_url,
+                            mode,
+                            runtime_cfg,
+                            pause_state,
+                            sid=sid,
+                            source=source,
+                            request_id=request_id,
+                            lock_mode=lock_mode,
+                        )
                     except Exception:
                         pass
                 continue
@@ -8861,7 +9064,7 @@ def create_app(
                     requests.post(do_behavior_url, json={"behavior": "basic/standup"}, timeout=5.0)
                 except Exception:
                     pass
-            _release_custom_life_lock(sid, runtime_cfg)
+            _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
             _touch_activity()
             _log_dm_event(
                 sid=sid,
