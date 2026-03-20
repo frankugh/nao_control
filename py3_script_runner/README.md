@@ -1,6 +1,8 @@
 # py3_script_runner
 
-Console script runner for workshop orchestration across one or more dialog manager (DM) instances.
+Script runner for workshop orchestration across one or more dialog manager (DM) instances.
+
+The web runner is the primary path. The console runner is deprecated and kept only as a temporary legacy path.
 
 ## What it does (v1)
 
@@ -48,7 +50,7 @@ python -m venv py3_script_runner\venv
 py3_script_runner\venv\Scripts\python.exe -m pip install -r py3_script_runner\requirements.txt
 ```
 
-## Run
+## Legacy console runner
 
 ```powershell
 py3_script_runner\venv\Scripts\python.exe -m py3_script_runner.cli --script py3_script_runner\scripts\example_workshop.json

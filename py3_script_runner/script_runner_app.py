@@ -602,7 +602,22 @@ class RunSessionManager:
             if event_type == "step_error":
                 err = str(event.get("error") or "").strip()
                 if err:
-                    self._state["last_error"] = err
+                    step_id = str(event.get("step_id") or "").strip()
+                    index = event.get("index")
+                    total = event.get("total")
+                    prefix = ""
+                    if index is not None and total is not None:
+                        try:
+                            prefix = f"[{int(index) + 1}/{int(total)}] "
+                        except Exception:
+                            prefix = ""
+                    if step_id:
+                        prefix += f"{step_id}: "
+                    full_error = f"{prefix}{err}" if prefix else err
+                    self._state["last_error"] = full_error
+                    log_line = f"[RUN][STEP_ERROR] {full_error}"
+                    if not self._log_tail or self._log_tail[-1] != log_line:
+                        self._log_tail.append(log_line)
 
     def _set_terminal_failure(self, run_id: str, error_message: str) -> None:
         with self._lock:
@@ -644,6 +659,11 @@ class RunSessionManager:
                 message = f"{message} ({tb_line})"
             self._set_terminal_failure(run_id, message)
             return
+        finally:
+            try:
+                runner.close()
+            except Exception:
+                pass
 
         with self._lock:
             if run_id != str(self._state.get("run_id") or ""):

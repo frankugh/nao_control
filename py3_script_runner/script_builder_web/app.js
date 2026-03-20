@@ -840,7 +840,7 @@ import {
 
   function buildRunLogAutoOpenSignal(state, logLines, runError) {
     const status = state && state.status ? String(state.status) : "idle";
-    const hasAutoOpenReason = status === "failed" || (isActiveRunStatus(status) && !!runError);
+    const hasAutoOpenReason = status === "failed" || (status === "completed" && !!runError) || (isActiveRunStatus(status) && !!runError);
     if (!hasAutoOpenReason) {
       return "";
     }
@@ -1085,9 +1085,11 @@ import {
       renderRuntimeState(state);
       const err = state && typeof state.last_error === "string" ? state.last_error.trim() : "";
       const status = state && typeof state.status === "string" ? state.status : "";
-      if (err && err !== lastRuntimeError && (status === "failed" || !silent)) {
+      if (err && err !== lastRuntimeError) {
         if (status === "failed") {
           setStatus("Run failed: " + err, "error");
+        } else if (status === "completed") {
+          setStatus("Run klaar met melding: " + err, "warn");
         } else {
           setStatus("Run melding: " + err, "warn");
         }
@@ -2983,7 +2985,13 @@ import {
       renderDmStartResults([]);
       ensureRunPolling();
       await refreshRunState({ silent: true });
-      setStatus("Script Builder klaar.", "ok");
+      const currentStatus = runtimeState && typeof runtimeState.status === "string" ? runtimeState.status : "idle";
+      const currentError = runtimeState && typeof runtimeState.last_error === "string" ? runtimeState.last_error.trim() : "";
+      const keepRuntimeMessage =
+        !!currentError && (isActiveRunStatus(currentStatus) || currentStatus === "completed" || currentStatus === "failed");
+      if (!keepRuntimeMessage) {
+        setStatus("Script Builder klaar.", "ok");
+      }
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
       setStatus("Initialisatie mislukt: " + message, "error");

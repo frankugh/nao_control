@@ -810,6 +810,8 @@
               <span id="cmdRobotNameBadge" class="robot-chip inline missing">Robot: niet ingesteld</span>
               <span id="cmdNaoAwakeState" class="pill">motoren: onbekend</span>
               <span id="cmdNaoAutLifeState" class="pill">aut life: onbekend</span>
+              <span id="cmdNaoPostureState" class="pill">posture: onbekend</span>
+              <span id="cmdNaoAutoRestState" class="pill">auto-rest: onbekend</span>
               <span id="cmdNaoLifeStatus" class="small"></span>
             </div>
             <div class="row" style="margin-top:8px; gap:6px">
@@ -1614,6 +1616,8 @@
       const locomotionStatus = document.getElementById('locomotionStatus');
       const cmdNaoAwakeState = document.getElementById('cmdNaoAwakeState');
       const cmdNaoAutLifeState = document.getElementById('cmdNaoAutLifeState');
+      const cmdNaoPostureState = document.getElementById('cmdNaoPostureState');
+      const cmdNaoAutoRestState = document.getElementById('cmdNaoAutoRestState');
       const cmdNaoLifeStatus = document.getElementById('cmdNaoLifeStatus');
       const cmdRobotNameBadge = document.getElementById('cmdRobotNameBadge');
       const btnCmdWakeUp = document.getElementById('btnCmdWakeUp');
@@ -1653,6 +1657,7 @@
       let lastPiperDefaults = null;
       let lastTtsEngineValue = null;
       let lastAzureVoiceValue = null;
+      let lastAutoRestHealth = null;
       let agentPresets = [];
       let agentPresetMap = {};
       const AGENT_PRESET_KEYS = [
@@ -1827,6 +1832,14 @@
       let cmdNaoIsAwake = null;
       let cmdNaoAutLifeEnabled = null;
       let cmdNaoAutLifeValue = '';
+      let cmdNaoPostureValue = '';
+      let cmdNaoAutoRestEnabled = null;
+      let cmdNaoAutoRestTimeoutS = 0;
+      let cmdNaoAutoRestSecondsRemainingBase = null;
+      let cmdNaoAutoRestSampledAtMs = 0;
+      let cmdNaoAutoRestSuspended = false;
+      let cmdNaoAutoRestSuspendOwner = '';
+      let cmdNaoStateWarning = '';
       let cmdNaoStatusText = '';
       let cmdNaoActionBusy = false;
       let cmdNaoRefreshBusy = false;
@@ -3059,16 +3072,25 @@
           }
         }
 
-        function setNaoAudioEnabled(enabled, note) {
-          const disabled = !enabled;
-          if (cfgNaoVol) cfgNaoVol.disabled = disabled;
-          if (cfgNaoSpeed) cfgNaoSpeed.disabled = disabled;
-          if (btnVolDown) btnVolDown.disabled = disabled;
+      function setNaoAudioEnabled(enabled, note) {
+        const disabled = !enabled;
+        if (cfgNaoVol) cfgNaoVol.disabled = disabled;
+        if (cfgNaoSpeed) cfgNaoSpeed.disabled = disabled;
+        if (btnVolDown) btnVolDown.disabled = disabled;
           if (btnVolUp) btnVolUp.disabled = disabled;
           if (btnSpeedDown) btnSpeedDown.disabled = disabled;
           if (btnSpeedUp) btnSpeedUp.disabled = disabled;
-          if (cfgNaoAudioNote) cfgNaoAudioNote.textContent = note || '';
-        }
+        if (cfgNaoAudioNote) cfgNaoAudioNote.textContent = note || '';
+      }
+
+      function currentCmdNaoAutoRestRemaining() {
+        if (cmdNaoAutoRestEnabled !== true) return null;
+        if (cmdNaoAutoRestSuspended) return null;
+        if (cmdNaoAutoRestSecondsRemainingBase == null) return null;
+        const elapsedMs = Math.max(0, Date.now() - cmdNaoAutoRestSampledAtMs);
+        const elapsedSeconds = Math.floor(elapsedMs / 1000);
+        return Math.max(0, Number(cmdNaoAutoRestSecondsRemainingBase) - elapsedSeconds);
+      }
 
       function renderCmdNaoState() {
         if (cmdNaoAwakeState) {
@@ -3090,6 +3112,32 @@
             cmdNaoAutLifeState.textContent = cmdNaoAutLifeEnabled ? `aut life: aan${suffix}` : `aut life: uit${suffix}`;
           }
         }
+        if (cmdNaoPostureState) {
+          if (!cmdNaoReachable) {
+            cmdNaoPostureState.textContent = 'posture: niet beschikbaar';
+          } else if (!cmdNaoPostureValue) {
+            cmdNaoPostureState.textContent = 'posture: onbekend';
+          } else {
+            cmdNaoPostureState.textContent = `posture: ${cmdNaoPostureValue}`;
+          }
+        }
+        if (cmdNaoAutoRestState) {
+          if (cmdNaoAutoRestEnabled == null) {
+            cmdNaoAutoRestState.textContent = 'auto-rest: onbekend';
+          } else if (cmdNaoAutoRestSuspended) {
+            const owner = cmdNaoAutoRestSuspendOwner || 'onbekend';
+            cmdNaoAutoRestState.textContent = `auto-rest: gesusp. (${owner})`;
+          } else if (!cmdNaoAutoRestEnabled) {
+            cmdNaoAutoRestState.textContent = 'auto-rest: uit';
+          } else {
+            const remaining = currentCmdNaoAutoRestRemaining();
+            if (remaining == null) {
+              cmdNaoAutoRestState.textContent = `auto-rest: aan (${cmdNaoAutoRestTimeoutS}s)`;
+            } else {
+              cmdNaoAutoRestState.textContent = `auto-rest: ${remaining}/${cmdNaoAutoRestTimeoutS}s`;
+            }
+          }
+        }
         if (btnCmdWakeUp) btnCmdWakeUp.disabled = !cmdNaoReachable || cmdNaoActionBusy || cmdNaoIsAwake === true;
         if (btnCmdRest) btnCmdRest.disabled = !cmdNaoReachable || cmdNaoActionBusy || cmdNaoIsAwake === false;
         if (btnCmdAutLifeToggle) {
@@ -3102,13 +3150,21 @@
         }
         if (btnCmdNaoRefresh) btnCmdNaoRefresh.disabled = cmdNaoActionBusy || cmdNaoRefreshBusy;
         setLocomotionButtonsEnabled(cmdNaoReachable && !cmdNaoActionBusy);
-        if (cmdNaoLifeStatus) cmdNaoLifeStatus.textContent = cmdNaoStatusText || '';
+        if (cmdNaoLifeStatus) cmdNaoLifeStatus.textContent = cmdNaoStatusText || cmdNaoStateWarning || '';
       }
 
       function setCmdNaoStatus(text) {
         cmdNaoStatusText = text || '';
         renderCmdNaoState();
       }
+
+      setInterval(() => {
+        if (activeTab !== 'commands') return;
+        if (cmdNaoAutoRestEnabled !== true) return;
+        if (cmdNaoAutoRestSuspended) return;
+        if (cmdNaoAutoRestSecondsRemainingBase == null) return;
+        renderCmdNaoState();
+      }, 1000);
 
       function syncConfigAutLifeFromCommand(enabled) {
         if (typeof enabled !== 'boolean') return;
@@ -3150,6 +3206,14 @@
           cmdNaoIsAwake = null;
           cmdNaoAutLifeEnabled = null;
           cmdNaoAutLifeValue = '';
+          cmdNaoPostureValue = '';
+          cmdNaoAutoRestEnabled = null;
+          cmdNaoAutoRestTimeoutS = 0;
+          cmdNaoAutoRestSecondsRemainingBase = null;
+          cmdNaoAutoRestSampledAtMs = 0;
+          cmdNaoAutoRestSuspended = false;
+          cmdNaoAutoRestSuspendOwner = '';
+          cmdNaoStateWarning = '';
           if (!cmdNaoActionBusy) setCmdNaoStatus('');
           renderCmdNaoState();
           return;
@@ -3160,15 +3224,16 @@
           setCmdNaoStatus('status verversen...');
         }
         try {
-          const [awakeRes, lifeRes] = await Promise.all([
-            fetch('/api/nao_awake_state'),
-            fetch('/api/nao_custom_life_ui_state'),
-          ]);
-          const awake = await awakeRes.json();
-          const life = await lifeRes.json();
+          const stateRes = await fetch('/api/nao_command_state');
+          const state = await stateRes.json();
+          const awake = (state && typeof state.awake === 'object') ? state.awake : {};
+          const life = (state && typeof state.custom_life === 'object') ? state.custom_life : {};
+          const posture = (state && typeof state.posture === 'object') ? state.posture : {};
+          const autoRest = (state && typeof state.auto_rest === 'object') ? state.auto_rest : {};
           const awakeOk = !!awake.ok;
           const lifeOk = !!life.ok;
-          cmdNaoReachable = awakeOk || lifeOk;
+          const postureOk = !!posture.ok;
+          cmdNaoReachable = !!state.reachable;
           cmdNaoIsAwake = awakeOk && typeof awake.is_awake === 'boolean' ? !!awake.is_awake : null;
           if (life.enabled != null) {
             cmdNaoAutLifeEnabled = !!life.enabled;
@@ -3181,12 +3246,24 @@
           } else {
             cmdNaoAutLifeValue = '';
           }
+          cmdNaoPostureValue = postureOk ? String(posture.posture || '').trim() : '';
+          cmdNaoAutoRestEnabled = typeof autoRest.enabled_by_config === 'boolean' ? !!autoRest.enabled_by_config : null;
+          cmdNaoAutoRestTimeoutS = Number(autoRest.timeout_s || 0);
+          cmdNaoAutoRestSecondsRemainingBase = Number.isFinite(Number(autoRest.seconds_until_rest))
+            ? Number(autoRest.seconds_until_rest)
+            : null;
+          cmdNaoAutoRestSampledAtMs = Date.now();
+          cmdNaoAutoRestSuspended = !!autoRest.suspended;
+          cmdNaoAutoRestSuspendOwner = String(autoRest.suspend_owner || '').trim();
+          const warnings = Array.isArray(state.warnings) ? state.warnings.filter(Boolean) : [];
+          cmdNaoStateWarning = warnings.length ? String(warnings[0] || '').trim() : '';
           if (cmdNaoActionBusy) {
             renderCmdNaoState();
             return;
           }
           if (showErrors) {
-            const err = (awake.error || life.error || '').trim();
+            const errors = Array.isArray(state.errors) ? state.errors.filter(Boolean) : [];
+            const err = errors.length ? String(errors[0] || '').trim() : (awake.error || life.error || posture.error || '').trim();
             if (err && !cmdNaoReachable) {
               setCmdNaoStatus(`NAO status niet beschikbaar: ${err}`);
             } else {
@@ -3206,6 +3283,14 @@
           cmdNaoIsAwake = null;
           cmdNaoAutLifeEnabled = null;
           cmdNaoAutLifeValue = '';
+          cmdNaoPostureValue = '';
+          cmdNaoAutoRestEnabled = null;
+          cmdNaoAutoRestTimeoutS = 0;
+          cmdNaoAutoRestSecondsRemainingBase = null;
+          cmdNaoAutoRestSampledAtMs = 0;
+          cmdNaoAutoRestSuspended = false;
+          cmdNaoAutoRestSuspendOwner = '';
+          cmdNaoStateWarning = '';
           if (!cmdNaoActionBusy && showErrors) {
             const msg = (e && e.message) ? e.message : String(e || 'fout');
             setCmdNaoStatus(`NAO status niet beschikbaar: ${msg}`);
@@ -3647,7 +3732,8 @@
           if (isAbortError(e)) {
             cmdStatus.textContent = 'gestopt';
           } else {
-            cmdStatus.textContent = 'mislukt';
+            const msg = e && e.message ? e.message : String(e || 'command failed');
+            cmdStatus.textContent = `mislukt: ${msg}`;
           }
         } finally {
           clearActionController(controller);
@@ -5513,11 +5599,7 @@
         cfgNaoAutoRestEnabled.checked = autoRestValue > 0;
         cfgNaoAutoRestSeconds.value = String(autoRestValue > 0 ? autoRestValue : 180);
         cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
-        if (cfgNaoAutoRestNote) {
-          cfgNaoAutoRestNote.textContent = cfgNaoAutoRestEnabled.checked
-            ? `auto-rest: aan (${cfgNaoAutoRestSeconds.value}s)`
-            : 'auto-rest: uit';
-        }
+        renderAutoRestNote(cfg, lastAutoRestHealth);
         if (locomotionFrequency) {
           locomotionFrequency.value = clampLocomotionFrequency(cfg.locomotion_frequency, 0.2).toFixed(2);
         }
@@ -6213,11 +6295,32 @@
         el.classList.toggle('bad', !state);
       }
 
+      function renderAutoRestNote(cfg, autoRestState = null) {
+        if (!cfgNaoAutoRestNote) return;
+        const timeout = Number((autoRestState && autoRestState.timeout_s) || cfg.nao_auto_rest_after_s || 0);
+        const timeoutLabel = timeout > 0 ? `${timeout}s` : `${cfgNaoAutoRestSeconds.value || 180}s`;
+        const suspended = !!(autoRestState && autoRestState.suspended);
+        const owner = suspended ? String(autoRestState.suspend_owner || 'onbekend') : '';
+        const enabledByConfig = autoRestState && Object.prototype.hasOwnProperty.call(autoRestState, 'enabled_by_config')
+          ? !!autoRestState.enabled_by_config
+          : timeout > 0;
+        if (!enabledByConfig) {
+          cfgNaoAutoRestNote.textContent = suspended
+            ? `auto-rest: uit via config (lease actief door ${owner})`
+            : 'auto-rest: uit';
+          return;
+        }
+        cfgNaoAutoRestNote.textContent = suspended
+          ? `auto-rest: tijdelijk gesuspendeerd door ${owner} (${timeoutLabel})`
+          : `auto-rest: aan (${timeoutLabel})`;
+      }
+
       async function refreshHealth(cfg) {
         try {
           if (!cfg.base_enabled && !cfg.behavior_enabled) {
             setHealth(healthBase, false, 'base');
             setHealth(healthBehavior, false, 'behavior');
+            renderAutoRestNote(cfg, lastAutoRestHealth);
             return;
           }
           const r = await fetch('/api/runtime_health', {
@@ -6231,10 +6334,12 @@
             })
           });
           const j = await r.json();
+          lastAutoRestHealth = (j && typeof j.auto_rest === 'object') ? j.auto_rest : null;
           const baseOk = !!(j.base && j.base.ping);
           const behaviorOk = !!(j.behavior && j.behavior.ping);
           setHealth(healthBase, baseOk, 'base');
           setHealth(healthBehavior, behaviorOk, 'behavior');
+          renderAutoRestNote(cfg, lastAutoRestHealth);
         } catch (_) {}
       }
 
@@ -6278,6 +6383,7 @@
               })
             });
             const j = await r.json();
+            lastAutoRestHealth = (j && typeof j.auto_rest === 'object') ? j.auto_rest : null;
             if (!cfg.nao_ip_enabled) {
               setHealth(healthNao, 'disabled', 'nao');
               lastNaoOk = null;
@@ -6305,6 +6411,7 @@
               const behaviorOk = !!(j.behavior && j.behavior.ping);
               setHealth(healthBehavior, behaviorOk, 'behavior manager');
             }
+            renderAutoRestNote(cfg, lastAutoRestHealth);
             const baseOk = !!(j.base && j.base.ping);
             const behaviorOk = !!(j.behavior && j.behavior.ping);
             const naoOk = !!(j.nao && j.nao.ping);
@@ -7596,19 +7703,13 @@
       if (cfgNaoAutoRestEnabled) {
         cfgNaoAutoRestEnabled.addEventListener('change', () => {
           cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
-          if (cfgNaoAutoRestNote) {
-            cfgNaoAutoRestNote.textContent = cfgNaoAutoRestEnabled.checked
-              ? `auto-rest: aan (${cfgNaoAutoRestSeconds.value || 180}s)`
-              : 'auto-rest: uit';
-          }
+          renderAutoRestNote(getConfigFromForm(), lastAutoRestHealth);
           applyRuntimeConfig(getConfigFromForm(), false, false);
         });
       }
       if (cfgNaoAutoRestSeconds) {
         cfgNaoAutoRestSeconds.addEventListener('change', () => {
-          if (cfgNaoAutoRestNote && cfgNaoAutoRestEnabled.checked) {
-            cfgNaoAutoRestNote.textContent = `auto-rest: aan (${cfgNaoAutoRestSeconds.value || 180}s)`;
-          }
+          renderAutoRestNote(getConfigFromForm(), lastAutoRestHealth);
           applyRuntimeConfig(getConfigFromForm(), false, false);
         });
       }

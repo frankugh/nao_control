@@ -2,7 +2,7 @@
   "version": 1,
   "robots": {
     "nao1": {
-      "dm_url": "http://127.0.0.1:5302"
+      "dm_url": "http://127.0.0.1:5301"
     }
   },
   "ppt": {
@@ -40,12 +40,16 @@
     {
       "id": "ppt_next_2",
       "start": {
-        "mode": "manual"
+        "mode": "after_prev",
+        "delay_s": 3
       },
       "action": {
         "type": "ppt",
         "mode": "next_slide"
       }
     }
-  ]
+  ],
+  "meta": {
+    "script_id": "07ecdc22-6896-4eb7-a7ac-c5b9dd397a1b"
+  }
 }

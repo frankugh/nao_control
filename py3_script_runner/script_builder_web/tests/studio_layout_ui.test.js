@@ -473,6 +473,24 @@ describe("studio layout ui", () => {
     expect(document.getElementById("runLogDetails").open).toBe(false);
   });
 
+  test("completed run with an error keeps the warning visible and auto-opens the log", async () => {
+    await loadApp({
+      ok: true,
+      status: "completed",
+      waiting_for_next: false,
+      waiting_reason: "none",
+      current_step_id: "box_demo",
+      completed_steps: 3,
+      total_steps: 3,
+      log_tail: ["[RUN][STEP_ERROR] [2/3] box_demo: robot meldt rust"],
+      last_error: "[2/3] box_demo: robot meldt rust",
+    });
+
+    expect(document.getElementById("runLogDetails").open).toBe(true);
+    expect(document.getElementById("statusMessage").textContent).toContain("Run klaar met melding");
+    expect(document.getElementById("statusMessage").textContent).toContain("box_demo");
+  });
+
   test("waiting state highlights current and next rows", async () => {
     await loadApp({
       ok: true,

@@ -98,6 +98,130 @@ def test_preflight_applies_robot_runtime_config(tmp_path):
     assert ("capabilities", "http://dm-nao1:5301") in calls
 
 
+def test_preflight_acquires_auto_rest_suspend_and_run_releases_it(tmp_path):
+    calls: List[Tuple[str, str, str]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def auto_rest_suspend_acquire(self, *, lease_id, owner, reason, ttl_s, timeout_s=None):
+            calls.append(("acquire", self.base_url, str(lease_id)))
+            return {"ok": True}
+
+        def auto_rest_suspend_renew(self, *, lease_id, owner, ttl_s, timeout_s=None):
+            return {"ok": True}
+
+        def auto_rest_suspend_release(self, *, lease_id, timeout_s=None):
+            calls.append(("release", self.base_url, str(lease_id)))
+            return {"ok": True}
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True, "supports": {"say": True}}
+
+        def runtime_effective(self, timeout_s=None):
+            return {"ok": True, "runtime_config": {"base_enabled": False, "behavior_enabled": False, "nao_ip_enabled": False}}
+
+        def runtime_health(self, payload, timeout_s=None):
+            return {"ok": True, "base": {"ping": True, "nao_ping": True}, "behavior": {"ping": True, "nao_ping": True}, "nao": {"ping": True}}
+
+    script = _script_template()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+    runner.preflight()
+    result = runner.run()
+
+    assert result.aborted is False
+    assert [action for (action, _url, _lease_id) in calls] == ["acquire", "acquire", "release", "release"]
+
+
+def test_preflight_releases_acquired_auto_rest_suspend_on_acquire_failure(tmp_path):
+    calls: List[Tuple[str, str]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def auto_rest_suspend_acquire(self, *, lease_id, owner, reason, ttl_s, timeout_s=None):
+            calls.append(("acquire", self.base_url))
+            if self.base_url.endswith(":5302"):
+                raise DMClientError("409 conflict")
+            return {"ok": True}
+
+        def auto_rest_suspend_release(self, *, lease_id, timeout_s=None):
+            calls.append(("release", self.base_url))
+            return {"ok": True}
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True, "supports": {"say": True}}
+
+        def runtime_effective(self, timeout_s=None):
+            return {"ok": True, "runtime_config": {"base_enabled": False, "behavior_enabled": False, "nao_ip_enabled": False}}
+
+        def runtime_health(self, payload, timeout_s=None):
+            return {"ok": True, "base": {"ping": True, "nao_ping": True}, "behavior": {"ping": True, "nao_ping": True}, "nao": {"ping": True}}
+
+    script = _script_template()
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+
+    with pytest.raises(RuntimeError, match="auto-rest suspend kon niet worden geactiveerd"):
+        runner.preflight()
+
+    assert ("acquire", "http://dm-nao1:5301") in calls
+    assert ("acquire", "http://dm-nao2:5302") in calls
+    assert ("release", "http://dm-nao1:5301") in calls
+
+
+def test_run_fails_when_auto_rest_suspend_lease_cannot_be_renewed(tmp_path):
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def auto_rest_suspend_acquire(self, *, lease_id, owner, reason, ttl_s, timeout_s=None):
+            return {"ok": True}
+
+        def auto_rest_suspend_renew(self, *, lease_id, owner, ttl_s, timeout_s=None):
+            raise DMClientError("renew timeout")
+
+        def auto_rest_suspend_release(self, *, lease_id, timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["robots"] = {"nao1": {"dm_url": "http://dm-nao1:5301"}}
+    script["defaults"]["control_poll_interval_s"] = 0.01
+    script["steps"] = [
+        {
+            "id": "pause_1",
+            "robot_id": "nao1",
+            "start": {"mode": "after_prev", "delay_s": 0},
+            "action": {"type": "pause", "seconds": 0.2},
+        }
+    ]
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=time.sleep,
+        log_dir=tmp_path,
+    )
+    runner.auto_rest_suspend_ttl_s = 0.05
+    runner.auto_rest_suspend_renew_interval_s = 0.01
+
+    with pytest.raises(RuntimeError, match="auto-rest suspend lease ging verloren"):
+        runner.run()
+
+
 def test_preflight_waits_until_all_robots_ready(tmp_path):
     sleep_calls: List[float] = []
     health_calls: Dict[str, int] = {}

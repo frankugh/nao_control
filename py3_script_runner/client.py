@@ -148,3 +148,56 @@ class DMClient:
 
     def runtime_health(self, payload: Dict[str, Any], timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/runtime_health", payload=dict(payload or {}), timeout_s=timeout_s)
+
+    def auto_rest_suspend_acquire(
+        self,
+        *,
+        lease_id: str,
+        owner: str,
+        reason: str,
+        ttl_s: float,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/auto_rest_suspend/acquire",
+            payload={
+                "lease_id": str(lease_id or "").strip(),
+                "owner": str(owner or "").strip(),
+                "reason": str(reason or "").strip(),
+                "ttl_s": float(ttl_s),
+            },
+            timeout_s=timeout_s,
+        )
+
+    def auto_rest_suspend_renew(
+        self,
+        *,
+        lease_id: str,
+        owner: str,
+        ttl_s: float,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/auto_rest_suspend/renew",
+            payload={
+                "lease_id": str(lease_id or "").strip(),
+                "owner": str(owner or "").strip(),
+                "ttl_s": float(ttl_s),
+            },
+            timeout_s=timeout_s,
+        )
+
+    def auto_rest_suspend_release(
+        self,
+        *,
+        lease_id: str,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/auto_rest_suspend/release",
+            payload={"lease_id": str(lease_id or "").strip()},
+            timeout_s=timeout_s,
+        )

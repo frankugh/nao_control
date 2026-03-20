@@ -64,4 +64,5 @@ def test_cli_reports_preflight_failure_message(capsys, monkeypatch):
     code = cli.main(["--script", "unused.json"])
     captured = capsys.readouterr()
     assert code == 3
+    assert "deprecated" in captured.err.lower()
     assert "Preflight failed: PPT feature requires Windows + PowerPoint COM" in captured.err

@@ -109,7 +109,6 @@ def load_config():
         "WEB_PORT": DEFAULT_WEB_PORT,
         "NAO_IP":   DEFAULT_NAO_IP,
         "NAO_PORT": DEFAULT_NAO_PORT,
-        "AUTO_REST_AFTER_S": 0,
         "TTS_REPLACE_MAP_FILE": None,
     }
 
@@ -128,17 +127,8 @@ def load_config():
                 cfg["WEB_HOST"] = parser.get("py2_server", "WEB_HOST")
             if parser.has_option("py2_server", "WEB_PORT"):
                 cfg["WEB_PORT"] = parser.getint("py2_server", "WEB_PORT")
-            if parser.has_option("py2_server", "AUTO_REST_AFTER_S"):
-                cfg["AUTO_REST_AFTER_S"] = parser.getint("py2_server", "AUTO_REST_AFTER_S")
             if parser.has_option("py2_server", "TTS_REPLACE_MAP_FILE"):
                 cfg["TTS_REPLACE_MAP_FILE"] = parser.get("py2_server", "TTS_REPLACE_MAP_FILE")
-
-    env_auto_rest = os.environ.get("NAO_AUTO_REST_AFTER_S")
-    if env_auto_rest:
-        try:
-            cfg["AUTO_REST_AFTER_S"] = int(env_auto_rest)
-        except Exception:
-            pass
 
     return cfg
 
@@ -190,38 +180,8 @@ def load_tts_replace_map(path):
 
 # ====== Flask app ======
 app = Flask(__name__)
-app.config.setdefault("AUTO_REST_AFTER_S", 0)
-
-_last_activity = {"ts": time.time()}
-_activity_lock = threading.Lock()
-
-
 def _touch_activity():
-    with _activity_lock:
-        _last_activity["ts"] = time.time()
-
-
-def _auto_rest_loop():
-    while True:
-        time.sleep(2.0)
-        timeout_s = app.config.get("AUTO_REST_AFTER_S", 0) or 0
-        try:
-            timeout_s = float(timeout_s)
-        except Exception:
-            timeout_s = 0
-        if timeout_s <= 0:
-            continue
-        with _activity_lock:
-            last_ts = _last_activity["ts"]
-        if time.time() - last_ts < timeout_s:
-            continue
-        try:
-            motion = get_proxy("ALMotion")
-            if is_awake():
-                motion.rest()
-        except Exception:
-            pass
-        _touch_activity()
+    return None
 
 
 # ====== Helpers ======
@@ -1528,7 +1488,6 @@ if __name__ == "__main__":
     app.config["NAO_SSH_PASS"] = args.nao_ssh_pass
     app.config["NAO_SSH_PORT"] = args.nao_ssh_port
     app.config["NAO_REMOTE_AUDIO_DIR"] = args.nao_remote_audio_dir
-    app.config["AUTO_REST_AFTER_S"] = ini_cfg.get("AUTO_REST_AFTER_S", 0)
 
     map_path = ini_cfg.get("TTS_REPLACE_MAP_FILE") or os.environ.get("TTS_REPLACE_MAP_FILE")
     if not map_path:
@@ -1544,10 +1503,6 @@ if __name__ == "__main__":
 
     local_ip = _get_local_ip()
     sys.stdout.write("Flask app beschikbaar op: http://%s:%s\n" % (local_ip, args.port))
-    if app.config.get("AUTO_REST_AFTER_S", 0):
-        t = threading.Thread(target=_auto_rest_loop)
-        t.daemon = True
-        t.start()
     def _sigint_handler(signum, frame):
         try:
             motion = get_proxy("ALMotion")

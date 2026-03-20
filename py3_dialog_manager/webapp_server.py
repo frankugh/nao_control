@@ -1273,6 +1273,22 @@ def create_app(
     summary_state_lock = threading.RLock()
     last_activity = {"ts": time.time()}
     activity_lock = threading.Lock()
+    auto_rest_idle_lock = threading.RLock()
+    auto_rest_idle_state: Dict[str, Any] = {
+        "rested_since_activity": False,
+        "already_resting_logged": False,
+    }
+    auto_rest_suspend_lock = threading.RLock()
+    auto_rest_suspend_state: Dict[str, Any] = {
+        "lease_id": None,
+        "owner": None,
+        "reason": None,
+        "sid": None,
+        "expires_at": 0.0,
+        "ttl_s": 0.0,
+        "acquired_at": 0.0,
+        "suppress_logged": False,
+    }
 
     confirm_method = parse_confirm_method(cfg.get("confirm_method", "web"))
     confirm_timeout_s = float(cfg.get("confirm_timeout_s", 10.0))
@@ -1345,6 +1361,184 @@ def create_app(
         whole = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
         ms = int((now % 1.0) * 1000.0)
         return f"{whole}.{ms:03d}Z"
+
+    def _dm_ts_iso(raw_ts: Any) -> Optional[str]:
+        try:
+            ts = float(raw_ts)
+        except Exception:
+            return None
+        if ts <= 0:
+            return None
+        whole = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts))
+        ms = int((ts % 1.0) * 1000.0)
+        return f"{whole}.{ms:03d}Z"
+
+    def _auto_rest_suspend_snapshot_locked(*, now: Optional[float] = None) -> Dict[str, Any]:
+        now_ts = float(now if now is not None else time.time())
+        expires_at = float(auto_rest_suspend_state.get("expires_at") or 0.0)
+        active = bool(auto_rest_suspend_state.get("lease_id")) and expires_at > now_ts
+        return {
+            "active": active,
+            "lease_id": str(auto_rest_suspend_state.get("lease_id") or "") if active else "",
+            "owner": str(auto_rest_suspend_state.get("owner") or "") if active else "",
+            "reason": str(auto_rest_suspend_state.get("reason") or "") if active else "",
+            "sid": str(auto_rest_suspend_state.get("sid") or "") if active else "",
+            "ttl_s": float(auto_rest_suspend_state.get("ttl_s") or 0.0) if active else 0.0,
+            "expires_at": expires_at if active else 0.0,
+            "acquired_at": float(auto_rest_suspend_state.get("acquired_at") or 0.0) if active else 0.0,
+            "suppress_logged": bool(auto_rest_suspend_state.get("suppress_logged")) if active else False,
+        }
+
+    def _clear_auto_rest_suspend_locked() -> Dict[str, Any]:
+        previous = {
+            "lease_id": str(auto_rest_suspend_state.get("lease_id") or ""),
+            "owner": str(auto_rest_suspend_state.get("owner") or ""),
+            "reason": str(auto_rest_suspend_state.get("reason") or ""),
+            "sid": str(auto_rest_suspend_state.get("sid") or ""),
+            "ttl_s": float(auto_rest_suspend_state.get("ttl_s") or 0.0),
+            "expires_at": float(auto_rest_suspend_state.get("expires_at") or 0.0),
+            "acquired_at": float(auto_rest_suspend_state.get("acquired_at") or 0.0),
+            "suppress_logged": bool(auto_rest_suspend_state.get("suppress_logged")),
+        }
+        auto_rest_suspend_state.update(
+            {
+                "lease_id": None,
+                "owner": None,
+                "reason": None,
+                "sid": None,
+                "expires_at": 0.0,
+                "ttl_s": 0.0,
+                "acquired_at": 0.0,
+                "suppress_logged": False,
+            }
+        )
+        return previous
+
+    def _normalize_auto_rest_suspend_ttl(raw_ttl: Any) -> float:
+        try:
+            ttl = float(raw_ttl)
+        except Exception:
+            ttl = 0.0
+        return max(1.0, min(ttl, 300.0))
+
+    def _clear_auto_rest_idle_state() -> None:
+        with auto_rest_idle_lock:
+            auto_rest_idle_state["rested_since_activity"] = False
+            auto_rest_idle_state["already_resting_logged"] = False
+
+    def _mark_auto_rest_idle_resting(*, reset_logged: bool) -> None:
+        with auto_rest_idle_lock:
+            auto_rest_idle_state["rested_since_activity"] = True
+            if reset_logged:
+                auto_rest_idle_state["already_resting_logged"] = False
+
+    def _auto_rest_idle_is_settled() -> bool:
+        with auto_rest_idle_lock:
+            return bool(auto_rest_idle_state.get("rested_since_activity"))
+
+    def _get_auto_rest_suspend_state() -> Dict[str, Any]:
+        expired: Optional[Dict[str, Any]] = None
+        now_ts = time.time()
+        with auto_rest_suspend_lock:
+            current = _auto_rest_suspend_snapshot_locked(now=now_ts)
+            if current["active"]:
+                return current
+            lease_id = str(auto_rest_suspend_state.get("lease_id") or "")
+            expires_at = float(auto_rest_suspend_state.get("expires_at") or 0.0)
+            if lease_id and expires_at > 0:
+                expired = _clear_auto_rest_suspend_locked()
+        if expired:
+            _log_dm_event(
+                sid=expired.get("sid") or "system",
+                level="info",
+                category="state",
+                event="auto_rest_suspend_expired",
+                source="system_auto",
+                message="Auto-rest suspend lease expired.",
+                data={
+                    "owner": expired.get("owner"),
+                    "reason": expired.get("reason"),
+                    "lease_id": expired.get("lease_id"),
+                    "lease_expires_at": _dm_ts_iso(expired.get("expires_at")),
+                    "ttl_s": expired.get("ttl_s"),
+                },
+            )
+        return {
+            "active": False,
+            "lease_id": "",
+            "owner": "",
+            "reason": "",
+            "sid": "",
+            "ttl_s": 0.0,
+            "expires_at": 0.0,
+            "acquired_at": 0.0,
+            "suppress_logged": False,
+        }
+
+    def _runtime_health_auto_rest(timeout_s: float) -> Dict[str, Any]:
+        suspend = _get_auto_rest_suspend_state()
+        activity_age_s = _activity_age_s()
+        seconds_until_rest: Optional[int] = None
+        if timeout_s > 0 and not suspend.get("active"):
+            seconds_until_rest = int(max(0.0, math.ceil(float(timeout_s) - activity_age_s)))
+        return {
+            "enabled_by_config": bool(timeout_s > 0),
+            "timeout_s": float(timeout_s if timeout_s > 0 else 0.0),
+            "suspended": bool(suspend.get("active")),
+            "suspend_owner": suspend.get("owner") or None,
+            "suspend_reason": suspend.get("reason") or None,
+            "lease_expires_at": _dm_ts_iso(suspend.get("expires_at")),
+            "lease_ttl_s": float(suspend.get("ttl_s") or 0.0) if suspend.get("active") else None,
+            "activity_age_s": float(activity_age_s),
+            "seconds_until_rest": seconds_until_rest,
+        }
+
+    def _note_auto_rest_suppressed(runtime_cfg: JsonLike, *, timeout_s: float) -> None:
+        payload: Optional[Dict[str, Any]] = None
+        with auto_rest_suspend_lock:
+            current = _auto_rest_suspend_snapshot_locked()
+            if not current["active"] or auto_rest_suspend_state.get("suppress_logged"):
+                return
+            auto_rest_suspend_state["suppress_logged"] = True
+            payload = {
+                "sid": current.get("sid") or "system",
+                "owner": current.get("owner"),
+                "reason": current.get("reason"),
+                "lease_id": current.get("lease_id"),
+                "lease_expires_at": _dm_ts_iso(current.get("expires_at")),
+                "timeout_s": float(timeout_s),
+                "nao_base_url": _normalize_url(runtime_cfg.get("nao_base_url")),
+                "behavior_manager_url": _normalize_url(runtime_cfg.get("behavior_manager_url")),
+            }
+        if payload:
+            _log_dm_event(
+                sid=payload.pop("sid"),
+                level="info",
+                category="state",
+                event="auto_rest_idle_suppressed",
+                source="system_auto",
+                message="Idle auto-rest skipped because a suspend lease is active.",
+                data=payload,
+            )
+
+    def _note_auto_rest_already_resting(runtime_cfg: JsonLike, *, timeout_s: float) -> None:
+        with auto_rest_idle_lock:
+            if auto_rest_idle_state.get("already_resting_logged"):
+                return
+            auto_rest_idle_state["already_resting_logged"] = True
+        _log_dm_event(
+            sid="system",
+            level="info",
+            category="state",
+            event="auto_rest_idle_already_resting",
+            source="system_auto",
+            message="Idle auto-rest skipped because the robot is already resting.",
+            data={
+                "timeout_s": float(timeout_s),
+                "nao_base_url": _normalize_url(runtime_cfg.get("nao_base_url")),
+                "behavior_manager_url": _normalize_url(runtime_cfg.get("behavior_manager_url")),
+            },
+        )
 
     def _ensure_dm_event_dir() -> None:
         try:
@@ -2094,6 +2288,12 @@ def create_app(
     def _touch_activity() -> None:
         with activity_lock:
             last_activity["ts"] = time.time()
+        _clear_auto_rest_idle_state()
+
+    def _activity_age_s() -> float:
+        with activity_lock:
+            last_ts = float(last_activity["ts"])
+        return max(0.0, time.time() - last_ts)
 
     def _ensure_sid_runtime_pipeline(sid: str) -> None:
         if sid in pipeline_by_sid and sid in stt_by_sid:
@@ -3130,21 +3330,47 @@ def create_app(
     except Exception:
         pass
 
+    def _auto_rest_tick() -> None:
+        runtime_cfg = _pick_shutdown_runtime_cfg()
+        timeout_s = _auto_rest_timeout_s(runtime_cfg)
+        if timeout_s <= 0:
+            return
+        suspend = _get_auto_rest_suspend_state()
+        if suspend.get("active"):
+            _note_auto_rest_suppressed(runtime_cfg, timeout_s=timeout_s)
+            return
+        with activity_lock:
+            last_ts = last_activity["ts"]
+        if time.time() - last_ts < timeout_s:
+            return
+        awake_state = _get_nao_awake_state(runtime_cfg)
+        if awake_state.get("ok"):
+            if awake_state.get("is_awake") is False:
+                _mark_auto_rest_idle_resting(reset_logged=False)
+                _note_auto_rest_already_resting(runtime_cfg, timeout_s=timeout_s)
+                return
+            _clear_auto_rest_idle_state()
+        elif _auto_rest_idle_is_settled():
+            return
+        if _try_nao_rest(runtime_cfg, reason="idle"):
+            _mark_auto_rest_idle_resting(reset_logged=True)
+
     def _auto_rest_loop() -> None:
         while True:
             time.sleep(2.0)
-            runtime_cfg = _pick_shutdown_runtime_cfg()
-            timeout_s = _auto_rest_timeout_s(runtime_cfg)
-            if timeout_s <= 0:
-                continue
-            with activity_lock:
-                last_ts = last_activity["ts"]
-            if time.time() - last_ts < timeout_s:
-                continue
-            if _try_nao_rest(runtime_cfg, reason="idle"):
-                _touch_activity()
+            _auto_rest_tick()
 
     threading.Thread(target=_auto_rest_loop, daemon=True).start()
+
+    def _auto_rest_debug_set_last_activity_ago(seconds_ago: float) -> None:
+        with activity_lock:
+            last_activity["ts"] = time.time() - max(0.0, float(seconds_ago))
+
+    try:
+        setattr(app, "_auto_rest_debug_tick", _auto_rest_tick)
+        setattr(app, "_auto_rest_debug_set_last_activity_ago", _auto_rest_debug_set_last_activity_ago)
+    except Exception:
+        pass
 
     def _base_controller_cmd(nao_ip: str, web_port: int) -> Tuple[List[str], str, Optional[str]]:
         base_dir = os.path.join(repo_root, "py2_nao_base_controller")
@@ -6221,6 +6447,7 @@ def create_app(
         behavior_enabled = bool(payload.get("behavior_enabled", True))
         nao_ip_enabled = bool(payload.get("nao_ip_enabled", False))
         nao_host, nao_port = _parse_host_port(payload.get("nao_ip"), 9559)
+        auto_rest_timeout_s = _auto_rest_timeout_s(payload if isinstance(payload, dict) else {})
         nao_ping = _check_tcp(nao_host, nao_port) if nao_ip_enabled else False
         # Only probe /is_awake when NAO checks are explicitly enabled and TCP is up.
         probe_nao_via_services = bool(nao_ip_enabled and nao_ping)
@@ -6238,8 +6465,254 @@ def create_app(
                 "base": {"ping": base_ping, "nao_ping": base_nao_ping, "conflict": base_conflict},
                 "behavior": {"ping": behavior_ping, "nao_ping": behavior_nao_ping, "conflict": behavior_conflict},
                 "nao": {"ping": nao_ping},
+                "auto_rest": _runtime_health_auto_rest(auto_rest_timeout_s),
             }
         )
+
+    @app.post("/api/auto_rest_suspend/acquire")
+    def api_auto_rest_suspend_acquire():
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        request_id = _get_request_id()
+        lease_id = str(payload.get("lease_id") or "").strip()
+        owner = str(payload.get("owner") or "").strip()
+        reason = str(payload.get("reason") or "").strip() or "script_run"
+        ttl_s = _normalize_auto_rest_suspend_ttl(payload.get("ttl_s", 30.0))
+        source = _normalize_event_source(payload.get("source")) or "script_api"
+        if not lease_id:
+            resp = jsonify({"ok": False, "error": "Missing 'lease_id'."})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+        if not owner:
+            resp = jsonify({"ok": False, "error": "Missing 'owner'."})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+
+        now_ts = time.time()
+        conflict: Optional[Dict[str, Any]] = None
+        expires_at = now_ts + ttl_s
+        with auto_rest_suspend_lock:
+            current = _auto_rest_suspend_snapshot_locked(now=now_ts)
+            if current["active"]:
+                conflict = current
+            else:
+                auto_rest_suspend_state.update(
+                    {
+                        "lease_id": lease_id,
+                        "owner": owner,
+                        "reason": reason,
+                        "sid": sid,
+                        "expires_at": expires_at,
+                        "ttl_s": ttl_s,
+                        "acquired_at": now_ts,
+                        "suppress_logged": False,
+                    }
+                )
+        if conflict:
+            resp = jsonify(
+                {
+                    "ok": False,
+                    "error": "auto-rest suspend already active",
+                    "active_lease": {
+                        "owner": conflict.get("owner"),
+                        "reason": conflict.get("reason"),
+                        "lease_expires_at": _dm_ts_iso(conflict.get("expires_at")),
+                    },
+                }
+            )
+            resp.status_code = 409
+            resp.headers["X-Request-Id"] = request_id
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
+
+        _log_dm_event(
+            sid=sid,
+            level="info",
+            category="state",
+            event="auto_rest_suspend_acquired",
+            source=source,
+            message="Auto-rest suspend lease acquired.",
+            request_id=request_id,
+            data={
+                "owner": owner,
+                "reason": reason,
+                "lease_id": lease_id,
+                "ttl_s": ttl_s,
+                "lease_expires_at": _dm_ts_iso(expires_at),
+            },
+        )
+        resp = jsonify(
+            {
+                "ok": True,
+                "owner": owner,
+                "reason": reason,
+                "lease_id": lease_id,
+                "ttl_s": ttl_s,
+                "lease_expires_at": _dm_ts_iso(expires_at),
+                "instance_id": resolved_instance_id,
+            }
+        )
+        resp.headers["X-Request-Id"] = request_id
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/auto_rest_suspend/renew")
+    def api_auto_rest_suspend_renew():
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        request_id = _get_request_id()
+        lease_id = str(payload.get("lease_id") or "").strip()
+        owner = str(payload.get("owner") or "").strip()
+        ttl_s = _normalize_auto_rest_suspend_ttl(payload.get("ttl_s", 30.0))
+        source = _normalize_event_source(payload.get("source")) or "script_api"
+        if not lease_id:
+            resp = jsonify({"ok": False, "error": "Missing 'lease_id'."})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+        if not owner:
+            resp = jsonify({"ok": False, "error": "Missing 'owner'."})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+
+        current = _get_auto_rest_suspend_state()
+        if not current.get("active") or current.get("lease_id") != lease_id:
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="state",
+                event="auto_rest_suspend_renew_failed",
+                source=source,
+                message="Auto-rest suspend renew failed.",
+                request_id=request_id,
+                data={
+                    "owner": owner,
+                    "lease_id": lease_id,
+                    "active_owner": current.get("owner") or None,
+                    "lease_expires_at": _dm_ts_iso(current.get("expires_at")),
+                    "reason": "lease_not_active",
+                },
+            )
+            resp = jsonify({"ok": False, "error": "auto-rest suspend lease is not active"})
+            resp.status_code = 409
+            resp.headers["X-Request-Id"] = request_id
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
+
+        expires_at = time.time() + ttl_s
+        with auto_rest_suspend_lock:
+            active = _auto_rest_suspend_snapshot_locked()
+            if not active["active"] or active["lease_id"] != lease_id:
+                current = _get_auto_rest_suspend_state()
+            else:
+                auto_rest_suspend_state["owner"] = owner
+                auto_rest_suspend_state["expires_at"] = expires_at
+                auto_rest_suspend_state["ttl_s"] = ttl_s
+                current = _auto_rest_suspend_snapshot_locked(now=time.time())
+        if not current.get("active") or current.get("lease_id") != lease_id:
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="state",
+                event="auto_rest_suspend_renew_failed",
+                source=source,
+                message="Auto-rest suspend renew failed.",
+                request_id=request_id,
+                data={
+                    "owner": owner,
+                    "lease_id": lease_id,
+                    "active_owner": current.get("owner") or None,
+                    "lease_expires_at": _dm_ts_iso(current.get("expires_at")),
+                    "reason": "lease_lost_during_renew",
+                },
+            )
+            resp = jsonify({"ok": False, "error": "auto-rest suspend lease is not active"})
+            resp.status_code = 409
+            resp.headers["X-Request-Id"] = request_id
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
+
+        resp = jsonify(
+            {
+                "ok": True,
+                "owner": owner,
+                "lease_id": lease_id,
+                "ttl_s": ttl_s,
+                "lease_expires_at": _dm_ts_iso(current.get("expires_at")),
+                "instance_id": resolved_instance_id,
+            }
+        )
+        resp.headers["X-Request-Id"] = request_id
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/auto_rest_suspend/release")
+    def api_auto_rest_suspend_release():
+        payload = request.get_json(force=True, silent=True) or {}
+        sid = _get_sid()
+        request_id = _get_request_id()
+        lease_id = str(payload.get("lease_id") or "").strip()
+        source = _normalize_event_source(payload.get("source")) or "script_api"
+        if not lease_id:
+            resp = jsonify({"ok": False, "error": "Missing 'lease_id'."})
+            resp.status_code = 400
+            resp.headers["X-Request-Id"] = request_id
+            return resp
+
+        current = _get_auto_rest_suspend_state()
+        if not current.get("active") or current.get("lease_id") != lease_id:
+            resp = jsonify({"ok": False, "error": "auto-rest suspend lease is not active"})
+            resp.status_code = 409
+            resp.headers["X-Request-Id"] = request_id
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
+
+        with auto_rest_suspend_lock:
+            active = _auto_rest_suspend_snapshot_locked()
+            if not active["active"] or active["lease_id"] != lease_id:
+                current = _get_auto_rest_suspend_state()
+            else:
+                released = _clear_auto_rest_suspend_locked()
+                current = {}
+        if current:
+            resp = jsonify({"ok": False, "error": "auto-rest suspend lease is not active"})
+            resp.status_code = 409
+            resp.headers["X-Request-Id"] = request_id
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
+
+        _touch_activity()
+        _log_dm_event(
+            sid=released.get("sid") or sid,
+            level="info",
+            category="state",
+            event="auto_rest_suspend_released",
+            source=source,
+            message="Auto-rest suspend lease released.",
+            request_id=request_id,
+            data={
+                "owner": released.get("owner"),
+                "reason": released.get("reason"),
+                "lease_id": released.get("lease_id"),
+                "lease_expires_at": _dm_ts_iso(released.get("expires_at")),
+            },
+        )
+        resp = jsonify(
+            {
+                "ok": True,
+                "owner": released.get("owner"),
+                "reason": released.get("reason"),
+                "lease_id": released.get("lease_id"),
+                "instance_id": resolved_instance_id,
+                "timer_reset": True,
+            }
+        )
+        resp.headers["X-Request-Id"] = request_id
+        resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
 
     def _resolve_nao_audio_url(runtime_cfg: JsonLike) -> Tuple[Optional[str], str]:
         """
@@ -6546,9 +7019,93 @@ def create_app(
                 return {"ok": False, "error": data.get("error") or ("%s failed" % action)}
 
         state = _get_nao_awake_state(runtime_cfg)
+        if awake:
+            _clear_auto_rest_idle_state()
+        else:
+            _mark_auto_rest_idle_resting(reset_logged=True)
         if not state.get("ok"):
             return {"ok": True, "is_awake": bool(awake), "mode": mode}
         return {"ok": True, "is_awake": bool(state.get("is_awake")), "mode": mode}
+
+    def _nao_action_error_from_payload(
+        data: Any,
+        *,
+        action_label: str,
+        allow_already_running: bool = False,
+    ) -> Optional[str]:
+        if not isinstance(data, dict):
+            return f"{action_label} gaf een ongeldig antwoord terug."
+        status = str(data.get("status") or "").strip().lower()
+        payload = data.get("data")
+        payload_dict = payload if isinstance(payload, dict) else {}
+        err_txt = str(data.get("error") or "").strip()
+        err_lower = err_txt.lower()
+        if allow_already_running and ("already running" in err_lower or payload_dict.get("already_running") is True):
+            return None
+        if payload_dict.get("installed") is False:
+            return "Behavior niet geinstalleerd op deze robot."
+        if payload_dict.get("ran") is False:
+            return f"{action_label} startte niet."
+        if payload_dict.get("is_awake") is False:
+            return f"{action_label} niet uitgevoerd: robot meldt rust/wake-state false."
+        if status in ("", "ok"):
+            return None
+        if err_txt:
+            return err_txt
+        if isinstance(payload, str) and payload.strip():
+            return payload.strip()
+        return f"{action_label} gaf status={status}."
+
+    def _get_nao_posture_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
+        base_url, mode = _resolve_nao_audio_url(runtime_cfg)
+        if not base_url:
+            return {"ok": False, "error": "NAO posture endpoint ontbreekt."}
+        try:
+            url = base_url + "/nao/posture" if mode == "behavior" else base_url + "/posture"
+            resp = requests.get(url, timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        if not isinstance(data, dict):
+            return {"ok": False, "error": "invalid response"}
+        status = str(data.get("status") or "").strip().lower()
+        if status and status != "ok":
+            return {"ok": False, "error": data.get("error") or "posture failed"}
+
+        payload = data.get("data")
+        posture_value: Optional[str] = None
+        is_sitting = False
+        is_standing = False
+        is_crouching = False
+        if isinstance(payload, dict):
+            posture_value = payload.get("posture")
+            is_sitting = bool(payload.get("is_sitting"))
+            is_standing = bool(payload.get("is_standing"))
+            is_crouching = bool(payload.get("is_crouching"))
+        elif isinstance(payload, str):
+            posture_value = payload
+        elif isinstance(data.get("posture"), str):
+            posture_value = data.get("posture")
+        if not isinstance(posture_value, str) or not posture_value.strip():
+            return {"ok": False, "error": "missing posture"}
+        posture_text = str(posture_value).strip()
+        posture_lower = posture_text.lower()
+        if not is_sitting:
+            is_sitting = posture_lower.startswith("sit")
+        if not is_standing:
+            is_standing = posture_lower.startswith("stand")
+        if not is_crouching:
+            is_crouching = posture_lower.startswith("crouch")
+        return {
+            "ok": True,
+            "posture": posture_text,
+            "is_sitting": bool(is_sitting),
+            "is_standing": bool(is_standing),
+            "is_crouching": bool(is_crouching),
+            "mode": mode,
+        }
 
     def _get_nao_custom_life_state(runtime_cfg: JsonLike) -> Dict[str, Any]:
         base_url, mode = _resolve_nao_audio_url(runtime_cfg)
@@ -7188,6 +7745,42 @@ def create_app(
         runtime_cfg = _get_runtime_cfg(_get_sid())
         return jsonify(_get_nao_awake_state(runtime_cfg))
 
+    @app.get("/api/nao_command_state")
+    def api_nao_command_state():
+        runtime_cfg = _get_runtime_cfg(_get_sid())
+        awake = _get_nao_awake_state(runtime_cfg)
+        custom_life = _get_nao_custom_life_ui_state(runtime_cfg)
+        posture = _get_nao_posture_state(runtime_cfg)
+        auto_rest = _runtime_health_auto_rest(_auto_rest_timeout_s(runtime_cfg))
+        reachable = bool(awake.get("ok") or custom_life.get("ok") or posture.get("ok"))
+        warnings: List[str] = []
+        errors: List[str] = []
+        if not awake.get("ok") and awake.get("error"):
+            errors.append(str(awake.get("error")))
+        if not custom_life.get("ok") and custom_life.get("error"):
+            errors.append(str(custom_life.get("error")))
+        if not posture.get("ok") and posture.get("error"):
+            errors.append(str(posture.get("error")))
+        awake_value = awake.get("is_awake")
+        posture_value = str(posture.get("posture") or "").strip()
+        if awake.get("ok") and awake_value is False and posture.get("ok") and posture_value:
+            if bool(posture.get("is_sitting")) or bool(posture.get("is_standing")):
+                warnings.append(
+                    "Wake-state meldt rust, maar posture lijkt nog sit/stand. Controleer of de statebepaling klopt."
+                )
+        return jsonify(
+            {
+                "ok": True,
+                "reachable": reachable,
+                "awake": awake,
+                "custom_life": custom_life,
+                "posture": posture,
+                "auto_rest": auto_rest,
+                "warnings": warnings,
+                "errors": errors,
+            }
+        )
+
     @app.post("/api/nao_wake_up")
     def api_nao_wake_up():
         payload = request.get_json(force=True, silent=True) or {}
@@ -7636,7 +8229,17 @@ def create_app(
             try:
                 url = endpoint_base_url + "/nao/do_behavior" if mode == "behavior" else endpoint_base_url + "/do_behavior"
                 resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
-                data = resp.json() if resp.ok else {}
+                resp.raise_for_status()
+                try:
+                    data = resp.json()
+                except ValueError:
+                    last_error = "behavior endpoint gaf geen JSON terug"
+                    if paused_now:
+                        try:
+                            _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
+                        except Exception:
+                            pass
+                    continue
             except Exception as exc:
                 last_error = str(exc)
                 if paused_now:
@@ -7645,8 +8248,13 @@ def create_app(
                     except Exception:
                         pass
                 continue
-            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-                last_error = data.get("error") or "behavior failed"
+            payload_error = _nao_action_error_from_payload(
+                data,
+                action_label=f"Behavior {behavior}",
+                allow_already_running=True,
+            )
+            if payload_error:
+                last_error = payload_error
                 if paused_now:
                     try:
                         _custom_life_restore_on_endpoint(endpoint_base_url, mode, runtime_cfg, pause_state)
@@ -7729,12 +8337,18 @@ def create_app(
             try:
                 url = endpoint_base_url + "/nao/stop_behavior" if mode == "behavior" else endpoint_base_url + "/stop_behavior"
                 resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
-                data = resp.json() if resp.ok else {}
+                resp.raise_for_status()
+                try:
+                    data = resp.json()
+                except ValueError:
+                    last_error = "behavior endpoint gaf geen JSON terug"
+                    continue
             except Exception as exc:
                 last_error = str(exc)
                 continue
-            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-                last_error = data.get("error") or "behavior failed"
+            payload_error = _nao_action_error_from_payload(data, action_label=f"Behavior {behavior}")
+            if payload_error:
+                last_error = payload_error
                 continue
             if walk_behavior_stop:
                 try:
@@ -8300,6 +8914,29 @@ def create_app(
             return jsonify({"ok": False, "error": "Missing 'mode'."}), 400
         result_payload: Dict[str, Any] = {"ok": True, "status": "accepted", "action": "do", "mode": mode}
 
+        def _error_response(out: Dict[str, Any], status_code: int):
+            _log_dm_event(
+                sid=sid,
+                level="error",
+                category="dialog",
+                event="script_action_error",
+                source=source,
+                message="Script API action failed.",
+                request_id=request_id,
+                data={
+                    "action": "do",
+                    "mode": mode,
+                    "status_code": int(status_code),
+                    "error": out.get("error"),
+                    "detail": out.get("detail"),
+                },
+            )
+            resp = jsonify(out)
+            resp.status_code = status_code
+            resp.headers["X-Request-Id"] = request_id
+            resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
+            return resp
+
         if mode == "command":
             label = str(payload.get("label") or "").strip()
             resolved = payload.get("resolved") if isinstance(payload.get("resolved"), dict) else None
@@ -8313,11 +8950,7 @@ def create_app(
                 request_id=request_id,
             )
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
         elif mode == "dance":
             dance_key = str(payload.get("dance_key") or "").strip()
             if not dance_key:
@@ -8337,11 +8970,7 @@ def create_app(
                 request_id=request_id,
             )
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
         elif mode == "behavior_start":
             behavior = str(payload.get("behavior") or "").strip()
             out, status_code = _nao_behavior_start_impl(
@@ -8351,11 +8980,7 @@ def create_app(
                 request_id=request_id,
             )
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
         elif mode == "behavior_stop":
             behavior = str(payload.get("behavior") or "").strip()
             out, status_code = _nao_behavior_stop_impl(
@@ -8365,46 +8990,26 @@ def create_app(
                 request_id=request_id,
             )
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
         elif mode == "summary_capture_start":
             out, status_code = _summary_capture_start_impl(sid)
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
             result_payload = out
         elif mode == "summary_capture_stop_and_draft":
             out, status_code = _summary_capture_stop_and_draft_impl(sid, payload)
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
             result_payload = out
         elif mode == "summary_publish":
             out, status_code = _summary_publish_impl(sid)
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
             result_payload = out
         elif mode == "summary_cancel":
             out, status_code = _summary_cancel_impl(sid)
             if status_code != 200:
-                resp = jsonify(out)
-                resp.status_code = status_code
-                resp.headers["X-Request-Id"] = request_id
-                resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
-                return resp
+                return _error_response(out, status_code)
             result_payload = out
         else:
             return jsonify({"ok": False, "error": "invalid_mode", "mode": mode}), 400

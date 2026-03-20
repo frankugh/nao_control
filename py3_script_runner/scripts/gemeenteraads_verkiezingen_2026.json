@@ -25,31 +25,18 @@
       },
       "action": {
         "type": "say",
-        "text": "He! Vergeet mij niet. Ik mag vandaag toch ook meedoen? "
-      }
-    },
-    {
-      "id": "do_command_2",
-      "robot_id": "nao1",
-      "start": {
-        "mode": "manual"
-      },
-      "action": {
-        "type": "do",
-        "mode": "command",
-        "label": "STAND_UP"
+        "text": "Mooi zo kan ik het goed zien"
       }
     },
     {
       "id": "say_001",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 1
+        "mode": "manual"
       },
       "action": {
         "type": "say",
-        "text": "Ik ben Alex. Een NAO robot uit het oude Atlantis. Ik vind het heel leuk om hier bij te mogen zijn!"
+        "text": "Vergeten jullie mij niet? "
       }
     },
     {
@@ -60,44 +47,168 @@
       },
       "action": {
         "type": "say",
-        "text": "Een NAO robot is een sociale humanoïde robot gemaakt om mensen te helpen. "
+        "text": "Mijn naam is Alex en ik ben een Na O robot. We willen jullie vandaag graag wat te vertellen over AI & Robootica. Vooral samenwerken met jullie vind ik superleuk"
       }
     },
     {
       "id": "say_4",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 0.3
+        "mode": "manual"
       },
       "action": {
         "type": "say",
-        "text": "Ik kan rondlopen, met jullie praten en zelfs een dansje doen. Dat zal ik later vandaag nog wel laten zien. "
+        "text": "Ik ben een NAO. Dat is een humanoïde robot en ik ben gemaakt samen met duizenden van mijn vrienden om mensen te helpen, samen te leren. En… heel belangrijk, ik hou ook van feestjes. Ik denk dat deze groep dat ook leuk zal vinden en misschien hebben jullie ook al honger en dorst. "
+      }
+    },
+    {
+      "id": "ppt_next_001",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "ppt_next_2",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "ppt_next_3",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
       }
     },
     {
       "id": "say_3",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 0.3
+        "mode": "manual"
       },
       "action": {
         "type": "say",
-        "text": "Darnaast heb ik sensoren om de wereld om me heen waar te nemen. Zoals camera's, maar ook sensoren voor aanraking zodat ik jullie bijvoorbeeld een box kan geven. Zal ik dat laten zien? "
+        "text": "Ah daar zie ik mijn vriend Paro. Hij bedoelt het heel goed maar het is ook nodig dat er mensen zijn."
+      }
+    },
+    {
+      "id": "say_5",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Ik heb het soms ook wel moeilijk want emoties lezen mag ik niet van de AI verordening. Goed dat er regels zijn. Maar ik zou een kind dat verdrietig is wel willen kunnen helpen als iets niet lukt. "
+      }
+    },
+    {
+      "id": "ppt_next_4",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "say_6",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Mooi, nu gaan we echt aan de slag! Zullen we een box doen?  "
       }
     },
     {
       "id": "do_command_001",
       "robot_id": "nao1",
       "start": {
-        "mode": "after_prev",
-        "delay_s": 2
+        "mode": "manual"
       },
       "action": {
         "type": "do",
         "mode": "command",
         "label": "BOX"
+      }
+    },
+    {
+      "id": "ppt_next_5",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "say_7",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Ja AI kost veel stroom en water. Het is heel belangrijk dat we ook innovatieve oplossingen vinden om dat efficiënter te doen."
+      }
+    },
+    {
+      "id": "ppt_next_6",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "ppt",
+        "mode": "next_slide"
+      }
+    },
+    {
+      "id": "say_8",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Hey Joke, Frank en Pascale.. Dat gaan we dus mooi samen oppakken OK? Maar zijn we klaar, is het zo goed? Ik heb zin in het feestje en ik denk dat alle mensen dat ook een goed idee vinden. "
+      }
+    },
+    {
+      "id": "say_9",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "say",
+        "text": "Dansen? Ja natuurlijk "
+      }
+    },
+    {
+      "id": "do_dance_001",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "do",
+        "mode": "dance",
+        "dance_key": "happy"
       }
     }
   ],

@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Optional
 import threading
 import sys
 import time
+import uuid
 
 from .client import DMClient
 from .ppt_controller import ComPptController, PPTControllerError, PptControllerProtocol
@@ -32,6 +33,17 @@ class RunResult:
     total_steps: int
     aborted: bool
     log_path: Path
+
+
+@dataclass
+class _AutoRestLease:
+    robot_id: str
+    lease_id: str
+    owner: str
+    reason: str
+    ttl_s: float
+    dm_url: str
+    expires_at_monotonic: float
 
 
 class ScriptRunner:
@@ -108,10 +120,20 @@ class ScriptRunner:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_path = self.log_dir / f"run_{stamp}.log"
         self._log_handle = self.log_path.open("a", encoding="utf-8")
+        self._closed = False
 
         self.clients: Dict[str, DMClient] = {}
         self.robot_cfgs: Dict[str, Dict[str, Any]] = {}
         self._runtime_cfg_applied: Dict[str, bool] = {}
+        self.auto_rest_suspend_owner = "script_runner"
+        self.auto_rest_suspend_reason = "script_run"
+        self.auto_rest_suspend_ttl_s = 30.0
+        self.auto_rest_suspend_renew_interval_s = 5.0
+        self._auto_rest_lease_lock = threading.RLock()
+        self._auto_rest_lease_stop = threading.Event()
+        self._auto_rest_lease_thread: Optional[threading.Thread] = None
+        self._auto_rest_lease_failure: Optional[str] = None
+        self._auto_rest_leases: Dict[str, _AutoRestLease] = {}
         self.readiness_poll_interval_s = self._parse_positive_float(
             self.defaults.get("readiness_poll_interval_s", 3.0),
             default=3.0,
@@ -171,6 +193,197 @@ class ScriptRunner:
             dm_url = str(robot_cfg.get("dm_url") or "").strip()
             self.clients[robot_id] = self.client_factory(dm_url, timeout_s)
 
+    def _auto_rest_timeout_hint_s(self) -> float:
+        return max(self.readiness_request_timeout_s, 8.0)
+
+    @staticmethod
+    def _client_auto_rest_suspend_acquire(
+        client: DMClient,
+        *,
+        lease_id: str,
+        owner: str,
+        reason: str,
+        ttl_s: float,
+        timeout_s: float,
+    ) -> Dict[str, Any]:
+        fn = getattr(client, "auto_rest_suspend_acquire", None)
+        if not callable(fn):
+            return {
+                "ok": True,
+                "lease_id": lease_id,
+                "owner": owner,
+                "reason": reason,
+                "ttl_s": ttl_s,
+            }
+        return fn(lease_id=lease_id, owner=owner, reason=reason, ttl_s=ttl_s, timeout_s=timeout_s)
+
+    @staticmethod
+    def _client_auto_rest_suspend_renew(
+        client: DMClient,
+        *,
+        lease_id: str,
+        owner: str,
+        ttl_s: float,
+        timeout_s: float,
+    ) -> Dict[str, Any]:
+        fn = getattr(client, "auto_rest_suspend_renew", None)
+        if not callable(fn):
+            return {"ok": True, "lease_id": lease_id, "owner": owner, "ttl_s": ttl_s}
+        return fn(lease_id=lease_id, owner=owner, ttl_s=ttl_s, timeout_s=timeout_s)
+
+    @staticmethod
+    def _client_auto_rest_suspend_release(
+        client: DMClient,
+        *,
+        lease_id: str,
+        timeout_s: float,
+    ) -> Dict[str, Any]:
+        fn = getattr(client, "auto_rest_suspend_release", None)
+        if not callable(fn):
+            return {"ok": True, "lease_id": lease_id}
+        return fn(lease_id=lease_id, timeout_s=timeout_s)
+
+    def _auto_rest_acquire_failure_message(self, robot_id: str, exc: Exception) -> str:
+        robot_cfg = self.robot_cfgs.get(robot_id) or {}
+        dm_url = str(robot_cfg.get("dm_url") or "").strip() or "-"
+        return (
+            f"Robot {robot_id}: auto-rest suspend kon niet worden geactiveerd op {dm_url} ({exc}). "
+            f"{self._fallback_manual_disable_hint()}"
+        )
+
+    def _auto_rest_renew_failure_message(self, robot_id: str, exc: Exception) -> str:
+        robot_cfg = self.robot_cfgs.get(robot_id) or {}
+        dm_url = str(robot_cfg.get("dm_url") or "").strip() or "-"
+        return (
+            f"Robot {robot_id}: auto-rest suspend lease ging verloren op {dm_url} ({exc}). "
+            f"Run gestopt. {self._fallback_manual_disable_hint()}"
+        )
+
+    def _stop_auto_rest_lease_heartbeat(self) -> None:
+        self._auto_rest_lease_stop.set()
+        thread = self._auto_rest_lease_thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+        self._auto_rest_lease_thread = None
+
+    def _auto_rest_lease_retry_until_deadline(self, lease: _AutoRestLease) -> None:
+        client = self.clients[lease.robot_id]
+        timeout_s = self._auto_rest_timeout_hint_s()
+        last_exc: Optional[Exception] = None
+        while not self._auto_rest_lease_stop.is_set():
+            if time.monotonic() >= lease.expires_at_monotonic:
+                break
+            try:
+                self._client_auto_rest_suspend_renew(
+                    client,
+                    lease_id=lease.lease_id,
+                    owner=lease.owner,
+                    ttl_s=lease.ttl_s,
+                    timeout_s=timeout_s,
+                )
+                with self._auto_rest_lease_lock:
+                    current = self._auto_rest_leases.get(lease.robot_id)
+                    if current and current.lease_id == lease.lease_id:
+                        current.expires_at_monotonic = time.monotonic() + lease.ttl_s
+                return
+            except Exception as exc:
+                last_exc = exc
+                remaining = lease.expires_at_monotonic - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._auto_rest_lease_stop.wait(min(1.0, remaining))
+        raise RuntimeError(self._auto_rest_renew_failure_message(lease.robot_id, last_exc or RuntimeError("lease expired")))
+
+    def _auto_rest_lease_heartbeat_loop(self) -> None:
+        while not self._auto_rest_lease_stop.wait(self.auto_rest_suspend_renew_interval_s):
+            with self._auto_rest_lease_lock:
+                leases = list(self._auto_rest_leases.values())
+            if not leases:
+                return
+            for lease in leases:
+                if self._auto_rest_lease_stop.is_set():
+                    return
+                try:
+                    self._auto_rest_lease_retry_until_deadline(lease)
+                except Exception as exc:
+                    self._set_auto_rest_lease_failure(str(exc))
+                    return
+
+    def _start_auto_rest_lease_heartbeat(self) -> None:
+        if self._auto_rest_lease_thread is not None and self._auto_rest_lease_thread.is_alive():
+            return
+        self._auto_rest_lease_stop.clear()
+        thread = threading.Thread(target=self._auto_rest_lease_heartbeat_loop, daemon=True)
+        self._auto_rest_lease_thread = thread
+        thread.start()
+
+    def _ensure_auto_rest_leases(self) -> None:
+        with self._auto_rest_lease_lock:
+            if self._auto_rest_leases:
+                return
+            self._auto_rest_lease_failure = None
+
+        timeout_s = self._auto_rest_timeout_hint_s()
+        current_robot_id = "unknown"
+        try:
+            for robot_id in sorted(self.clients.keys()):
+                current_robot_id = robot_id
+                client = self.clients[robot_id]
+                lease_id = uuid.uuid4().hex
+                self._log(f"Robot {robot_id}: acquiring auto-rest suspend lease")
+                self._client_auto_rest_suspend_acquire(
+                    client,
+                    lease_id=lease_id,
+                    owner=self.auto_rest_suspend_owner,
+                    reason=self.auto_rest_suspend_reason,
+                    ttl_s=self.auto_rest_suspend_ttl_s,
+                    timeout_s=timeout_s,
+                )
+                lease = _AutoRestLease(
+                    robot_id=robot_id,
+                    lease_id=lease_id,
+                    owner=self.auto_rest_suspend_owner,
+                    reason=self.auto_rest_suspend_reason,
+                    ttl_s=self.auto_rest_suspend_ttl_s,
+                    dm_url=str((self.robot_cfgs.get(robot_id) or {}).get("dm_url") or "").strip(),
+                    expires_at_monotonic=time.monotonic() + self.auto_rest_suspend_ttl_s,
+                )
+                with self._auto_rest_lease_lock:
+                    self._auto_rest_leases[robot_id] = lease
+            if self.clients:
+                self._start_auto_rest_lease_heartbeat()
+        except Exception as exc:
+            self._release_auto_rest_leases(log_warnings=True)
+            raise RuntimeError(self._auto_rest_acquire_failure_message(current_robot_id, exc)) from exc
+
+    def _release_auto_rest_leases(self, *, log_warnings: bool) -> None:
+        self._stop_auto_rest_lease_heartbeat()
+        with self._auto_rest_lease_lock:
+            leases = list(self._auto_rest_leases.values())
+            self._auto_rest_leases.clear()
+        timeout_s = self._auto_rest_timeout_hint_s()
+        for lease in leases:
+            try:
+                self._client_auto_rest_suspend_release(
+                    self.clients[lease.robot_id],
+                    lease_id=lease.lease_id,
+                    timeout_s=timeout_s,
+                )
+            except Exception as exc:
+                if log_warnings:
+                    self._log(
+                        f"Robot {lease.robot_id}: auto-rest suspend release warning ({exc}). "
+                        "Lease verloopt vanzelf als de DM hem niet meer kan vernieuwen."
+                    )
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._release_auto_rest_leases(log_warnings=True)
+        if not self._log_handle.closed:
+            self._log_handle.close()
+        self._closed = True
+
     def _tts_preload_abs_path(self, rel_path: str) -> Path:
         if self.tts_preload_root is None:
             raise RuntimeError("tts preload root ontbreekt.")
@@ -184,8 +397,9 @@ class ScriptRunner:
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {message}"
         print(line)
-        self._log_handle.write(line + "\n")
-        self._log_handle.flush()
+        if not self._log_handle.closed:
+            self._log_handle.write(line + "\n")
+            self._log_handle.flush()
         self._emit_event("log", message=line)
 
     def _emit_event(self, event_type: str, **payload: Any) -> None:
@@ -202,7 +416,34 @@ class ScriptRunner:
     def _abort_requested(self) -> bool:
         return bool(self.abort_event is not None and self.abort_event.is_set())
 
+    @staticmethod
+    def _fallback_manual_disable_hint() -> str:
+        return "Handmatige fallback: zet auto-rest in de DM op uit (nao_auto_rest_after_s = 0)."
+
+    def _get_auto_rest_lease_failure(self) -> Optional[str]:
+        with self._auto_rest_lease_lock:
+            value = self._auto_rest_lease_failure
+        return str(value) if value else None
+
+    def _set_auto_rest_lease_failure(self, message: str) -> None:
+        normalized = str(message or "").strip()
+        if not normalized:
+            return
+        should_log = False
+        with self._auto_rest_lease_lock:
+            if self._auto_rest_lease_failure:
+                return
+            self._auto_rest_lease_failure = normalized
+            should_log = True
+        if should_log:
+            self._log(normalized)
+
     def _raise_if_abort_requested(self, *, context: str = "") -> None:
+        lease_failure = self._get_auto_rest_lease_failure()
+        if lease_failure:
+            if context:
+                raise RuntimeError(f"{context}: {lease_failure}")
+            raise RuntimeError(lease_failure)
         if not self._abort_requested():
             return
         message = "Abort requested"
@@ -665,27 +906,32 @@ class ScriptRunner:
     def preflight(self) -> None:
         self._emit_event("status", status="preflight")
         self._log("Preflight: checking robot DM capabilities...")
-        ready_info = self._wait_for_readiness()
-        for robot_id in sorted(self.clients.keys()):
-            info = ready_info.get(robot_id) or {}
-            supports = info.get("supports", {}) if isinstance(info, dict) else {}
-            runtime = info.get("runtime_config", {}) if isinstance(info, dict) else {}
-            self._log(f"Robot {robot_id}: capabilities OK ({supports})")
-            self._log(
-                "Robot {rid}: runtime nao_ip={ip} base={base} out={out}/{tts}".format(
-                    rid=robot_id,
-                    ip=runtime.get("nao_ip"),
-                    base=runtime.get("nao_base_url"),
-                    out=runtime.get("output_target"),
-                    tts=runtime.get("tts_engine"),
+        self._ensure_auto_rest_leases()
+        try:
+            ready_info = self._wait_for_readiness()
+            for robot_id in sorted(self.clients.keys()):
+                info = ready_info.get(robot_id) or {}
+                supports = info.get("supports", {}) if isinstance(info, dict) else {}
+                runtime = info.get("runtime_config", {}) if isinstance(info, dict) else {}
+                self._log(f"Robot {robot_id}: capabilities OK ({supports})")
+                self._log(
+                    "Robot {rid}: runtime nao_ip={ip} base={base} out={out}/{tts}".format(
+                        rid=robot_id,
+                        ip=runtime.get("nao_ip"),
+                        base=runtime.get("nao_base_url"),
+                        out=runtime.get("output_target"),
+                        tts=runtime.get("tts_engine"),
+                    )
                 )
-            )
-            preload_mode = str(self.tts_preload_robot_modes.get(robot_id) or "live")
-            if preload_mode != "live":
-                self._log(f"Robot {robot_id}: tts preload mode {preload_mode}")
+                preload_mode = str(self.tts_preload_robot_modes.get(robot_id) or "live")
+                if preload_mode != "live":
+                    self._log(f"Robot {robot_id}: tts preload mode {preload_mode}")
 
-        self._prepare_ppt_if_needed()
-        self._log("Preflight complete.")
+            self._prepare_ppt_if_needed()
+            self._log("Preflight complete.")
+        except Exception:
+            self._release_auto_rest_leases(log_warnings=True)
+            raise
 
     def _wait_for_step_start(self, step: Dict[str, Any], index: int, total: int) -> None:
         start = step.get("start") or {}
@@ -1066,6 +1312,8 @@ class ScriptRunner:
         msg = str(exc or "").strip().lower()
         if not msg:
             return False
+        if "auto-rest suspend" in msg:
+            return False
         timeout_markers = (
             "timed out",
             "timeout",
@@ -1094,6 +1342,7 @@ class ScriptRunner:
                 self._emit_event("step_start", index=index, total=total, step_id=step_id)
                 self._log(f"[{index + 1}/{total}] {step_id}: executing")
                 response = self._execute_step_action(step, index=index, total=total)
+                self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
                 self._log(f"[{index + 1}/{total}] {step_id}: OK -> {response}")
                 return "completed"
             except _RunAbortRequested:
@@ -1149,6 +1398,7 @@ class ScriptRunner:
                         self._emit_event("step_error", index=step_index, total=total, step_id=step_id, error=str(exc))
                         failures.append((step_index, step, exc))
                     else:
+                        self._raise_if_abort_requested(context=f"[{step_index + 1}/{total}] {step_id}")
                         self._log(f"[{step_index + 1}/{total}] {step_id}: OK -> {response}")
                         self._emit_event("step_done", index=step_index, total=total, step_id=step_id, status="completed")
                         completed += 1
@@ -1167,6 +1417,7 @@ class ScriptRunner:
                     self._emit_event("step_error", index=step_index, total=total, step_id=step_id, error=str(exc))
                     failures.append((step_index, step, exc))
                     continue
+                self._raise_if_abort_requested(context=f"[{step_index + 1}/{total}] {step_id}")
                 self._log(f"[{step_index + 1}/{total}] {step_id}: OK -> {response}")
                 self._emit_event("step_done", index=step_index, total=total, step_id=step_id, status="completed")
                 completed += 1
@@ -1204,6 +1455,7 @@ class ScriptRunner:
         completed = 0
         total = len(steps)
         aborted = False
+        self._ensure_auto_rest_leases()
         self._emit_event("status", status="running", completed_steps=0, total_steps=total)
         try:
             self._prepare_ppt_if_needed()
@@ -1265,7 +1517,10 @@ class ScriptRunner:
             self._log(str(exc))
             self._emit_event("status", status="aborted", completed_steps=completed, total_steps=total, error=str(exc))
         finally:
-            self._log_handle.close()
+            self._release_auto_rest_leases(log_warnings=True)
+            if not self._log_handle.closed:
+                self._log_handle.close()
+            self._closed = True
         if not aborted:
             self._emit_event("status", status="completed", completed_steps=completed, total_steps=total)
 

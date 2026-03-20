@@ -54,21 +54,34 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     runner = ScriptRunner(script)
+    close_runner = getattr(runner, "close", None)
     try:
+        print(
+            "Warning: the console script runner is deprecated; use the Script Builder web runner as the primary path.",
+            file=sys.stderr,
+        )
         runner.preflight()
     except Exception as exc:
         print(f"Preflight failed: {exc}", file=sys.stderr)
+        if callable(close_runner):
+            close_runner()
         return 3
 
     try:
         result = runner.run()
     except Exception as exc:
         print(f"Run failed: {exc}", file=sys.stderr)
+        if callable(close_runner):
+            close_runner()
         return 4
     if result.aborted:
         print(f"Run aborted after {result.completed_steps}/{result.total_steps} steps. Log: {result.log_path}")
+        if callable(close_runner):
+            close_runner()
         return 1
     print(f"Run complete: {result.completed_steps}/{result.total_steps} steps. Log: {result.log_path}")
+    if callable(close_runner):
+        close_runner()
     return 0
 
 

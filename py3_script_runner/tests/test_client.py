@@ -61,3 +61,71 @@ def test_dm_client_nao_set_eye_color_calls_expected_endpoint(monkeypatch):
             {"timeout": 9.0, "json": {"color": "#00ff00", "duration": 0.4}},
         )
     ]
+
+
+def test_dm_client_auto_rest_suspend_endpoints(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            return _Resp({"ok": True})
+
+    monkeypatch.setattr("py3_script_runner.client.requests.Session", FakeSession)
+
+    client = DMClient("http://127.0.0.1:5301")
+    client.auto_rest_suspend_acquire(
+        lease_id="lease-1",
+        owner="script_runner",
+        reason="script_run",
+        ttl_s=30.0,
+        timeout_s=7.0,
+    )
+    client.auto_rest_suspend_renew(
+        lease_id="lease-1",
+        owner="script_runner",
+        ttl_s=30.0,
+        timeout_s=8.0,
+    )
+    client.auto_rest_suspend_release(
+        lease_id="lease-1",
+        timeout_s=6.0,
+    )
+
+    assert calls == [
+        (
+            "POST",
+            "http://127.0.0.1:5301/api/auto_rest_suspend/acquire",
+            {
+                "timeout": 7.0,
+                "json": {
+                    "lease_id": "lease-1",
+                    "owner": "script_runner",
+                    "reason": "script_run",
+                    "ttl_s": 30.0,
+                },
+            },
+        ),
+        (
+            "POST",
+            "http://127.0.0.1:5301/api/auto_rest_suspend/renew",
+            {
+                "timeout": 8.0,
+                "json": {
+                    "lease_id": "lease-1",
+                    "owner": "script_runner",
+                    "ttl_s": 30.0,
+                },
+            },
+        ),
+        (
+            "POST",
+            "http://127.0.0.1:5301/api/auto_rest_suspend/release",
+            {
+                "timeout": 6.0,
+                "json": {
+                    "lease_id": "lease-1",
+                },
+            },
+        ),
+    ]

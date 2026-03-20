@@ -110,6 +110,57 @@ class BehaviorExecutor(ICommandExecutor):
         except Exception as exc:
             print(f"[NAO] on_finish callback failed: {exc}")
 
+    @staticmethod
+    def _response_status(data: object) -> str:
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("status") or "").strip().lower()
+
+    @staticmethod
+    def _payload_dict(data: object) -> Optional[dict]:
+        if not isinstance(data, dict):
+            return None
+        payload = data.get("data")
+        return payload if isinstance(payload, dict) else None
+
+    @classmethod
+    def _behavior_error_from_payload(cls, data: object, *, behavior: str) -> tuple[str, Optional[str]]:
+        status = cls._response_status(data)
+        if not isinstance(data, dict):
+            return "error", "Behavior endpoint gaf een ongeldig antwoord terug."
+
+        err_txt = str(data.get("error") or "").strip()
+        err_lower = err_txt.lower()
+        payload_data = cls._payload_dict(data) or {}
+        if "already running" in err_lower or payload_data.get("already_running") is True:
+            return "already_running", None
+        if payload_data.get("installed") is False:
+            return "error", "Behavior niet geinstalleerd op deze robot."
+        if payload_data.get("ran") is False:
+            return "error", "Behavior startte niet."
+        if payload_data.get("is_awake") is False:
+            return "error", f"Behavior {behavior} niet uitgevoerd: robot meldt rust/wake-state false."
+        if status in ("", "ok"):
+            return "ok", None
+        if err_txt:
+            return "error", err_txt
+        return "error", f"Behavior {behavior} gaf status={status}."
+
+    @classmethod
+    def _action_error_from_payload(cls, data: object, *, action: str) -> Optional[str]:
+        status = cls._response_status(data)
+        if not isinstance(data, dict):
+            return f"{action} gaf een ongeldig antwoord terug."
+        if status in ("", "ok"):
+            return None
+        err_txt = str(data.get("error") or "").strip()
+        if err_txt:
+            return err_txt
+        payload = data.get("data")
+        if isinstance(payload, str) and payload.strip():
+            return payload.strip()
+        return f"{action} gaf status={status}."
+
     def execute(self, cmd: CommandDecision) -> None:
         started_at = time.time()
         label = self._normalize_label(cmd.label)
@@ -119,9 +170,23 @@ class BehaviorExecutor(ICommandExecutor):
             self._log_exec(label=label, started_at=started_at, result="ok")
             return
         if label == "REST":
-            self._rest(timeout_s=self.timeout_s)
-            self._notify_finish(cmd)
-            self._log_exec(label=label, started_at=started_at, result="ok")
+            exec_error: Optional[Exception] = None
+            exec_result = "ok"
+            try:
+                self._rest(timeout_s=self.timeout_s)
+            except Exception as exc:
+                exec_result = "error"
+                exec_error = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
+            finally:
+                self._notify_finish(cmd)
+                self._log_exec(
+                    label=label,
+                    started_at=started_at,
+                    result=exec_result,
+                    error=str(exec_error) if exec_error is not None else None,
+                )
+            if exec_error is not None:
+                raise exec_error
             return
         if label == "STAND_UP":
             self._wake_up_if_rest(timeout_s=self.timeout_s)
@@ -148,28 +213,12 @@ class BehaviorExecutor(ICommandExecutor):
             try:
                 data = resp.json()
             except ValueError:
-                data = None
-            if isinstance(data, dict) and data.get("status") not in (None, "ok"):
-                status = str(data.get("status") or "").strip().lower() or "error"
-                err = data.get("error")
-                err_txt = str(err or "")
-                if "already running" in err_txt.lower():
-                    exec_result = "already_running"
-                    err = None
-                if not err:
-                    payload_data = data.get("data")
-                    if isinstance(payload_data, dict):
-                        if payload_data.get("already_running") is True:
-                            exec_result = "already_running"
-                            err = None
-                        elif payload_data.get("installed") is False:
-                            err = "Behavior niet geinstalleerd op deze robot."
-                        elif payload_data.get("ran") is False:
-                            err = "Behavior startte niet."
-                if err:
-                    msg = str(err or f"behavior status={status}")
-                    exec_result = "error"
-                    exec_error = RuntimeError(msg)
+                exec_result = "error"
+                exec_error = RuntimeError("Behavior endpoint gaf geen JSON terug.")
+            else:
+                exec_result, error_text = self._behavior_error_from_payload(data, behavior=behavior)
+                if error_text:
+                    exec_error = RuntimeError(error_text)
         except requests.RequestException as exc:
             msg = str(exc)
             if "already running" in msg.lower():
@@ -233,11 +282,19 @@ class BehaviorExecutor(ICommandExecutor):
         payload = {}
         try:
             if self.api_router is not None:
-                self.api_router.post("/rest", json=payload, timeout=timeout_s)
+                resp = self.api_router.post("/rest", json=payload, timeout=timeout_s)
             else:
-                requests.post(f"{self.base_url}/rest", json=payload, timeout=timeout_s)
+                resp = requests.post(f"{self.base_url}/rest", json=payload, timeout=timeout_s)
+            resp.raise_for_status()
+            try:
+                data = resp.json()
+            except ValueError as exc:
+                raise RuntimeError("REST endpoint gaf geen JSON terug.") from exc
         except requests.RequestException as exc:
-            print(f"[NAO] rest request failed: {exc}")
+            raise RuntimeError(str(exc)) from exc
+        error_text = self._action_error_from_payload(data, action="REST")
+        if error_text:
+            raise RuntimeError(error_text)
 
     def _get_posture(self) -> Optional[str]:
         try:

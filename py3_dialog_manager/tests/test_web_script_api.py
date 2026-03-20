@@ -46,6 +46,16 @@ class StubExecutor:
         self.calls.append(str(getattr(cmd, "label", "")))
 
 
+class FailingExecutor:
+    def __init__(self, message: str) -> None:
+        self.message = str(message)
+        self.calls: list[str] = []
+
+    def execute(self, cmd) -> None:
+        self.calls.append(str(getattr(cmd, "label", "")))
+        raise RuntimeError(self.message)
+
+
 class StubCmdrec:
     def __init__(self) -> None:
         self._labels = ["STOP", "DANCE", "WALK_WITH_ME"]
@@ -293,6 +303,21 @@ def test_script_do_dance_unknown_key_returns_dance_not_found(monkeypatch):
     assert data["error"] == "dance_not_found"
 
 
+def test_script_do_command_returns_executor_failure_and_logs_script_action_error(monkeypatch):
+    executor = FailingExecutor("Behavior greetings/wave niet uitgevoerd: robot meldt rust/wake-state false.")
+    app, _ = _make_app(monkeypatch, executor=executor, cmdrec=StubCmdrec())
+    client = app.test_client()
+
+    resp = client.post("/api/script/do", json={"mode": "command", "label": "WAVE"})
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "wake-state false" in data["error"]
+
+    events = client.get("/api/dm_events?event=script_action_error&limit=10").get_json()["events"]
+    assert any(evt.get("data", {}).get("mode") == "command" for evt in events)
+
+
 def test_api_dance_catalog_filters_unavailable_behaviors(monkeypatch):
     def fake_get(url, timeout=0, **_kwargs):
         if url == "http://base:5000/ping":
@@ -389,6 +414,33 @@ def test_script_do_behavior_modes_reuse_behavior_endpoints(monkeypatch):
     urls = [u for (u, _k) in calls]
     assert any(url.endswith("/nao/do_behavior") for url in urls)
     assert any(url.endswith("/nao/stop_behavior") for url in urls)
+
+
+def test_script_do_behavior_start_surfaces_warning_payload_as_failure(monkeypatch):
+    def fake_post(url, **kwargs):
+        return _Resp({"status": "warning", "data": {"behavior": "walkwithme/walkwithme", "is_awake": False}})
+
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+    app, _ = _make_app(monkeypatch, executor=StubExecutor(), cmdrec=StubCmdrec())
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "behavior_enabled": False,
+                "base_enabled": True,
+                "nao_base_url": "http://base:5000",
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post("/api/script/do", json={"mode": "behavior_start", "behavior": "walkwithme/walkwithme"})
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "wake-state false" in data["error"]
 
 
 def test_script_do_command_builds_runtime_pipeline_for_new_sid(monkeypatch):

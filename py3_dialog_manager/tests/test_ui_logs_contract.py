@@ -74,6 +74,21 @@ def test_logs_tab_exposes_dm_events_controls(monkeypatch):
 
 
 @pytest.mark.ui_contract
+def test_commands_tab_exposes_posture_and_auto_rest_pills(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert 'id="cmdNaoPostureState"' in html
+    assert 'id="cmdNaoAutoRestState"' in html
+    assert "function currentCmdNaoAutoRestRemaining()" in html
+    assert "fetch('/api/nao_command_state')" in html
+
+
+@pytest.mark.ui_contract
 def test_logs_sync_behavior_is_manual_when_logs_tab_is_active(monkeypatch):
     app = _make_app(monkeypatch)
     client = app.test_client()

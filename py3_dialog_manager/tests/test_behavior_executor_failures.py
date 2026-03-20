@@ -59,6 +59,39 @@ def test_behavior_executor_raises_on_request_error_and_calls_finish(monkeypatch)
     assert finished == ["DANCE"]
 
 
+def test_behavior_executor_raises_on_warning_payload_when_robot_reports_rest(monkeypatch):
+    def fake_post(url, **kwargs):
+        return _Resp({"status": "warning", "data": {"behavior": "dances/stoomboot", "is_awake": False}})
+
+    monkeypatch.setattr("dialog.behavior_executor.requests.post", fake_post)
+    finished = []
+    ex = BehaviorExecutor(base_url="http://base:5000", timeout_s=1.0, on_finish=lambda cmd: finished.append(cmd.label))
+    cmd = CommandDecision(
+        label="DANCE",
+        confidence=1.0,
+        raw_text="stoomboot",
+        resolved={"dance_behavior": "dances/stoomboot"},
+    )
+
+    with pytest.raises(RuntimeError, match="wake-state false"):
+        ex.execute(cmd)
+    assert finished == ["DANCE"]
+
+
+def test_behavior_executor_rest_raises_on_error_payload_and_calls_finish(monkeypatch):
+    def fake_post(url, **kwargs):
+        return _Resp({"status": "error", "error": "rest failed"})
+
+    monkeypatch.setattr("dialog.behavior_executor.requests.post", fake_post)
+    finished = []
+    ex = BehaviorExecutor(base_url="http://base:5000", timeout_s=1.0, on_finish=lambda cmd: finished.append(cmd.label))
+    cmd = CommandDecision(label="REST", confidence=1.0, raw_text="rest", resolved={})
+
+    with pytest.raises(RuntimeError, match="rest failed"):
+        ex.execute(cmd)
+    assert finished == ["REST"]
+
+
 def test_console_wrapper_calls_finish_even_when_executor_fails():
     class FailingExec:
         def execute(self, cmd):
