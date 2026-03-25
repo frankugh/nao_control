@@ -44,15 +44,25 @@ import {
   const btnRunAbort = document.getElementById("btnRunAbort");
   const btnPreloadAudio = document.getElementById("btnPreloadAudio");
   const btnPreloadPrune = document.getElementById("btnPreloadPrune");
+  const summaryBanner = document.getElementById("summaryBanner");
   const btnTabJson = document.getElementById("btnTabJson");
+  const btnTabConfig = document.getElementById("btnTabConfig");
   const btnTabBlocks = document.getElementById("btnTabBlocks");
   const jsonView = document.getElementById("jsonView");
+  const configView = document.getElementById("configView");
   const blocksView = document.getElementById("blocksView");
-  const blocksConfigSection = document.getElementById("blocksConfigSection");
   const blocksConfigSummary = document.getElementById("blocksConfigSummary");
   const blocksConfigJson = document.getElementById("blocksConfigJson");
   const btnApplyConfig = document.getElementById("btnApplyConfig");
+  const btnUndoConfig = document.getElementById("btnUndoConfig");
+  const btnRedoConfig = document.getElementById("btnRedoConfig");
   const blocksConfigError = document.getElementById("blocksConfigError");
+  const btnApplyJson = document.getElementById("btnApplyJson");
+  const jsonError = document.getElementById("jsonError");
+  const btnUndoJson = document.getElementById("btnUndoJson");
+  const btnRedoJson = document.getElementById("btnRedoJson");
+  const editorPosition = document.getElementById("editorPosition");
+  const jsonLineNumbers = document.getElementById("jsonLineNumbers");
   const stepsCards = document.getElementById("stepsCards");
   const blocksStepCount = document.getElementById("blocksStepCount");
   const stepInspector = document.getElementById("stepInspector");
@@ -102,8 +112,12 @@ import {
   let pollPausedByNetworkError = false;
   let dmStartResultState = [];
   let lastRunLogAutoOpenSignal = "";
+  let jsonHistoryStack = [];
+  let jsonHistoryIndex = -1;
+  let configHistoryStack = [];
+  let configHistoryIndex = -1;
 
-  let viewMode = "json";
+  let viewMode = "blocks";
   let blocksSessionActive = false;
   let scriptState = null;
   let selectedStepIndex = null;
@@ -129,6 +143,93 @@ import {
   let dismissedConnectivityDialogSignature = "";
   let currentConnectivityDialogSource = "";
   let lastDirectConnectivitySignal = "";
+  let lastSummaryAutoOpenSignal = "";
+  let preflightConnectivityDialogShown = false;
+
+  function updateJsonLineNumbers() {
+    const lines = editorJson.value.split("\n");
+    jsonLineNumbers.replaceChildren();
+    lines.forEach((_, index) => {
+      const li = document.createElement("li");
+      li.textContent = String(index + 1);
+      jsonLineNumbers.appendChild(li);
+    });
+  }
+
+  function updateJsonEditorPosition() {
+    const text = editorJson.value;
+    const cursorPos = editorJson.selectionStart;
+    const lines = text.substring(0, cursorPos).split("\n");
+    const lineNum = lines.length;
+    const colNum = lines[lines.length - 1].length + 1;
+    editorPosition.textContent = `Ln ${lineNum}, Col ${colNum}`;
+  }
+
+  function pushJsonHistory() {
+    jsonHistoryIndex += 1;
+    if (jsonHistoryIndex < jsonHistoryStack.length) {
+      jsonHistoryStack.length = jsonHistoryIndex;
+    }
+    jsonHistoryStack.push(editorJson.value);
+    btnUndoJson.disabled = jsonHistoryIndex === 0;
+    btnRedoJson.disabled = true;
+  }
+
+  function jsonUndo() {
+    if (jsonHistoryIndex > 0) {
+      jsonHistoryIndex -= 1;
+      editorJson.value = jsonHistoryStack[jsonHistoryIndex];
+      updateJsonLineNumbers();
+      updateJsonEditorPosition();
+      setDirty(true);
+      btnUndoJson.disabled = jsonHistoryIndex === 0;
+      btnRedoJson.disabled = jsonHistoryIndex >= jsonHistoryStack.length - 1;
+    }
+  }
+
+  function jsonRedo() {
+    if (jsonHistoryIndex < jsonHistoryStack.length - 1) {
+      jsonHistoryIndex += 1;
+      editorJson.value = jsonHistoryStack[jsonHistoryIndex];
+      updateJsonLineNumbers();
+      updateJsonEditorPosition();
+      setDirty(true);
+      btnUndoJson.disabled = jsonHistoryIndex === 0;
+      btnRedoJson.disabled = jsonHistoryIndex >= jsonHistoryStack.length - 1;
+    }
+  }
+
+  function pushConfigHistory() {
+    configHistoryIndex += 1;
+    if (configHistoryIndex < configHistoryStack.length) {
+      configHistoryStack.length = configHistoryIndex;
+    }
+    configHistoryStack.push(blocksConfigJson.value);
+    btnUndoConfig.disabled = configHistoryIndex === 0;
+    btnRedoConfig.disabled = true;
+  }
+
+  function configUndo() {
+    if (configHistoryIndex > 0) {
+      configHistoryIndex -= 1;
+      blocksConfigJson.value = configHistoryStack[configHistoryIndex];
+      setDirty(true);
+      validateConfigDraft();
+      btnUndoConfig.disabled = configHistoryIndex === 0;
+      btnRedoConfig.disabled = configHistoryIndex >= configHistoryStack.length - 1;
+    }
+  }
+
+  function configRedo() {
+    if (configHistoryIndex < configHistoryStack.length - 1) {
+      configHistoryIndex += 1;
+      blocksConfigJson.value = configHistoryStack[configHistoryIndex];
+      setDirty(true);
+      validateConfigDraft();
+      btnUndoConfig.disabled = configHistoryIndex === 0;
+      btnRedoConfig.disabled = configHistoryIndex >= configHistoryStack.length - 1;
+    }
+  }
 
   function setStatus(message, level) {
     statusMessage.textContent = message;
@@ -166,6 +267,12 @@ import {
   function setEditorText(text, options) {
     const dirty = options && options.dirty === true;
     editorJson.value = text;
+    updateJsonLineNumbers();
+    updateJsonEditorPosition();
+    jsonHistoryStack = [text];
+    jsonHistoryIndex = 0;
+    btnUndoJson.disabled = true;
+    btnRedoJson.disabled = true;
     setDirty(dirty);
   }
 
@@ -190,26 +297,25 @@ import {
   }
 
   function setViewMode(mode) {
-    viewMode = mode === "blocks" ? "blocks" : "json";
+    viewMode = mode === "json" || mode === "config" || mode === "blocks" ? mode : "blocks";
+    const isJson = viewMode === "json";
+    const isConfig = viewMode === "config";
     const isBlocks = viewMode === "blocks";
-    btnTabJson.classList.toggle("is-active", !isBlocks);
+    btnTabJson.classList.toggle("is-active", isJson);
+    btnTabConfig.classList.toggle("is-active", isConfig);
     btnTabBlocks.classList.toggle("is-active", isBlocks);
-    jsonView.classList.toggle("is-hidden", isBlocks);
+    jsonView.classList.toggle("is-hidden", !isJson);
+    configView.classList.toggle("is-hidden", !isConfig);
     blocksView.classList.toggle("is-hidden", !isBlocks);
-    syncBlocksConfigOpenState();
-  }
-
-  function syncBlocksConfigOpenState() {
-    blocksView.classList.toggle("is-config-open", viewMode === "blocks" && !!blocksConfigSection.open);
   }
 
   function resizeBlocksConfigEditor() {
     if (!(blocksConfigJson instanceof HTMLTextAreaElement)) {
       return;
     }
-    blocksConfigJson.style.height = "auto";
-    const nextHeight = Math.max(260, blocksConfigJson.scrollHeight || 0);
-    blocksConfigJson.style.height = String(nextHeight) + "px";
+    // Keep the config editor height stable in the layout and allow an internal scroll.
+    blocksConfigJson.style.height = "";
+    blocksConfigJson.style.overflowY = "auto";
   }
 
   function restoreScrollPosition(container, previousTop) {
@@ -553,12 +659,26 @@ import {
       }
       return false;
     }
-    return openConnectivityDialog({
+
+    // Only show the preflight connectivity popup once per preflight session.
+    if (runtimeState && String(runtimeState.status || "").toLowerCase() === "preflight") {
+      if (preflightConnectivityDialogShown) {
+        return false;
+      }
+    }
+
+    const opened = openConnectivityDialog({
       title: dialogState.title || "Verbindingsverlies",
       intro: Array.isArray(dialogState.intro) ? dialogState.intro : [],
       robots: dialogState.robots,
       buttons: [],
     });
+
+    if (opened && runtimeState && String(runtimeState.status || "").toLowerCase() === "preflight") {
+      preflightConnectivityDialogShown = true;
+    }
+
+    return opened;
   }
 
   function buildPollingConnectivityDialogState(entries) {
@@ -574,6 +694,9 @@ import {
     const signatureParts = [];
     const robots = [];
     (Array.isArray(entries) ? entries : []).forEach((entry) => {
+      if (entry && entry.nao_enabled === false) {
+        return;
+      }
       const activeIssues = normalizeConnectivityIssues(entry && entry.connectivity_issues).filter((issue) => issue.active);
       const visibleIssues = [];
       activeIssues.forEach((issue) => {
@@ -715,20 +838,35 @@ import {
     const awake = entry && isObject(entry.awake) ? entry.awake : {};
     const posture = entry && isObject(entry.posture) ? entry.posture : {};
     const connectivityIssues = normalizeConnectivityIssues(entry && entry.connectivity_issues);
+    const naoEnabledRaw = entry && typeof entry.nao_enabled === "boolean" ? entry.nao_enabled : null;
+    const naoEnabled = naoEnabledRaw === null ? true : !!naoEnabledRaw;
+    const virtualRobot = !!(entry && entry.virtual_robot) || !naoEnabled;
     return {
       robot_id: String((entry && entry.robot_id) || "?"),
       dm_url: String((entry && entry.dm_url) || "").trim(),
       instance_id: String((entry && entry.instance_id) || "").trim(),
+      nao_enabled: naoEnabled,
+      virtual_robot: virtualRobot,
       ok: !!(entry && entry.ok),
       reachable: !!(entry && entry.reachable),
-      error: String((entry && entry.error) || "").trim(),
+      error: naoEnabled ? String((entry && entry.error) || "").trim() : "",
       awake_value: awake && awake.ok && typeof awake.is_awake === "boolean" ? awake.is_awake : null,
       posture_value: posture && posture.ok && posture.posture ? String(posture.posture) : "",
       connectivity_issues: connectivityIssues,
     };
   }
 
+  function formatRobotModeText(entry) {
+    if (!entry || entry.nao_enabled !== false) {
+      return "";
+    }
+    return "modus: virtuele robot";
+  }
+
   function formatRobotMotorText(entry) {
+    if (entry && entry.nao_enabled === false) {
+      return "motoren: disabled";
+    }
     if (!entry || entry.ok !== true) {
       return "motoren: niet beschikbaar";
     }
@@ -739,6 +877,9 @@ import {
   }
 
   function formatRobotPostureText(entry) {
+    if (entry && entry.nao_enabled === false) {
+      return "posture: disabled";
+    }
     if (!entry || entry.ok !== true) {
       return "posture: niet beschikbaar";
     }
@@ -794,7 +935,7 @@ import {
 
       const lines = document.createElement("div");
       lines.className = "robot-status-lines";
-      [formatRobotMotorText(entry), formatRobotPostureText(entry)].forEach((text) => {
+      [formatRobotModeText(entry), formatRobotMotorText(entry), formatRobotPostureText(entry)].filter(Boolean).forEach((text) => {
         const line = document.createElement("div");
         line.className = "robot-status-line";
         line.textContent = text;
@@ -1118,6 +1259,8 @@ import {
   function setRuntimeButtons(state) {
     const status = state && state.status ? String(state.status) : "idle";
     const waiting = !!(state && state.waiting_for_next);
+    const summaryActive = !!(state && state.summary_active);
+    const summaryWaiting = !!(state && state.summary_waiting);
     const blockedByBlocks = hasBlockingBlockErrors(blocksConfigErrorMessage, blocksStepErrors);
     const activeRun = isActiveRunStatus(status);
     btnRunStart.textContent = preloadRequestInFlight
@@ -1135,8 +1278,8 @@ import {
         status === "completed" ||
         status === "aborted" ||
         status === "failed"
-      ) || blockedByBlocks || preloadRequestInFlight || runStartRequestInFlight;
-    btnRunNext.disabled = !waiting;
+      ) || blockedByBlocks || preloadRequestInFlight || runStartRequestInFlight || summaryActive;
+    btnRunNext.disabled = !waiting || summaryWaiting;
     btnRunAbort.disabled = !activeRun;
     if (btnPreloadAudio) {
       btnPreloadAudio.disabled = blockedByBlocks || activeRun || preloadRequestInFlight || runStartRequestInFlight;
@@ -1395,9 +1538,159 @@ import {
     runLogDetails.open = true;
   }
 
+  function openSummaryUrl(url) {
+    const targetUrl = String(url || "").trim();
+    if (!targetUrl) {
+      setStatus("Summary URL ontbreekt.", "error");
+      return false;
+    }
+    const win = window.open(targetUrl, "_blank", "noopener");
+    if (!win) {
+      setStatus("Kon summary niet in een nieuw tabblad openen. Gebruik eventueel popup-toestemming.", "warn");
+      return false;
+    }
+    return true;
+  }
+
+  function buildSummaryBannerMessage(state) {
+    const waiting = !!(state && state.summary_waiting);
+    const connectionOk = !(state && state.summary_connection_ok === false);
+    if (!connectionOk) {
+      return "Verbinding met summary tijdelijk verloren. We proberen opnieuw.";
+    }
+    if (waiting) {
+      return "Dit script wacht tot de samenvatting is afgerond.";
+    }
+    return "De samenvatting blijft actief in DM. Open de summarypagina om verder te gaan of annuleer de sessie.";
+  }
+
+  async function sendSummaryAbort() {
+    ensureRunPolling();
+    const choice = await openActionDialog({
+      title: "Samenvatting annuleren",
+      intro: ["Weet je zeker dat je de actieve samenvatting wilt annuleren?"],
+      buttons: [
+        { id: "cancel", label: "Terug" },
+        { id: "confirm", label: "Samenvatting annuleren", tone: "primary" },
+      ],
+    });
+    if (choice !== "confirm") {
+      return;
+    }
+    try {
+      const payload = await fetchJson("/api/run/summary_abort", { method: "POST" });
+      renderRuntimeState(payload);
+      setStatus("Samenvatting annuleren verstuurd.", "warn");
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      setStatus("Samenvatting annuleren mislukt: " + message, "error");
+    }
+    await refreshRunState({ silent: true });
+  }
+
+  function renderSummaryBanner(state) {
+    if (!(summaryBanner instanceof HTMLElement)) {
+      return;
+    }
+    summaryBanner.replaceChildren();
+    const active = !!(state && state.summary_active);
+    if (!active) {
+      summaryBanner.classList.add("is-hidden");
+      summaryBanner.classList.remove("is-async", "is-error");
+      return;
+    }
+
+    const waiting = !!(state && state.summary_waiting);
+    const connectionOk = !(state && state.summary_connection_ok === false);
+    const status = state && state.summary_status ? String(state.summary_status) : "unknown";
+    const lastError = state && state.summary_last_error ? String(state.summary_last_error).trim() : "";
+    const url = state && state.summary_url ? String(state.summary_url) : "";
+
+    summaryBanner.classList.remove("is-hidden", "is-async", "is-error");
+    if (!waiting) {
+      summaryBanner.classList.add("is-async");
+    }
+    if (!connectionOk) {
+      summaryBanner.classList.add("is-error");
+    }
+
+    const head = document.createElement("div");
+    head.className = "summary-banner-head";
+
+    const title = document.createElement("div");
+    title.className = "summary-banner-title";
+    title.textContent = "Samenvatting actief.";
+    head.appendChild(title);
+
+    const statusEl = document.createElement("div");
+    statusEl.className = "summary-banner-status";
+    statusEl.textContent = "Status: " + status;
+    head.appendChild(statusEl);
+    summaryBanner.appendChild(head);
+
+    const copy = document.createElement("div");
+    copy.className = "summary-banner-copy";
+    const main = document.createElement("p");
+    main.textContent = buildSummaryBannerMessage(state);
+    copy.appendChild(main);
+    if (lastError) {
+      const detail = document.createElement("p");
+      detail.textContent = lastError;
+      copy.appendChild(detail);
+    }
+    summaryBanner.appendChild(copy);
+
+    const actions = document.createElement("div");
+    actions.className = "row-actions summary-banner-actions";
+
+    const btnOpen = document.createElement("button");
+    btnOpen.type = "button";
+    btnOpen.textContent = "Open summary";
+    btnOpen.disabled = !url;
+    btnOpen.addEventListener("click", function () {
+      openSummaryUrl(url);
+    });
+    actions.appendChild(btnOpen);
+
+    const btnCancelSummary = document.createElement("button");
+    btnCancelSummary.type = "button";
+    btnCancelSummary.textContent = "Samenvatting annuleren";
+    btnCancelSummary.addEventListener("click", async function () {
+      await sendSummaryAbort();
+    });
+    actions.appendChild(btnCancelSummary);
+
+    summaryBanner.appendChild(actions);
+  }
+
+  function maybeAutoOpenSummary(state) {
+    const active = !!(state && state.summary_active);
+    const url = state && state.summary_url ? String(state.summary_url) : "";
+    const nonce = Number(state && state.summary_open_nonce);
+    if (!active || !url || !Number.isFinite(nonce) || nonce <= 0) {
+      if (!active) {
+        lastSummaryAutoOpenSignal = "";
+      }
+      return;
+    }
+    const signal = [
+      String((state && state.run_id) || ""),
+      String((state && state.summary_session_id) || ""),
+      String(nonce),
+    ].join("|");
+    if (!signal || signal === lastSummaryAutoOpenSignal) {
+      return;
+    }
+    lastSummaryAutoOpenSignal = signal;
+    openSummaryUrl(url);
+  }
+
   function renderRuntimeState(state) {
     runtimeState = state || null;
     const status = state && state.status ? String(state.status) : "idle";
+    if (status !== "preflight") {
+      preflightConnectivityDialogShown = false;
+    }
     const completed = state && typeof state.completed_steps === "number" ? state.completed_steps : 0;
     const total = state && typeof state.total_steps === "number" ? state.total_steps : 0;
     const stepLabel = state && state.current_step_id ? String(state.current_step_id) : "-";
@@ -1408,6 +1701,8 @@ import {
     runStep.textContent = stepLabel;
     updateRunLogTail(logLines);
     maybeAutoOpenRunLog(state, logLines, runError);
+    renderSummaryBanner(state);
+    maybeAutoOpenSummary(state);
     setRuntimeButtons(state);
     applyRunStepHighlights(runtimeState);
     syncAutoRestWatchPolling(runtimeState);
@@ -1722,14 +2017,14 @@ import {
 
   function parseFieldValue(field, inputEl) {
     const raw = inputEl.type === "checkbox" ? inputEl.checked : inputEl.value;
+    if (inputEl.type === "checkbox") {
+      return { ok: true, value: !!raw, error: "" };
+    }
     if (field === "start.delay_s" || field === "action.seconds" || field === "action.duration") {
       return coerceNumberInput(raw, false);
     }
     if (field === "action.slide") {
       return coerceNumberInput(raw, true);
-    }
-    if (field === "action.hold_until_continue") {
-      return { ok: true, value: !!raw, error: "" };
     }
     const text = String(raw || "");
     if (field === "action.label") {
@@ -1845,7 +2140,7 @@ import {
   }
 
   function snapshotBlocksDraftBuffers() {
-    if (viewMode !== "blocks") {
+    if (viewMode !== "blocks" && viewMode !== "config") {
       return;
     }
     blocksConfigDraft = blocksConfigJson.value;
@@ -1888,6 +2183,31 @@ import {
     blocksConfigDraft = formatJson(normalizeTopLevelConfigObject(buildConfigPaneObject(scriptState.root)));
     renderBlocksConfigError();
     writeEditorFromScriptState(markDirty);
+    return true;
+  }
+
+  function applyJsonDraft() {
+    const parsed = parseEditorToScriptState(editorJson.value);
+    if (!parsed.ok) {
+      const errorMessage = parsed.error || "JSON parsing failed";
+      jsonError.textContent = errorMessage;
+      jsonError.classList.remove("is-hidden");
+      setStatus("JSON bevat fouten: " + errorMessage, "error");
+      return false;
+    }
+    jsonError.classList.add("is-hidden");
+    jsonError.textContent = "";
+    scriptState = parsed.value;
+    blocksSessionActive = true;
+    selectedStepIndex =
+      Array.isArray(scriptState.root.steps) && scriptState.root.steps.length > 0 ? 0 : null;
+    blocksConfigDraft = formatJson(normalizeTopLevelConfigObject(buildConfigPaneObject(scriptState.root)));
+    blocksConfigErrorMessage = "";
+    blocksStepErrors = new Map();
+    advancedDrafts = new Map();
+    advancedOpen = new Set();
+    setDirty(true);
+    setStatus("JSON toegepast.", "ok");
     return true;
   }
 
@@ -1977,10 +2297,10 @@ import {
   }
 
   function ensureViewSyncedForAction(actionLabel) {
-    if (viewMode === "blocks") {
+    if (viewMode === "blocks" || viewMode === "config") {
       const ok = syncBlocksToEditor({ switchToJsonOnError: true, markDirty: true });
       if (!ok) {
-        setStatus(actionLabel + " geblokkeerd: corrigeer eerst Blocks fouten.", "error");
+        setStatus(actionLabel + " geblokkeerd: corrigeer eerst Config/Steps fouten.", "error");
         return false;
       }
     }
@@ -2039,11 +2359,14 @@ import {
       const duration = typeof action.duration === "undefined" ? "" : " / " + String(action.duration) + "s";
       return "eye color: " + color + duration;
     }
-    if (mode === "summary_capture_stop_and_draft") {
-      return "summary: stop capture + draft";
-    }
-    if (mode === "summary_capture_start") {
-      return "summary: start capture";
+    if (mode === "summary_start") {
+      const wait = action.wait_for_complete !== false;
+      const open = action.open_on_new_tab === true;
+      let label = wait ? "summary: start + wait" : "summary: start async";
+      if (open) {
+        label += " / open tab";
+      }
+      return label;
     }
     return mode.replace(/_/g, " ");
   }
@@ -2348,23 +2671,57 @@ import {
         const durationInput = createInput("number", step.action && step.action.duration, index, "action.duration");
         durationInput.step = "0.1";
         grid.appendChild(createField("action.duration", durationInput, false));
-      } else if (actionMode === "summary_capture_start") {
+      } else if (actionMode === "summary_start") {
         grid.appendChild(
           createField(
-            "action.hold_until_continue",
-            createInput("checkbox", step.action && step.action.hold_until_continue, index, "action.hold_until_continue"),
+            "action.wait_for_complete",
+            createInput("checkbox", step.action && step.action.wait_for_complete !== false, index, "action.wait_for_complete"),
             false
           )
         );
-      } else if (actionMode === "summary_capture_stop_and_draft") {
-        grid.appendChild(createField("action.input_prompt_template", createTextarea(step.action && step.action.input_prompt_template, index, "action.input_prompt_template"), true));
-        grid.appendChild(createField("action.instruction", createTextarea(step.action && step.action.instruction, index, "action.instruction"), true));
-        grid.appendChild(createField("action.system_prompt", createTextarea(step.action && step.action.system_prompt, index, "action.system_prompt"), true));
-        grid.appendChild(createField("action.system_prompt_file", createInput("text", step.action && step.action.system_prompt_file, index, "action.system_prompt_file"), false));
+        grid.appendChild(
+          createField(
+            "action.open_on_new_tab",
+            createInput("checkbox", step.action && step.action.open_on_new_tab, index, "action.open_on_new_tab"),
+            false
+          )
+        );
       }
     }
 
     return grid;
+  }
+
+  function createAdvancedView(options) {
+    const advancedWrap = document.createElement("div");
+    advancedWrap.className = "step-advanced-wrap";
+    advancedWrap.setAttribute("data-index", String(options.index));
+
+    const advancedTextarea = document.createElement("textarea");
+    advancedTextarea.className = options.textareaClass;
+    advancedTextarea.setAttribute("data-index", String(options.index));
+    const advancedValue = options.drafts.has(options.index)
+      ? options.drafts.get(options.index)
+      : formatJson(options.step);
+    advancedTextarea.value = advancedValue;
+    advancedWrap.appendChild(advancedTextarea);
+    options.drafts.set(options.index, advancedTextarea.value);
+
+    const errorEl = document.createElement("div");
+    errorEl.className = "inline-error " + options.errorClass;
+    const errorText = options.errors.get(options.index) || "";
+    errorEl.textContent = errorText;
+    errorEl.classList.toggle("is-hidden", !errorText);
+    advancedWrap.appendChild(errorEl);
+
+    const applyAdvanced = document.createElement("button");
+    applyAdvanced.type = "button";
+    applyAdvanced.textContent = "Apply advanced";
+    applyAdvanced.setAttribute(options.actionAttr, "apply-advanced");
+    applyAdvanced.setAttribute("data-index", String(options.index));
+    advancedWrap.appendChild(applyAdvanced);
+
+    return advancedWrap;
   }
 
   function createAdvancedWrap(options) {
@@ -2555,22 +2912,42 @@ import {
     titleWrap.appendChild(summary);
 
     header.appendChild(titleWrap);
-    header.appendChild(createInspectorActions(index, totalSteps));
+    
+    const headerActions = document.createElement("div");
+    headerActions.className = "step-header-controls";
+    
+    const isAdvancedView = advancedOpen.has(index);
+    const toggleAdvancedBtn = document.createElement("button");
+    toggleAdvancedBtn.type = "button";
+    toggleAdvancedBtn.className = "btn-toggle-advanced";
+    toggleAdvancedBtn.setAttribute("data-index", String(index));
+    toggleAdvancedBtn.textContent = isAdvancedView ? "Reguliere weergave" : "Advanced JSON";
+    headerActions.appendChild(toggleAdvancedBtn);
+    
+    const actions = createInspectorActions(index, totalSteps);
+    headerActions.appendChild(actions);
+    header.appendChild(headerActions);
     card.appendChild(header);
-    card.appendChild(createStepGrid(step, index));
-    card.appendChild(
-      createAdvancedWrap({
+
+    const gridContainer = document.createElement("div");
+    gridContainer.className = "step-view-container";
+    gridContainer.setAttribute("data-index", String(index));
+    gridContainer.classList.toggle("is-advanced-view", isAdvancedView);
+
+    gridContainer.appendChild(createStepGrid(step, index));
+    gridContainer.appendChild(
+      createAdvancedView({
         index: index,
         step: step,
         drafts: advancedDrafts,
-        openSet: advancedOpen,
         errors: blocksStepErrors,
-        wrapClass: "step-advanced-wrap",
         textareaClass: "step-advanced",
         errorClass: "step-inline-error",
         actionAttr: "data-step-action",
       })
     );
+
+    card.appendChild(gridContainer);
     return card;
   }
 
@@ -2634,7 +3011,6 @@ import {
     const previousStepsRailScrollTop = preserveStepsRailScroll ? stepsCards.scrollTop : 0;
     const previousInspectorScrollTop = preserveInspectorScroll ? stepInspector.scrollTop : 0;
     const canRender = blocksSessionActive && scriptState && isObject(scriptState.root);
-    syncBlocksConfigOpenState();
     stepsCards.replaceChildren();
     stepInspector.replaceChildren();
     if (!canRender) {
@@ -2655,6 +3031,10 @@ import {
 
     ensureSelectedStepIndex();
     blocksConfigJson.value = blocksConfigDraft;
+    configHistoryStack = [blocksConfigDraft];
+    configHistoryIndex = 0;
+    btnUndoConfig.disabled = true;
+    btnRedoConfig.disabled = true;
     resizeBlocksConfigEditor();
     blocksConfigSummary.textContent = summarizeConfig(scriptState.root);
 
@@ -2829,6 +3209,21 @@ import {
     }
     syncBlocksToEditor({ switchToJsonOnError: false, markDirty: true });
     setViewMode("json");
+    updateJsonLineNumbers();
+    updateJsonEditorPosition();
+    jsonHistoryStack = [editorJson.value];
+    jsonHistoryIndex = 0;
+    btnUndoJson.disabled = true;
+    btnRedoJson.disabled = true;
+  }
+
+  function activateConfigTab() {
+    if (!ensureBlocksSessionFromEditor()) {
+      return;
+    }
+    setViewMode("config");
+    renderBlocks();
+    resizeBlocksConfigEditor();
   }
 
   function activateBlocksTab() {
@@ -3043,10 +3438,39 @@ import {
   async function sendAbort() {
     ensureRunPolling();
     renderDmStartResults([]);
+    const hadSummaryActive = !!(runtimeState && runtimeState.summary_active);
+    let summaryAction = "leave";
+    if (hadSummaryActive) {
+      const choice = await openActionDialog({
+        title: "Run afbreken",
+        intro: ["Er is nog een actieve samenvatting gekoppeld aan deze run. Kies wat je wilt afbreken."],
+        buttons: [
+          { id: "leave", label: "Alleen script afbreken" },
+          { id: "abort", label: "Script en samenvatting afbreken", tone: "primary" },
+          { id: "cancel", label: "Terug" },
+        ],
+      });
+      if (choice === "cancel") {
+        return;
+      }
+      summaryAction = choice === "abort" ? "abort" : "leave";
+    }
     try {
-      const payload = await fetchJson("/api/run/abort", { method: "POST" });
+      const payload = await fetchJson("/api/run/abort", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary_action: summaryAction }),
+      });
       renderRuntimeState(payload);
-      setStatus("Abort verstuurd.", "warn");
+      if (payload && payload.summary_abort_warning) {
+        setStatus("Script afgebroken. " + String(payload.summary_abort_warning), "warn");
+      } else if (hadSummaryActive && summaryAction === "abort") {
+        setStatus("Abort verstuurd. Script en samenvatting worden afgebroken.", "warn");
+      } else if (hadSummaryActive) {
+        setStatus("Abort verstuurd. Samenvatting blijft actief.", "warn");
+      } else {
+        setStatus("Abort verstuurd.", "warn");
+      }
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
       setStatus("Abort mislukt: " + message, "error");
@@ -3542,26 +3966,31 @@ import {
   }
   editorJson.addEventListener("input", function () {
     setDirty(true);
+    updateJsonLineNumbers();
+    updateJsonEditorPosition();
+    pushJsonHistory();
     if (viewMode === "json") {
       resetBlocksSession();
       clearBlockValidationErrors();
     }
   });
 
+  editorJson.addEventListener("click", updateJsonEditorPosition);
+  editorJson.addEventListener("keyup", updateJsonEditorPosition);
+  editorJson.addEventListener("selectionchange", updateJsonEditorPosition);
+
+  btnUndoJson.addEventListener("click", jsonUndo);
+  btnRedoJson.addEventListener("click", jsonRedo);
+
   blocksConfigJson.addEventListener("input", function () {
     blocksConfigDraft = blocksConfigJson.value;
     resizeBlocksConfigEditor();
     validateConfigDraft();
+    pushConfigHistory();
   });
 
-  blocksConfigSection.addEventListener("toggle", function () {
-    syncBlocksConfigOpenState();
-    if (!blocksConfigSection.open) {
-      return;
-    }
-    resizeBlocksConfigEditor();
-    blocksView.scrollTop = 0;
-  });
+  btnUndoConfig.addEventListener("click", configUndo);
+  btnRedoConfig.addEventListener("click", configRedo);
 
   btnApplyConfig.addEventListener("click", function () {
     if (!blocksSessionActive || !scriptState) {
@@ -3573,9 +4002,14 @@ import {
     renderBlocks();
   });
 
+  btnApplyJson.addEventListener("click", function () {
+    applyJsonDraft();
+  });
+
   selCategory.addEventListener("change", handleCategoryChange);
   selTemplate.addEventListener("change", handleTemplateChange);
   btnTabJson.addEventListener("click", activateJsonTab);
+  btnTabConfig.addEventListener("click", activateConfigTab);
   btnTabBlocks.addEventListener("click", activateBlocksTab);
 
   btnNew.addEventListener("click", function () {
@@ -3783,6 +4217,32 @@ import {
     if (!(target instanceof HTMLElement)) {
       return;
     }
+    
+    // Handle toggle advanced view button
+    if (target.classList.contains("btn-toggle-advanced")) {
+      const card = target.closest(".step-inspector-card");
+      if (!(card instanceof HTMLElement)) {
+        return;
+      }
+      const viewContainer = card.querySelector(".step-view-container");
+      if (!(viewContainer instanceof HTMLElement)) {
+        return;
+      }
+      const index = Number(target.getAttribute("data-index") || viewContainer.getAttribute("data-index"));
+      if (!Number.isInteger(index) || index < 0) {
+        return;
+      }
+      const isAdvanced = viewContainer.classList.toggle("is-advanced-view");
+      target.textContent = isAdvanced ? "Reguliere weergave" : "Advanced JSON";
+      
+      if (isAdvanced) {
+        advancedOpen.add(index);
+      } else {
+        advancedOpen.delete(index);
+      }
+      return;
+    }
+    
     const action = target.getAttribute("data-step-action");
     if (!action) {
       return;

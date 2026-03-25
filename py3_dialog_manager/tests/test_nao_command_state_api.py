@@ -199,3 +199,41 @@ def test_nao_command_state_starts_with_disarmed_auto_rest_timer(monkeypatch):
     data = resp.get_json()
     assert data["auto_rest"]["timer_active"] is False
     assert data["auto_rest"]["seconds_until_rest"] == 180
+
+
+def test_nao_command_state_reports_virtual_robot_when_nao_is_disabled(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+    seen_urls = []
+
+    def fake_get(url, timeout=0, **_kwargs):
+        seen_urls.append(url)
+        raise AssertionError(f"unexpected GET {url}")
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "base_enabled": False,
+                "behavior_enabled": False,
+                "nao_ip_enabled": False,
+                "nao_auto_rest_after_s": 180,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.get("/api/nao_command_state")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["nao_enabled"] is False
+    assert data["virtual_robot"] is True
+    assert data["reachable"] is False
+    assert data["awake"]["disabled"] is True
+    assert data["custom_life"]["disabled"] is True
+    assert data["posture"]["disabled"] is True
+    assert data["errors"] == []
+    assert seen_urls == []

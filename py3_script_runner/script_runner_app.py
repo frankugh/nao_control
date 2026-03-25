@@ -506,6 +506,10 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         try:
             client = DMClient(dm_url, timeout_s=4.0)
             state = client.nao_command_state(timeout_s=4.0)
+            nao_enabled_raw = state.get("nao_enabled") if isinstance(state, dict) else None
+            nao_enabled = bool(nao_enabled_raw) if isinstance(nao_enabled_raw, bool) else True
+            virtual_robot_raw = state.get("virtual_robot") if isinstance(state, dict) else None
+            virtual_robot = bool(virtual_robot_raw) if isinstance(virtual_robot_raw, bool) else (not nao_enabled)
             reachable_raw = state.get("reachable") if isinstance(state, dict) else None
             reachable = bool(reachable_raw) if isinstance(reachable_raw, bool) else bool(state.get("ok"))
             awake = state.get("awake") if isinstance(state, dict) else {}
@@ -545,6 +549,8 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
                     "robot_id": target["robot_id"],
                     "dm_url": dm_url,
                     "instance_id": target["instance_id"],
+                    "nao_enabled": nao_enabled,
+                    "virtual_robot": virtual_robot,
                     "ok": reachable,
                     "reachable": reachable,
                     "awake": awake,
@@ -588,6 +594,10 @@ class RunSessionManager:
         self._run_thread: Optional[threading.Thread] = None
         self._abort_event: Optional[threading.Event] = None
         self._continue_event: Optional[threading.Event] = None
+        self._summary_watch_thread: Optional[threading.Thread] = None
+        self._summary_watch_stop = threading.Event()
+        self._summary_watch_run_id = ""
+        self._summary_dm_url = ""
         self._run_counter = 0
         self._log_tail: deque[str] = deque(maxlen=300)
         self._state: Dict[str, Any] = {
@@ -601,11 +611,121 @@ class RunSessionManager:
             "total_steps": 0,
             "last_error": None,
             "log_path": "",
+            "summary_active": False,
+            "summary_waiting": False,
+            "summary_url": "",
+            "summary_session_id": "",
+            "summary_status": "",
+            "summary_connection_ok": True,
+            "summary_last_error": "",
+            "summary_open_nonce": 0,
         }
 
     @staticmethod
     def _error_payload(message: str) -> Dict[str, Any]:
         return {"ok": False, "error": str(message)}
+
+    @staticmethod
+    def _summary_defaults() -> Dict[str, Any]:
+        return {
+            "summary_active": False,
+            "summary_waiting": False,
+            "summary_url": "",
+            "summary_session_id": "",
+            "summary_status": "",
+            "summary_connection_ok": True,
+            "summary_last_error": "",
+            "summary_open_nonce": 0,
+        }
+
+    def _stop_summary_watch(self) -> None:
+        self._summary_watch_stop.set()
+        self._summary_watch_thread = None
+        self._summary_watch_run_id = ""
+
+    def _apply_summary_state_locked(self, event: Dict[str, Any]) -> None:
+        self._state["summary_active"] = bool(event.get("summary_active"))
+        self._state["summary_waiting"] = bool(event.get("summary_waiting"))
+        self._state["summary_url"] = str(event.get("summary_url") or "")
+        self._state["summary_session_id"] = str(event.get("summary_session_id") or "")
+        self._state["summary_status"] = str(event.get("summary_status") or "")
+        self._state["summary_connection_ok"] = bool(event.get("summary_connection_ok", True))
+        self._state["summary_last_error"] = str(event.get("summary_last_error") or "")
+        if event.get("summary_open_nonce") is not None:
+            try:
+                self._state["summary_open_nonce"] = int(event.get("summary_open_nonce") or 0)
+            except Exception:
+                self._state["summary_open_nonce"] = 0
+        dm_url = str(event.get("summary_dm_url") or "").strip()
+        if dm_url:
+            self._summary_dm_url = dm_url
+        if not bool(self._state.get("summary_active")):
+            self._state["summary_waiting"] = False
+            self._summary_dm_url = ""
+
+    def _clear_summary_state_locked(self) -> None:
+        self._state.update(self._summary_defaults())
+        self._summary_dm_url = ""
+
+    def _start_summary_watch_locked(self, run_id: str) -> None:
+        summary_active = bool(self._state.get("summary_active"))
+        summary_waiting = bool(self._state.get("summary_waiting"))
+        dm_url = str(self._summary_dm_url or "").strip()
+        if not summary_active or summary_waiting or not dm_url:
+            return
+        if (
+            self._summary_watch_thread is not None
+            and self._summary_watch_thread.is_alive()
+            and self._summary_watch_run_id == run_id
+        ):
+            return
+        self._stop_summary_watch()
+        self._summary_watch_stop = threading.Event()
+        self._summary_watch_run_id = run_id
+        thread = threading.Thread(target=self._summary_watch_loop, args=(run_id, dm_url), daemon=True)
+        self._summary_watch_thread = thread
+        thread.start()
+
+    def _summary_watch_loop(self, run_id: str, dm_url: str) -> None:
+        client = DMClient(dm_url, timeout_s=3.0)
+        while not self._summary_watch_stop.wait(0.75):
+            with self._lock:
+                if run_id != str(self._state.get("run_id") or ""):
+                    return
+                if not bool(self._state.get("summary_active")) or bool(self._state.get("summary_waiting")):
+                    return
+                summary_url = str(self._state.get("summary_url") or "")
+                open_nonce = int(self._state.get("summary_open_nonce") or 0)
+            try:
+                payload = client.summary_get(timeout_s=3.0)
+                session = payload.get("session") if isinstance(payload, dict) else None
+                session = session if isinstance(session, dict) else {}
+                status = str(session.get("status") or "").strip().lower()
+                with self._lock:
+                    if run_id != str(self._state.get("run_id") or ""):
+                        return
+                    self._apply_summary_state_locked(
+                        {
+                            "summary_active": status not in {"completed", "aborted", "error"},
+                            "summary_waiting": False,
+                            "summary_url": summary_url,
+                            "summary_session_id": str(session.get("session_id") or ""),
+                            "summary_status": status,
+                            "summary_connection_ok": True,
+                            "summary_last_error": str(session.get("last_error") or payload.get("detail") or payload.get("error") or ""),
+                            "summary_open_nonce": open_nonce,
+                            "summary_dm_url": dm_url,
+                        }
+                    )
+                    if not bool(self._state.get("summary_active")):
+                        self._summary_dm_url = ""
+                        return
+            except Exception as exc:
+                with self._lock:
+                    if run_id != str(self._state.get("run_id") or ""):
+                        return
+                    self._state["summary_connection_ok"] = False
+                    self._state["summary_last_error"] = str(exc or "").strip() or "Summary verbinding mislukt."
 
     def _snapshot_locked(self) -> Dict[str, Any]:
         snapshot = dict(self._state)
@@ -617,7 +737,18 @@ class RunSessionManager:
         with self._lock:
             return self._snapshot_locked()
 
+    def shutdown(self, *, join_timeout_s: float = 5.0) -> None:
+        run_thread: Optional[threading.Thread]
+        with self._lock:
+            self._stop_summary_watch()
+            run_thread = self._run_thread
+            if self._abort_event is not None:
+                self._abort_event.set()
+        if run_thread is not None and run_thread.is_alive():
+            run_thread.join(timeout=max(0.0, float(join_timeout_s)))
+
     def _start_new_run_locked(self, script: Dict[str, Any], *, run_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        self._stop_summary_watch()
         self._run_counter += 1
         run_id = f"run_{self._run_counter}"
         self._abort_event = threading.Event()
@@ -635,6 +766,7 @@ class RunSessionManager:
             "last_error": None,
             "log_path": "",
         }
+        self._state.update(self._summary_defaults())
         thread = threading.Thread(target=self._run_worker, args=(run_id, script, dict(run_options or {})), daemon=True)
         self._run_thread = thread
         thread.start()
@@ -665,6 +797,8 @@ class RunSessionManager:
             status = str(self._state.get("status") or "")
             if status in ACTIVE_RUN_STATUSES:
                 return HTTPStatus.CONFLICT, self._error_payload("A run is already active.")
+            if bool(self._state.get("summary_active")):
+                return HTTPStatus.CONFLICT, self._error_payload("A summary is still active. Close or cancel it first.")
             snapshot = self._start_new_run_locked(script, run_options=run_options)
             return HTTPStatus.ACCEPTED, snapshot
 
@@ -674,10 +808,59 @@ class RunSessionManager:
             waiting_for_next = bool(self._state.get("waiting_for_next"))
             if status not in ACTIVE_RUN_STATUSES or not waiting_for_next or self._continue_event is None:
                 return HTTPStatus.CONFLICT, self._error_payload("Run is not waiting for next.")
+            if str(self._state.get("waiting_reason") or "") == "summary_wait":
+                return HTTPStatus.CONFLICT, self._error_payload("Run is waiting for summary completion, not next.")
             self._continue_event.set()
             return HTTPStatus.ACCEPTED, self._snapshot_locked()
 
-    def request_abort(self) -> tuple[int, Dict[str, Any]]:
+    def _abort_summary_best_effort(self, *, run_id: str, dm_url: str) -> str:
+        if not dm_url:
+            return "Summary kon niet bevestigd worden gestopt en kan nog actief zijn."
+        client = DMClient(dm_url, timeout_s=4.0)
+        try:
+            payload = client.summary_abort(timeout_s=4.0)
+        except Exception as exc:
+            warning = f"Summary kon niet bevestigd worden gestopt en kan nog actief zijn ({exc})."
+            with self._lock:
+                if run_id == str(self._state.get("run_id") or ""):
+                    self._state["summary_connection_ok"] = False
+                    self._state["summary_last_error"] = warning
+            return warning
+        session = payload.get("session") if isinstance(payload, dict) else None
+        session = session if isinstance(session, dict) else {}
+        with self._lock:
+            if run_id == str(self._state.get("run_id") or ""):
+                self._apply_summary_state_locked(
+                    {
+                        "summary_active": False,
+                        "summary_waiting": False,
+                        "summary_url": str(self._state.get("summary_url") or ""),
+                        "summary_session_id": str(session.get("session_id") or self._state.get("summary_session_id") or ""),
+                        "summary_status": str(session.get("status") or "aborted"),
+                        "summary_connection_ok": True,
+                        "summary_last_error": "",
+                        "summary_open_nonce": int(self._state.get("summary_open_nonce") or 0),
+                        "summary_dm_url": dm_url,
+                    }
+                )
+        return ""
+
+    def request_summary_abort(self) -> tuple[int, Dict[str, Any]]:
+        with self._lock:
+            if not bool(self._state.get("summary_active")):
+                return HTTPStatus.CONFLICT, self._error_payload("No active summary.")
+            run_id = str(self._state.get("run_id") or "")
+            dm_url = str(self._summary_dm_url or "").strip()
+        warning = self._abort_summary_best_effort(run_id=run_id, dm_url=dm_url)
+        with self._lock:
+            snapshot = self._snapshot_locked()
+        if warning:
+            snapshot["ok"] = False
+            snapshot["error"] = warning
+            return HTTPStatus.BAD_GATEWAY, snapshot
+        return HTTPStatus.ACCEPTED, snapshot
+
+    def request_abort(self, *, summary_action: str = "leave") -> tuple[int, Dict[str, Any]]:
         with self._lock:
             status = str(self._state.get("status") or "")
             if status not in ACTIVE_RUN_STATUSES:
@@ -685,7 +868,17 @@ class RunSessionManager:
             if self._abort_event is not None:
                 self._abort_event.set()
             self._state["last_error"] = "Abort requested from web UI."
-            return HTTPStatus.ACCEPTED, self._snapshot_locked()
+            run_id = str(self._state.get("run_id") or "")
+            dm_url = str(self._summary_dm_url or "").strip()
+            should_abort_summary = bool(self._state.get("summary_active")) and str(summary_action or "").strip().lower() == "abort"
+        warning = ""
+        if should_abort_summary:
+            warning = self._abort_summary_best_effort(run_id=run_id, dm_url=dm_url)
+        with self._lock:
+            snapshot = self._snapshot_locked()
+        if warning:
+            snapshot["summary_abort_warning"] = warning
+        return HTTPStatus.ACCEPTED, snapshot
 
     def _handle_runner_event(self, run_id: str, event: Dict[str, Any]) -> None:
         event_type = str(event.get("type") or "").strip().lower()
@@ -711,6 +904,9 @@ class RunSessionManager:
                 if status in {"completed", "aborted", "failed"}:
                     self._state["waiting_for_next"] = False
                     self._state["waiting_reason"] = "none"
+                    self._state["summary_waiting"] = False
+                    if bool(self._state.get("summary_active")):
+                        self._start_summary_watch_locked(run_id)
                 return
             if event_type == "waiting":
                 self._state["status"] = "waiting"
@@ -724,6 +920,11 @@ class RunSessionManager:
                 self._state["waiting_reason"] = "none"
                 if str(self._state.get("status") or "") == "waiting":
                     self._state["status"] = "running"
+                return
+            if event_type == "summary_state":
+                self._apply_summary_state_locked(event)
+                if bool(self._state.get("summary_active")) and not bool(self._state.get("summary_waiting")):
+                    self._start_summary_watch_locked(run_id)
                 return
             if event_type == "step_start":
                 self._state["status"] = "running"
@@ -769,8 +970,11 @@ class RunSessionManager:
             self._state["status"] = "failed"
             self._state["waiting_for_next"] = False
             self._state["waiting_reason"] = "none"
+            self._state["summary_waiting"] = False
             self._state["last_error"] = str(error_message)
             self._log_tail.append(f"[RUN] FAILED: {error_message}")
+            if bool(self._state.get("summary_active")):
+                self._start_summary_watch_locked(run_id)
 
     def _run_worker(self, run_id: str, script: Dict[str, Any], run_options: Dict[str, Any]) -> None:
         abort_event: Optional[threading.Event]
@@ -807,6 +1011,9 @@ class RunSessionManager:
                 runner.close()
             except Exception:
                 pass
+            with self._lock:
+                if run_id == str(self._state.get("run_id") or ""):
+                    self._run_thread = None
 
         with self._lock:
             if run_id != str(self._state.get("run_id") or ""):
@@ -815,8 +1022,11 @@ class RunSessionManager:
             self._state["total_steps"] = int(result.total_steps)
             self._state["waiting_for_next"] = False
             self._state["waiting_reason"] = "none"
+            self._state["summary_waiting"] = False
             self._state["log_path"] = str(result.log_path)
             self._state["status"] = "aborted" if result.aborted else "completed"
+            if bool(self._state.get("summary_active")):
+                self._start_summary_watch_locked(run_id)
 
 
 RUN_SESSIONS = RunSessionManager()
@@ -854,13 +1064,23 @@ class ScriptBuilderHandler(SimpleHTTPRequestHandler):
             return False, {}, "JSON root must be an object."
         return True, parsed, ""
 
+    def _read_optional_json_body(self) -> tuple[bool, Dict[str, Any], str]:
+        raw_len = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_len)
+        except Exception:
+            return False, {}, "Invalid Content-Length header."
+        if length <= 0:
+            return True, {}, ""
+        return self._read_json_body()
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         if parsed.path.startswith("/examples/"):
             name = parsed.path[len("/examples/") :]
             self._serve_example_file(name)
             return
-        if parsed.path == "/api/run/state":
+        if parsed.path in {"/api/run/state", "/api/run/status"}:
             self._send_json(HTTPStatus.OK, RUN_SESSIONS.state())
             return
         super().do_GET()
@@ -955,8 +1175,23 @@ class ScriptBuilderHandler(SimpleHTTPRequestHandler):
             status, response = RUN_SESSIONS.request_next()
             self._send_json(status, response)
             return
+        if parsed.path == "/api/run/summary_abort":
+            status, response = RUN_SESSIONS.request_summary_abort()
+            self._send_json(status, response)
+            return
         if parsed.path == "/api/run/abort":
-            status, response = RUN_SESSIONS.request_abort()
+            ok, payload, error = self._read_optional_json_body()
+            if not ok:
+                self._send_json(HTTPStatus.BAD_REQUEST, RunSessionManager._error_payload(error))
+                return
+            summary_action = str(payload.get("summary_action") or "leave").strip().lower()
+            if summary_action not in {"leave", "abort"}:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    RunSessionManager._error_payload("summary_action must be 'leave' or 'abort'."),
+                )
+                return
+            status, response = RUN_SESSIONS.request_abort(summary_action=summary_action)
             self._send_json(status, response)
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint.")
@@ -1026,7 +1261,10 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nStopping Script Builder...")
     finally:
-        server.server_close()
+        try:
+            RUN_SESSIONS.shutdown()
+        finally:
+            server.server_close()
     return 0
 
 

@@ -85,39 +85,16 @@
       }
     },
     {
-      "id": "summary_capture_start",
+      "id": "summary_start",
       "robot_id": "nao1",
       "start": {
         "mode": "manual"
       },
       "action": {
         "type": "do",
-        "mode": "summary_capture_start"
-      }
-    },
-    {
-      "id": "summary_capture_stop_and_draft",
-      "robot_id": "nao1",
-      "start": {
-        "mode": "manual"
-      },
-      "action": {
-        "type": "do",
-        "mode": "summary_capture_stop_and_draft",
-        "system_prompt_file": "master_prompts/workshop_summary_system.txt",
-        "input_prompt_template": "Hieronder staat transcriptie van antwoorden op de vraag: 'Wat zou je vandaag willen leren over AI en/of robotica?'.\n\nTranscriptie:\n{transcript}\n\nExtra opdracht:\n{instruction}\n\nGeef nu de definitieve gesproken tekst die de robot hardop kan uitspreken.",
-        "instruction": "Houd het kort, natuurlijk en spreekbaar. Geen bullets of kopjes. Benoem de belangrijkste leerwensen, noem kort eventuele zorgen, en eindig met een korte brugzin naar de volgende stap in de workshop."
-      }
-    },
-    {
-      "id": "summary_publish_or_cancel",
-      "robot_id": "nao1",
-      "start": {
-        "mode": "manual"
-      },
-      "action": {
-        "type": "do",
-        "mode": "summary_publish"
+        "mode": "summary_start",
+        "wait_for_complete": true,
+        "open_on_new_tab": false
       }
     },
     {

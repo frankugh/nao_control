@@ -97,15 +97,14 @@ def test_validate_script_accepts_pause_without_robot():
     assert "robot_id" not in validated["steps"][0]
 
 
-def test_validate_script_accepts_robot_runtime_config():
+def test_validate_script_rejects_robot_runtime_config():
     script = _base_script()
     script["robots"]["nao1"]["runtime_config"] = {
         "nao_ip": "192.168.68.101",
         "nao_base_url": "http://127.0.0.1:5101",
     }
-    validated = validate_script(script)
-    assert "runtime_config" in validated["robots"]["nao1"]
-    assert validated["robots"]["nao1"]["runtime_config"]["nao_ip"] == "192.168.68.101"
+    with pytest.raises(ScriptSchemaError, match="runtime_config is no longer supported"):
+        validate_script(script)
 
 
 def test_validate_script_accepts_robot_instance_id():
@@ -132,7 +131,7 @@ def test_validate_script_rejects_non_string_robot_instance_id():
 def test_validate_script_rejects_non_object_robot_runtime_config():
     script = _base_script()
     script["robots"]["nao1"]["runtime_config"] = "invalid"
-    with pytest.raises(ScriptSchemaError, match="runtime_config must be an object"):
+    with pytest.raises(ScriptSchemaError, match="runtime_config is no longer supported"):
         validate_script(script)
 
 
@@ -227,67 +226,77 @@ def test_validate_script_rejects_enabled_ppt_without_file():
         validate_script(script)
 
 
-def test_validate_script_accepts_summary_modes():
+def test_validate_script_accepts_summary_start_mode():
     script = _base_script()
     script["steps"] = [
         {
             "id": "s1",
             "robot_id": "nao1",
             "start": {"mode": "manual"},
-            "action": {"type": "do", "mode": "summary_capture_start"},
-        },
-        {
-            "id": "s2",
-            "robot_id": "nao1",
-            "start": {"mode": "manual"},
             "action": {
                 "type": "do",
-                "mode": "summary_capture_stop_and_draft",
-                "input_prompt_template": "Transcript:\n{transcript}\nInstruction:\n{instruction}",
-                "instruction": "Maak een korte samenvatting",
+                "mode": "summary_start",
+                "wait_for_complete": False,
+                "open_on_new_tab": True,
             },
-        },
-        {
-            "id": "s3",
-            "robot_id": "nao1",
-            "start": {"mode": "manual"},
-            "action": {"type": "do", "mode": "summary_publish"},
-        },
-        {
-            "id": "s4",
-            "robot_id": "nao1",
-            "start": {"mode": "manual"},
-            "action": {"type": "do", "mode": "summary_cancel"},
         },
     ]
     validated = validate_script(script)
-    assert validated["steps"][0]["action"]["hold_until_continue"] is True
-    assert validated["steps"][1]["action"]["mode"] == "summary_capture_stop_and_draft"
-    assert validated["steps"][1]["action"]["input_prompt_template"].startswith("Transcript:")
+    assert validated["steps"][0]["action"]["mode"] == "summary_start"
+    assert validated["steps"][0]["action"]["wait_for_complete"] is False
+    assert validated["steps"][0]["action"]["open_on_new_tab"] is True
 
 
-def test_validate_script_rejects_summary_stop_without_input_prompt_template():
+def test_validate_script_defaults_summary_start_flags():
+    script = _base_script()
+    script["steps"][0]["action"] = {"type": "do", "mode": "summary_start"}
+    validated = validate_script(script)
+    assert validated["steps"][0]["action"]["wait_for_complete"] is True
+    assert validated["steps"][0]["action"]["open_on_new_tab"] is False
+
+
+def test_validate_script_rejects_non_boolean_summary_wait_flag():
     script = _base_script()
     script["steps"][0] = {
         "id": "s1",
         "robot_id": "nao1",
         "start": {"mode": "manual"},
-        "action": {"type": "do", "mode": "summary_capture_stop_and_draft"},
+        "action": {"type": "do", "mode": "summary_start", "wait_for_complete": "yes"},
     }
-    with pytest.raises(ScriptSchemaError, match="input_prompt_template"):
+    with pytest.raises(ScriptSchemaError, match="wait_for_complete"):
         validate_script(script)
 
 
-def test_validate_script_rejects_non_boolean_summary_capture_hold_flag():
+def test_validate_script_rejects_non_boolean_summary_open_tab_flag():
     script = _base_script()
     script["steps"][0] = {
         "id": "s1",
         "robot_id": "nao1",
         "start": {"mode": "manual"},
-        "action": {"type": "do", "mode": "summary_capture_start", "hold_until_continue": "yes"},
+        "action": {"type": "do", "mode": "summary_start", "open_on_new_tab": "yes"},
     }
-    with pytest.raises(ScriptSchemaError, match="hold_until_continue"):
+    with pytest.raises(ScriptSchemaError, match="open_on_new_tab"):
         validate_script(script)
+
+
+def test_validate_script_accepts_legacy_summary_boolean_strings():
+    script = _base_script()
+    script["steps"][0] = {
+        "id": "summary",
+        "robot_id": "nao1",
+        "start": {"mode": "manual"},
+        "action": {
+            "type": "do",
+            "mode": "summary_start",
+            "wait_for_complete": "true",
+            "open_on_new_tab": "",
+        },
+    }
+
+    validated = validate_script(script)
+
+    assert validated["steps"][0]["action"]["wait_for_complete"] is True
+    assert validated["steps"][0]["action"]["open_on_new_tab"] is False
 
 
 def test_validate_script_accepts_nao_set_eye_color_mode():

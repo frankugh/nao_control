@@ -6,10 +6,7 @@ export const DO_MODES = [
   "behavior_stop",
   "dance",
   "nao_set_eye_color",
-  "summary_capture_start",
-  "summary_capture_stop_and_draft",
-  "summary_publish",
-  "summary_cancel",
+  "summary_start",
 ];
 export const PPT_MODES = ["next_slide", "previous_slide", "goto"];
 export const ON_ERROR_MODES = ["prompt", "abort", "continue"];

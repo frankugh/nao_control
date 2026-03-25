@@ -1,0 +1,31 @@
+{
+  "selected_preset_id": "summary_default",
+  "devices": {
+    "input_audio_device": null,
+    "output_audio_device": null
+  },
+  "models": {
+    "stt_primary": "azure:default",
+    "stt_fallback": "whisper:small",
+    "llm_primary": "ollama_cloud:mistral-large-3:675b-cloud",
+    "llm_fallback": "ollama_local:granite3.2:8b",
+    "tts_primary": "azure:nl-NL-FennaNeural",
+    "tts_fallback": "piper:C:\\NAOqi_fundamentals\\NAO_Controller_WebAPI\\piper_tts_models\\nl\\nl_BE\\nathalie\\medium\\nl_BE-nathalie-medium.onnx"
+  },
+  "prompts": {
+    "master_prompt_file": "summary_prompts/workshop_summary_system.txt",
+    "master_prompt_text": "",
+    "summary_instruction": "Houd het kort, natuurlijk en spreekbaar. Geen bullets of kopjes. Noem de belangrijkste onderwerpen en sluit af met een korte brug naar het vervolg.",
+    "input_prompt_template": "Transcriptie:\n{transcript}\n\nOpdracht:\n{instruction}\n\nGeef nu alleen de definitieve samenvattingstekst zonder inleiding, bullets of extra toelichting."
+  },
+  "fallbacks": {
+    "fallback_summary": "Dank voor jullie input. Er kwamen meerdere vragen en leerwensen naar voren rond AI en robotica. In het vervolg pakken we de belangrijkste thema's stap voor stap op, zodat het praktisch, begrijpelijk en bruikbaar blijft."
+  },
+  "advanced": {
+    "pre_roll_ms": 1000,
+    "stop_silence_ms": 1800,
+    "min_speech_ms": null,
+    "max_utterance_s": 12.0,
+    "start_timeout_s": null
+  }
+}

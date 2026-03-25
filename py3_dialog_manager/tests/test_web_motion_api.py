@@ -74,6 +74,7 @@ def test_nao_move_toward_calls_expected_almotion_sequence(monkeypatch):
         },
     )
     assert cfg_resp.status_code == 200
+    calls.clear()
 
     resp = client.post(
         "/api/nao_move_toward",
@@ -126,6 +127,7 @@ def test_nao_move_toward_falls_back_to_base_when_behavior_fails(monkeypatch):
         },
     )
     assert cfg_resp.status_code == 200
+    calls.clear()
 
     resp = client.post("/api/nao_move_toward", json={"x": 0.0, "y": 0.0, "theta": 1.0, "seq": 1})
     assert resp.status_code == 200
@@ -165,6 +167,7 @@ def test_nao_move_toward_ignores_stale_seq(monkeypatch):
         json={"config": {"behavior_enabled": False, "base_enabled": True, "nao_base_url": "http://base:5000"}},
     )
     assert cfg_resp.status_code == 200
+    calls.clear()
 
     first = client.post("/api/nao_move_toward", json={"x": 1.0, "y": 0.0, "theta": 0.0, "seq": 5})
     assert first.status_code == 200
@@ -207,6 +210,7 @@ def test_nao_stop_move_falls_back_to_base(monkeypatch):
         },
     )
     assert cfg_resp.status_code == 200
+    calls.clear()
 
     resp = client.post("/api/nao_stop_move")
     assert resp.status_code == 200
@@ -241,6 +245,7 @@ def test_nao_move_toward_uses_runtime_defaults_for_frequency_and_arms(monkeypatc
         },
     )
     assert cfg_resp.status_code == 200
+    calls.clear()
 
     resp = client.post("/api/nao_move_toward", json={"x": 1.0, "y": 0.0, "theta": 0.0})
     assert resp.status_code == 200

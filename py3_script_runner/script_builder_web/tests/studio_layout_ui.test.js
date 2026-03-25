@@ -131,7 +131,7 @@ async function loadApp(runState, options = {}) {
       }
     }
     if (url === "./templates.json") {
-      return makeJsonResponse(TEMPLATE_FIXTURE);
+      return makeJsonResponse(options.templatesData || TEMPLATE_FIXTURE);
     }
     if (url === "/api/run/state") {
       return makeJsonResponse(
@@ -296,7 +296,55 @@ describe("studio layout ui", () => {
     expect(stepInspector.scrollTop).toBe(140);
   });
 
-  test("config editor grows to fit its content in blocks mode", async () => {
+  test("summary checkbox fields persist as booleans in editor json", async () => {
+    const summaryFixture = {
+      ...TEMPLATE_FIXTURE,
+      default_script: {
+        version: 1,
+        robots: { nao1: { dm_url: "http://127.0.0.1:5301" } },
+        defaults: { request_timeout_s: 12, on_error: "prompt" },
+        steps: [
+          {
+            id: "summary_step",
+            robot_id: "nao1",
+            start: { mode: "manual" },
+            action: {
+              type: "do",
+              mode: "summary_start",
+              wait_for_complete: true,
+              open_on_new_tab: false,
+            },
+          },
+        ],
+      },
+    };
+
+    await loadApp(undefined, { templatesData: summaryFixture });
+
+    document.getElementById("btnTabBlocks").click();
+    await flushUi();
+
+    await waitFor(() => !!document.querySelector('#stepInspector input[data-field="action.open_on_new_tab"]'));
+    const openCheckbox = document.querySelector('#stepInspector input[data-field="action.open_on_new_tab"]');
+    expect(openCheckbox).not.toBeNull();
+
+    openCheckbox.checked = true;
+    openCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushUi();
+
+    let parsed = JSON.parse(document.getElementById("editorJson").value);
+    expect(parsed.steps[0].action.open_on_new_tab).toBe(true);
+
+    const refreshedCheckbox = document.querySelector('#stepInspector input[data-field="action.open_on_new_tab"]');
+    refreshedCheckbox.checked = false;
+    refreshedCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushUi();
+
+    parsed = JSON.parse(document.getElementById("editorJson").value);
+    expect(parsed.steps[0].action.open_on_new_tab).toBe(false);
+  });
+
+  test("config editor grows to fit its content in config mode", async () => {
     const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "scrollHeight");
     Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
       configurable: true,
@@ -311,10 +359,10 @@ describe("studio layout ui", () => {
     try {
       await loadApp();
 
-      document.getElementById("btnTabBlocks").click();
+      document.getElementById("btnTabConfig").click();
       await flushUi();
 
-      expect(document.getElementById("blocksConfigJson").style.height).toBe("420px");
+      expect(document.getElementById("blocksConfigJson").style.height).toBe("");
     } finally {
       if (originalScrollHeight) {
         Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", originalScrollHeight);
@@ -324,50 +372,37 @@ describe("studio layout ui", () => {
     }
   });
 
-  test("opening config switches blocks mode into config focus layout", async () => {
+  test("config has a dedicated view tab", async () => {
     await loadApp();
 
-    document.getElementById("btnTabBlocks").click();
+    document.getElementById("btnTabConfig").click();
     await flushUi();
 
+    const configView = document.getElementById("configView");
     const blocksView = document.getElementById("blocksView");
-    const blocksConfigSection = document.getElementById("blocksConfigSection");
-
-    expect(blocksView.classList.contains("is-config-open")).toBe(false);
-
-    blocksConfigSection.open = true;
-    blocksConfigSection.dispatchEvent(new Event("toggle"));
-    await flushUi();
-
-    expect(blocksView.classList.contains("is-config-open")).toBe(true);
-
-    blocksConfigSection.open = false;
-    blocksConfigSection.dispatchEvent(new Event("toggle"));
-    await flushUi();
-
-    expect(blocksView.classList.contains("is-config-open")).toBe(false);
+    const jsonView = document.getElementById("jsonView");
+    expect(configView.classList.contains("is-hidden")).toBe(false);
+    expect(blocksView.classList.contains("is-hidden")).toBe(true);
+    expect(jsonView.classList.contains("is-hidden")).toBe(true);
   });
 
-  test("config summary stays populated when the section is toggled", async () => {
+  test("config summary stays populated when switching between config and steps", async () => {
     await loadApp();
 
-    document.getElementById("btnTabBlocks").click();
+    document.getElementById("btnTabConfig").click();
     await flushUi();
 
-    const blocksConfigSection = document.getElementById("blocksConfigSection");
     const blocksConfigSummary = document.getElementById("blocksConfigSummary");
     const expectedSummary = blocksConfigSummary.textContent;
 
     expect(expectedSummary).toContain("1 robot");
     expect(expectedSummary).toMatch(/PPT (aan|uit)/);
 
-    blocksConfigSection.open = true;
-    blocksConfigSection.dispatchEvent(new Event("toggle"));
+    document.getElementById("btnTabBlocks").click();
     await flushUi();
     expect(blocksConfigSummary.textContent).toBe(expectedSummary);
 
-    blocksConfigSection.open = false;
-    blocksConfigSection.dispatchEvent(new Event("toggle"));
+    document.getElementById("btnTabConfig").click();
     await flushUi();
     expect(blocksConfigSummary.textContent).toBe(expectedSummary);
   });
@@ -571,6 +606,70 @@ describe("studio layout ui", () => {
     expect(statusText).not.toContain("auto-rest");
     expect(window.setInterval.mock.calls.find((call) => call[1] === 5000)).toBeTruthy();
     expect(window.setInterval.mock.calls.find((call) => call[1] === 1000)).toBeUndefined();
+  });
+
+  test("robotstatus shows virtual robot state without connectivity popup when NAO is disabled", async () => {
+    let watchCalls = 0;
+    await loadApp(
+      {
+        ok: true,
+        status: "preflight",
+        waiting_for_next: false,
+        waiting_reason: "none",
+        current_step_id: "",
+        completed_steps: 0,
+        total_steps: 3,
+        log_tail: [],
+        last_error: null,
+      },
+      {
+        fetchImpl: async (url) => {
+          if (url === "/api/auto_rest_watch/status") {
+            watchCalls += 1;
+            return makeJsonResponse({
+              ok: true,
+              robots: [
+                {
+                  robot_id: "nao1",
+                  dm_url: "http://127.0.0.1:5301",
+                  instance_id: "alex",
+                  nao_enabled: false,
+                  virtual_robot: true,
+                  ok: false,
+                  reachable: false,
+                  awake: { ok: false, disabled: true },
+                  posture: { ok: false, disabled: true },
+                  auto_rest: {
+                    enabled_by_config: true,
+                    suspended: false,
+                    timer_active: false,
+                    timeout_s: 180,
+                    seconds_until_rest: 180,
+                  },
+                  error: "",
+                  connectivity_issues: [],
+                },
+              ],
+            });
+          }
+          return null;
+        },
+      }
+    );
+
+    await waitFor(() => document.getElementById("robotStatusSection").classList.contains("is-hidden") === false);
+    const statusText = document.getElementById("robotStatusList").textContent;
+    expect(statusText).toContain("nao1");
+    expect(statusText).toContain("modus: virtuele robot");
+    expect(statusText).toContain("motoren: disabled");
+    expect(statusText).toContain("posture: disabled");
+    expect(actionDialogIsOpen()).toBe(false);
+    expect(watchCalls).toBeGreaterThanOrEqual(1);
+
+    const pollCallback = window.setInterval.mock.calls.find((call) => call[1] === 5000)?.[0];
+    expect(typeof pollCallback).toBe("function");
+    await pollCallback();
+    expect(actionDialogIsOpen()).toBe(false);
   });
 
   test("robotstatus section stays hidden and does not poll while idle", async () => {

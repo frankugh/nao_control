@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from py3_script_runner.tts_preload import TtsPreloadService, TtsPreloadStore
 
@@ -14,7 +14,6 @@ def _script(*, text: str = "Welkom", script_id: str = "script-demo") -> Dict[str
         "robots": {
             "nao1": {
                 "dm_url": "http://127.0.0.1:5301",
-                "runtime_config": {"tts_engine": "azure", "azure_tts_voice": "voice-a"},
             }
         },
         "defaults": {"request_timeout_s": 12, "on_error": "prompt"},
@@ -30,36 +29,33 @@ def _script(*, text: str = "Welkom", script_id: str = "script-demo") -> Dict[str
 
 
 class _FakeClient:
-    def __init__(self, base_url: str, timeout_s: float, *, render_calls: list[tuple[str, str]]) -> None:
+    def __init__(self, base_url: str, timeout_s: float, *, voice: str, render_calls: list[tuple[str, str]]) -> None:
         self.base_url = base_url
         self.timeout_s = timeout_s
+        self._voice = voice
         self._render_calls = render_calls
 
-    def script_tts_profile(self, *, runtime_config_override: Optional[Dict[str, Any]] = None, timeout_s=None):
-        override = runtime_config_override if isinstance(runtime_config_override, dict) else {}
-        voice = str(override.get("azure_tts_voice") or "voice-a")
-        fingerprint = f"fp:{voice}"
+    def script_tts_profile(self, *, timeout_s=None):
+        fingerprint = f"fp:{self._voice}"
         return {
             "ok": True,
             "supported": True,
             "engine": "azure",
             "fingerprint": fingerprint,
-            "summary": f"Azure | {voice}",
-            "details": {"engine": "azure", "voice": voice},
+            "summary": f"Azure | {self._voice}",
+            "details": {"engine": "azure", "voice": self._voice},
         }
 
-    def script_tts_render(self, *, text: str, runtime_config_override: Optional[Dict[str, Any]] = None, timeout_s=None) -> bytes:
-        override = runtime_config_override if isinstance(runtime_config_override, dict) else {}
-        voice = str(override.get("azure_tts_voice") or "voice-a")
-        self._render_calls.append((voice, str(text)))
-        return f"WAV:{voice}:{text}".encode("utf-8")
+    def script_tts_render(self, *, text: str, timeout_s=None) -> bytes:
+        self._render_calls.append((self._voice, str(text)))
+        return f"WAV:{self._voice}:{text}".encode("utf-8")
 
 
-def _service(tmp_path: Path, render_calls: list[tuple[str, str]]) -> TtsPreloadService:
+def _service(tmp_path: Path, render_calls: list[tuple[str, str]], *, voice: str = "voice-a") -> TtsPreloadService:
     store = TtsPreloadStore(root=tmp_path / "preloaded_tts")
     return TtsPreloadService(
         store=store,
-        client_factory=lambda url, timeout_s: _FakeClient(url, timeout_s, render_calls=render_calls),
+        client_factory=lambda url, timeout_s: _FakeClient(url, timeout_s, voice=voice, render_calls=render_calls),
     )
 
 
@@ -154,15 +150,15 @@ def test_status_and_resolve_run_plan_support_existing_profile_choice(tmp_path):
     service.generate(initial)
 
     switched = _script(text="Offline demo")
-    switched["robots"]["nao1"]["runtime_config"]["azure_tts_voice"] = "voice-b"
-    status = service.status(switched)
+    switched_service = _service(tmp_path, render_calls, voice="voice-b")
+    status = switched_service.status(switched)
 
     robot = status["robots"][0]
     assert robot["status"] == "mismatch_existing"
     assert robot["current_profile"]["fingerprint"] == "fp:voice-b"
     assert robot["existing_profile"]["fingerprint"] == "fp:voice-a"
 
-    plan = service.resolve_run_plan(
+    plan = switched_service.resolve_run_plan(
         switched,
         {
             "nao1": {

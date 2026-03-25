@@ -222,6 +222,95 @@ def test_run_session_abort_transitions_to_aborted(monkeypatch):
     assert _wait_until(lambda: manager.state()["status"] == "aborted")
 
 
+def test_run_session_start_is_blocked_while_summary_is_active(monkeypatch):
+    monkeypatch.setattr(script_builder_app, "ScriptRunner", object)
+    manager = script_builder_app.RunSessionManager()
+    manager._state["summary_active"] = True
+
+    code, payload = manager.start(_script_payload())
+
+    assert code == HTTPStatus.CONFLICT
+    assert payload["ok"] is False
+    assert "summary is still active" in payload["error"]
+
+
+def test_request_summary_abort_uses_dm_summary_abort(monkeypatch):
+    seen: Dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float = 0) -> None:
+            seen["base_url"] = base_url
+            seen["timeout_s"] = timeout_s
+
+        def summary_abort(self, timeout_s=None):
+            seen["summary_abort_timeout_s"] = timeout_s
+            return {
+                "ok": True,
+                "session": {"session_id": "summary-123", "status": "aborted", "last_error": None},
+            }
+
+    monkeypatch.setattr(script_builder_app, "DMClient", FakeClient)
+    manager = script_builder_app.RunSessionManager()
+    manager._state.update(
+        {
+            "run_id": "run_1",
+            "summary_active": True,
+            "summary_waiting": False,
+            "summary_url": "http://127.0.0.1:5301/summary",
+            "summary_session_id": "summary-123",
+            "summary_status": "capturing",
+        }
+    )
+    manager._summary_dm_url = "http://127.0.0.1:5301"
+
+    code, payload = manager.request_summary_abort()
+
+    assert code == HTTPStatus.ACCEPTED
+    assert payload["summary_active"] is False
+    assert payload["summary_status"] == "aborted"
+    assert seen["base_url"] == "http://127.0.0.1:5301"
+    assert seen["summary_abort_timeout_s"] == 4.0
+
+
+def test_request_abort_can_best_effort_abort_summary(monkeypatch):
+    seen: Dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float = 0) -> None:
+            seen["base_url"] = base_url
+            seen["timeout_s"] = timeout_s
+
+        def summary_abort(self, timeout_s=None):
+            seen["summary_abort_timeout_s"] = timeout_s
+            return {
+                "ok": True,
+                "session": {"session_id": "summary-123", "status": "aborted", "last_error": None},
+            }
+
+    monkeypatch.setattr(script_builder_app, "DMClient", FakeClient)
+    manager = script_builder_app.RunSessionManager()
+    manager._state.update(
+        {
+            "status": "waiting",
+            "run_id": "run_1",
+            "summary_active": True,
+            "summary_waiting": True,
+            "summary_url": "http://127.0.0.1:5301/summary",
+            "summary_session_id": "summary-123",
+            "summary_status": "capturing",
+        }
+    )
+    manager._abort_event = SimpleNamespace(set=lambda: seen.setdefault("abort_set", True))  # type: ignore[assignment]
+    manager._summary_dm_url = "http://127.0.0.1:5301"
+
+    code, payload = manager.request_abort(summary_action="abort")
+
+    assert code == HTTPStatus.ACCEPTED
+    assert payload["summary_active"] is False
+    assert payload["summary_status"] == "aborted"
+    assert seen["abort_set"] is True
+
+
 def test_build_dm_launch_command_uses_dm_url_and_instance():
     spec = script_builder_app.DmLaunchSpec(
         robot_id="nao1",

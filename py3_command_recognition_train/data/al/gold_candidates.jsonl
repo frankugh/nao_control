@@ -77,3 +77,10 @@
 {"text": "Zo, vertel eens over je dag?", "label": "NONE", "source": "al_gold_candidate"}
 {"text": "OK, Laten we even Samen een stukje lopen.", "label": "WALK\\_WITH\\_ME", "source": "al_gold_candidate"}
 {"text": "Je zegt 'ons' ben jij dan een mens?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Oh nee.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Heel gezellig.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Hallo allemaal, wat leuk dat jullie er zijn!", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Heb je er zin in vandaag, Alex?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Vertel eens een leuk verhaal, iets dat me blij maakt", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "oeps, stoppen!", "label": "STOP", "source": "al_gold_candidate"}
+{"text": "OK loop maar met me mee.", "label": "WALK\\_WITH\\_ME", "source": "al_gold_candidate"}

@@ -70,19 +70,16 @@ def test_each_template_snippet_validates_after_append():
             assert len(validated["steps"]) >= 2
 
 
-def test_summary_template_is_three_step_flow():
+def test_summary_template_is_single_summary_start_step():
     data = _load_templates()
     summary_category = next(item for item in data["catalog"] if item["category_key"] == "summary")
-    summary_template = next(item for item in summary_category["templates"] if item["template_key"] == "summary_3_step_flow")
+    summary_template = next(item for item in summary_category["templates"] if item["template_key"] == "summary_start")
     snippet = summary_template["snippet"]
-    assert isinstance(snippet, list)
-    assert len(snippet) == 3
+    assert isinstance(snippet, dict)
 
     script_obj = copy.deepcopy(data["default_script"])
     _append_snippet(script_obj, snippet)
     validated = validate_script(script_obj)
 
     modes = [step["action"].get("mode") for step in validated["steps"] if step["action"].get("type") == "do"]
-    assert "summary_capture_start" in modes
-    assert "summary_capture_stop_and_draft" in modes
-    assert "summary_publish" in modes
+    assert "summary_start" in modes

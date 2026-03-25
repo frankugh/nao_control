@@ -160,6 +160,7 @@ def test_auto_rest_tick_is_suppressed_once_and_release_resets_timer(monkeypatch)
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     acquire = client.post(
         "/api/auto_rest_suspend/acquire",
@@ -222,6 +223,7 @@ def test_auto_rest_tick_does_not_repeat_rest_when_robot_is_already_resting(monke
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     app._auto_rest_debug_touch_activity(activate_auto_rest=True)
     app._auto_rest_debug_set_last_activity_ago(20)
@@ -270,6 +272,7 @@ def test_auto_rest_tick_does_not_repeat_rest_if_awake_probe_fails_after_successf
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     app._auto_rest_debug_touch_activity(activate_auto_rest=True)
     app._auto_rest_debug_set_last_activity_ago(20)
@@ -319,6 +322,7 @@ def test_explicit_rest_disarms_timer_and_explicit_wake_reactivates_it(monkeypatc
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     rest_resp = client.post("/api/nao_rest")
     assert rest_resp.status_code == 200
@@ -389,6 +393,7 @@ def test_touch_activity_during_rest_does_not_reactivate_timer(monkeypatch):
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     rest_resp = client.post("/api/nao_rest")
     assert rest_resp.status_code == 200
@@ -445,6 +450,7 @@ def test_manual_rest_uses_dm_awake_helper_when_base_endpoint_exists(monkeypatch)
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     resp = client.post("/api/command_execute", json={"label": "REST"})
     assert resp.status_code == 200
@@ -499,6 +505,7 @@ def test_manual_stand_up_from_rest_uses_dm_wake_helper_once(monkeypatch):
         },
     )
     assert cfg_resp.status_code == 200
+    post_calls.clear()
 
     resp = client.post("/api/command_execute", json={"label": "STAND_UP"})
     assert resp.status_code == 200

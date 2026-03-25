@@ -182,3 +182,107 @@ class RmsVadUtteranceCapturer:
             raise TimeoutError("Geen spraak gedetecteerd in buffer.")
 
         return np.concatenate(captured).astype(np.int16)
+
+
+class RmsVadStreamingSegmenter:
+    """
+    Stateful RMS-VAD voor continue streams.
+
+    Houdt een pre-roll buffer bij terwijl de stream open blijft en levert
+    complete utterances terug zodra stilte of de safety cap bereikt is.
+    """
+
+    def __init__(self, cfg: RmsVadConfig) -> None:
+        self.cfg = cfg
+        self._block_n = int(cfg.sample_rate * (cfg.block_ms / 1000.0))
+        self._pre_roll_n = int(cfg.sample_rate * (cfg.pre_roll_ms / 1000.0))
+        self._stop_sil_n = int(cfg.sample_rate * (cfg.stop_silence_ms / 1000.0))
+        self._max_n = int(cfg.sample_rate * cfg.max_utterance_s)
+        self._waiting_started_at = time.time()
+        self._started = False
+        self._silence_run = 0
+        self._pre_roll = np.zeros((0,), dtype=np.int16)
+        self._captured: list[np.ndarray] = []
+        self._captured_n = 0
+
+    @staticmethod
+    def _rms(block: np.ndarray) -> int:
+        if block.size == 0:
+            return 0
+        x = block.astype(np.float32)
+        return int(np.sqrt(np.mean(x * x)) + 0.5)
+
+    def _reset_waiting(self, *, now: Optional[float] = None) -> None:
+        self._started = False
+        self._silence_run = 0
+        self._pre_roll = np.zeros((0,), dtype=np.int16)
+        self._captured = []
+        self._captured_n = 0
+        self._waiting_started_at = float(now if now is not None else time.time())
+
+    def _normalize_block(self, block: np.ndarray) -> np.ndarray:
+        if block.ndim != 1:
+            block = block.reshape(-1)
+        if block.dtype != np.int16:
+            block = block.astype(np.int16)
+        return block
+
+    def feed(self, block: np.ndarray, *, now: Optional[float] = None) -> Optional[np.ndarray]:
+        block = self._normalize_block(block)
+        if block.size == 0:
+            return None
+        ts = float(now if now is not None else time.time())
+        rms = self._rms(block)
+
+        if not self._started:
+            if self._pre_roll_n > 0:
+                self._pre_roll = np.concatenate([self._pre_roll, block])
+                if self._pre_roll.size > self._pre_roll_n:
+                    self._pre_roll = self._pre_roll[-self._pre_roll_n :]
+            if rms >= self.cfg.start_threshold_rms:
+                self._started = True
+                self._silence_run = 0
+                self._captured = []
+                self._captured_n = 0
+                if self._pre_roll.size:
+                    self._captured.append(self._pre_roll.copy())
+                    self._captured_n += int(self._pre_roll.size)
+                self._captured.append(block.copy())
+                self._captured_n += int(block.size)
+            return None
+
+        self._captured.append(block.copy())
+        self._captured_n += int(block.size)
+        if rms < self.cfg.start_threshold_rms:
+            self._silence_run += int(block.size)
+        else:
+            self._silence_run = 0
+
+        if self._silence_run >= self._stop_sil_n or self._captured_n >= self._max_n:
+            utterance = np.concatenate(self._captured).astype(np.int16)
+            self._reset_waiting(now=ts)
+            return utterance
+        return None
+
+    def poll_timeout(self, timeout_s: float, *, now: Optional[float] = None) -> bool:
+        if self._started:
+            return False
+        try:
+            timeout_value = float(timeout_s)
+        except Exception:
+            timeout_value = 0.0
+        if timeout_value <= 0:
+            return False
+        ts = float(now if now is not None else time.time())
+        if (ts - self._waiting_started_at) >= timeout_value:
+            self._waiting_started_at = ts
+            return True
+        return False
+
+    def flush(self, *, now: Optional[float] = None) -> Optional[np.ndarray]:
+        if not self._started or not self._captured:
+            self._reset_waiting(now=now)
+            return None
+        utterance = np.concatenate(self._captured).astype(np.int16)
+        self._reset_waiting(now=now)
+        return utterance

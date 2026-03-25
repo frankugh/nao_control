@@ -152,3 +152,19 @@
 {"text": "Je zegt 'ons' ben jij dan een mens?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Leuk hè? Praten?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Vind ik wel leuk?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Oh nee.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Kippeneten rijst.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Heel gezellig.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Doe je dat we ook eerder dan één uur kunnen.", "label": "NONE", "source": "al_reviewed"}
+{"text": "Hallo allemaal, wat leuk dat jullie er zijn!", "label": "NONE", "source": "al_reviewed"}
+{"text": "Heb je er zin in vandaag, Alex?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Ik zie niks gebeuren?", "label": "NONE", "source": "al_reviewed"}
+{"text": "En, wat zie je?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Mijn dag was ook erg leuk. Ik ben naar massage geweest.", "label": "NONE", "source": "al_reviewed"}
+{"text": "dat is wel cool\n\\", "label": "NONE", "source": "al_reviewed"}
+{"text": "En, wat moest je allemaal in Atlantis doen eigenlijk?", "label": "NONE", "source": "al_reviewed"}
+{"text": "Vertel eens een leuk verhaal, iets dat me blij maakt", "label": "NONE", "source": "al_reviewed"}
+{"text": "dat klinkt leuk", "label": "NONE", "source": "al_reviewed"}
+{"text": "oeps, stoppen!", "label": "STOP", "source": "al_reviewed"}
+{"text": "OK loop maar met me mee.", "label": "WALK\\_WITH\\_ME", "source": "al_reviewed"}
+{"text": "Even denken, hoor ken je er nog meer?", "label": "NONE", "source": "al_reviewed"}

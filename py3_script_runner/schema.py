@@ -13,10 +13,7 @@ ALLOWED_DO_MODES = {
     "behavior_stop",
     "dance",
     "nao_set_eye_color",
-    "summary_capture_start",
-    "summary_capture_stop_and_draft",
-    "summary_publish",
-    "summary_cancel",
+    "summary_start",
 }
 ALLOWED_PPT_MODES = {"next_slide", "previous_slide", "goto"}
 ALLOWED_ON_ERROR = {"prompt", "abort", "continue"}
@@ -89,6 +86,19 @@ def _as_nonnegative_int(value: Any, field: str) -> int:
     return number
 
 
+def _coerce_legacy_bool(value: Any, field: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        _fail(f"{field} must be a boolean")
+    text = str(value).strip().lower()
+    if text in {"true", "1"}:
+        return True
+    if text in {"false", "0", ""}:
+        return False
+    _fail(f"{field} must be a boolean")
+
+
 def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         _fail("script root must be an object")
@@ -119,11 +129,10 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(instance_id, str) or not instance_id.strip():
                 _fail(f"robots.{rid}.instance_id must be a non-empty string if provided")
             normalized_robot["instance_id"] = instance_id.strip()
-        runtime_config = robot_cfg.get("runtime_config", None)
-        if runtime_config is not None:
-            if not isinstance(runtime_config, dict):
-                _fail(f"robots.{rid}.runtime_config must be an object if provided")
-            normalized_robot["runtime_config"] = dict(runtime_config)
+        if "runtime_config" in robot_cfg:
+            _fail(
+                f"robots.{rid}.runtime_config is no longer supported; move summary/runtime settings to DM instead"
+            )
         robots[rid] = normalized_robot
 
     defaults_raw = raw.get("defaults") or {}
@@ -222,8 +231,7 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
                 _fail(
                     "steps[{idx}].action.mode must be one of: "
                     "command, behavior_start, behavior_stop, dance, nao_set_eye_color, "
-                    "summary_capture_start, summary_capture_stop_and_draft, "
-                    "summary_publish, summary_cancel".format(idx=idx)
+                    "summary_start".format(idx=idx)
                 )
             normalized_step["action"]["mode"] = do_mode
             if do_mode == "command":
@@ -248,33 +256,17 @@ def validate_script(raw: Dict[str, Any]) -> Dict[str, Any]:
                         action.get("duration"),
                         f"steps[{idx}].action.duration",
                     )
-            elif do_mode == "summary_capture_stop_and_draft":
-                normalized_step["action"]["input_prompt_template"] = _as_nonempty_str(
-                    action.get("input_prompt_template"),
-                    f"steps[{idx}].action.input_prompt_template",
+            elif do_mode == "summary_start":
+                wait_for_complete = _coerce_legacy_bool(
+                    action.get("wait_for_complete", True),
+                    f"steps[{idx}].action.wait_for_complete",
                 )
-                instruction = action.get("instruction")
-                if instruction is not None:
-                    instruction_text = str(instruction).strip()
-                    if instruction_text:
-                        normalized_step["action"]["instruction"] = instruction_text
-                system_prompt = action.get("system_prompt")
-                if system_prompt is not None:
-                    system_prompt_text = str(system_prompt).strip()
-                    if system_prompt_text:
-                        normalized_step["action"]["system_prompt"] = system_prompt_text
-                system_prompt_file = action.get("system_prompt_file")
-                if system_prompt_file is not None:
-                    system_prompt_file_text = str(system_prompt_file).strip()
-                    if system_prompt_file_text:
-                        normalized_step["action"]["system_prompt_file"] = system_prompt_file_text
-            elif do_mode == "summary_capture_start":
-                hold_until_continue = action.get("hold_until_continue", True)
-                if not isinstance(hold_until_continue, bool):
-                    _fail(f"steps[{idx}].action.hold_until_continue must be a boolean")
-                normalized_step["action"]["hold_until_continue"] = bool(hold_until_continue)
-            elif do_mode in {"summary_publish", "summary_cancel"}:
-                pass
+                normalized_step["action"]["wait_for_complete"] = wait_for_complete
+                open_on_new_tab = _coerce_legacy_bool(
+                    action.get("open_on_new_tab", False),
+                    f"steps[{idx}].action.open_on_new_tab",
+                )
+                normalized_step["action"]["open_on_new_tab"] = open_on_new_tab
             else:
                 normalized_step["action"]["behavior"] = _as_nonempty_str(
                     action.get("behavior"), f"steps[{idx}].action.behavior"

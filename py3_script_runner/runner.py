@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from queue import Empty, Queue
 from typing import Any, Callable, Dict, Optional
 import threading
 import sys
@@ -109,11 +108,11 @@ class ScriptRunner:
         self._pending_snapback = False
         self._waiting_for_next = False
         self._waiting_reason = "none"
-        self._summary_publish_decision_by_robot: Dict[str, str] = {}
         self.summary_live_poll_interval_s = self._parse_positive_float(
             self.defaults.get("summary_live_poll_interval_s", 0.75),
             default=0.75,
         )
+        self._summary_open_nonce = 0
 
         self.log_dir = Path(log_dir) if log_dir is not None else (Path(__file__).resolve().parent / "logs")
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +123,6 @@ class ScriptRunner:
 
         self.clients: Dict[str, DMClient] = {}
         self.robot_cfgs: Dict[str, Dict[str, Any]] = {}
-        self._runtime_cfg_applied: Dict[str, bool] = {}
         self.auto_rest_suspend_owner = "script_runner"
         self.auto_rest_suspend_reason = "script_run"
         self.auto_rest_suspend_ttl_s = 30.0
@@ -246,9 +244,16 @@ class ScriptRunner:
     def _auto_rest_acquire_failure_message(self, robot_id: str, exc: Exception) -> str:
         robot_cfg = self.robot_cfgs.get(robot_id) or {}
         dm_url = str(robot_cfg.get("dm_url") or "").strip() or "-"
+        detail = ""
+        lowered = str(exc or "").strip().lower()
+        if "auto-rest suspend already active" in lowered:
+            detail = (
+                " Er is al een andere of achtergebleven auto-rest suspend lease actief. "
+                "Dit blijft blocker, omdat deze runner die lease niet bezit en dus ook niet kan vernieuwen of veilig vrijgeven."
+            )
         return (
             f"Robot {robot_id}: auto-rest suspend kon niet worden geactiveerd op {dm_url} ({exc}). "
-            f"{self._fallback_manual_disable_hint()}"
+            f"{detail}{self._fallback_manual_disable_hint()}"
         )
 
     def _auto_rest_renew_failure_message(self, robot_id: str, exc: Exception) -> str:
@@ -612,22 +617,12 @@ class ScriptRunner:
     def _check_robot_ready(self, robot_id: str) -> tuple[bool, str, Dict[str, Any]]:
         client = self.clients[robot_id]
         timeout_s = self.readiness_request_timeout_s
-        robot_cfg = self.robot_cfgs.get(robot_id) or {}
-        runtime_override = robot_cfg.get("runtime_config")
 
         try:
             caps = client.capabilities(timeout_s=timeout_s)
         except Exception as exc:
             return False, f"DM down ({exc})", {}
         supports = caps.get("supports", {}) if isinstance(caps, dict) else {}
-
-        if isinstance(runtime_override, dict) and runtime_override and not self._runtime_cfg_applied.get(robot_id):
-            try:
-                self._log(f"Robot {robot_id}: applying runtime config overrides")
-                client.set_runtime_config(runtime_override, timeout_s=timeout_s)
-                self._runtime_cfg_applied[robot_id] = True
-            except Exception as exc:
-                return False, f"runtime config apply failed ({exc})", {"supports": supports}
 
         try:
             effective = client.runtime_effective(timeout_s=timeout_s)
@@ -906,9 +901,11 @@ class ScriptRunner:
     def preflight(self) -> None:
         self._emit_event("status", status="preflight")
         self._log("Preflight: checking robot DM capabilities...")
-        self._ensure_auto_rest_leases()
         try:
             ready_info = self._wait_for_readiness()
+            if self.clients:
+                self._log("Preflight: acquiring auto-rest suspend leases...")
+            self._ensure_auto_rest_leases()
             for robot_id in sorted(self.clients.keys()):
                 info = ready_info.get(robot_id) or {}
                 supports = info.get("supports", {}) if isinstance(info, dict) else {}
@@ -1070,211 +1067,212 @@ class ScriptRunner:
             return client.nao_set_eye_color(color=color, duration=float(duration), timeout_s=timeout_s)
         elif do_mode in {"behavior_start", "behavior_stop"}:
             payload["behavior"] = action.get("behavior")
-        elif do_mode == "summary_capture_start":
-            hold_until_continue = bool(action.get("hold_until_continue", True))
-            self._summary_publish_decision_by_robot.pop(robot_id, None)
-            result = client.script_do(payload=payload, timeout_s=timeout_s)
-            if hold_until_continue:
-                self._wait_for_summary_capture_continue(
-                    index=step_index,
-                    total=step_total,
-                    step_id=step_id,
-                    client=client,
-                    timeout_s=timeout_s,
-                    initial_state=result,
-                )
-            return result
-        elif do_mode == "summary_capture_stop_and_draft":
-            payload["input_prompt_template"] = action.get("input_prompt_template")
-            instruction = str(action.get("instruction") or "").strip()
-            if instruction:
-                payload["instruction"] = instruction
-            system_prompt = str(action.get("system_prompt") or "").strip()
-            if system_prompt:
-                payload["system_prompt"] = system_prompt
-            system_prompt_file = str(action.get("system_prompt_file") or "").strip()
-            if system_prompt_file:
-                payload["system_prompt_file"] = system_prompt_file
-            result = client.script_do(payload=payload, timeout_s=timeout_s)
-            self._log_summary_draft_preview(result)
-            publish_action = self._resolve_summary_publish_action(default_on_empty="publish")
-            self._summary_publish_decision_by_robot[robot_id] = publish_action
-            if publish_action == "cancel":
-                cancel_result = client.script_do(payload={"mode": "summary_cancel"}, timeout_s=timeout_s)
-                out = dict(result or {})
-                out["post_draft_action"] = "cancel"
-                out["cancel_result"] = cancel_result
-                return out
-            out = dict(result or {})
-            out["post_draft_action"] = "publish"
-            return out
-        elif do_mode == "summary_publish":
-            pending_action = self._summary_publish_decision_by_robot.pop(robot_id, None)
-            if pending_action == "cancel":
-                return {
-                    "ok": True,
-                    "status": "accepted",
-                    "action": "do",
-                    "mode": "summary_publish",
-                    "skipped": True,
-                    "reason": "summary_cancelled_after_draft",
-                }
-            if pending_action == "publish":
-                return client.script_do(payload=payload, timeout_s=timeout_s)
-            publish_action = self._resolve_summary_publish_action(default_on_empty="publish")
-            if publish_action == "cancel":
-                payload = {"mode": "summary_cancel"}
-        elif do_mode == "summary_cancel":
-            self._summary_publish_decision_by_robot.pop(robot_id, None)
+        elif do_mode == "summary_start":
+            return self._start_summary_step(
+                action=action,
+                robot_id=robot_id,
+                client=client,
+                timeout_s=timeout_s,
+                step_index=step_index,
+                step_total=step_total,
+                step_id=step_id,
+            )
         else:
             raise RuntimeError(f"unsupported do.mode: {do_mode}")
         return client.script_do(payload=payload, timeout_s=timeout_s)
 
     @staticmethod
-    def _summary_draft_text(result: Optional[Dict[str, Any]]) -> str:
-        if not isinstance(result, dict):
-            return ""
-        return str(result.get("draft") or "").strip()
+    def _summary_is_terminal(status: str) -> bool:
+        return str(status or "").strip().lower() in {"completed", "aborted", "error"}
 
-    def _log_summary_draft_preview(self, result: Optional[Dict[str, Any]]) -> None:
-        draft_text = self._summary_draft_text(result)
-        if not draft_text:
-            self._log("[SUMMARY] Geen draft ontvangen.")
-            return
-        self._log("[SUMMARY] Draft:")
-        for line in draft_text.splitlines():
-            line_clean = line.strip()
-            if line_clean:
-                self._log(f"[SUMMARY] {line_clean}")
+    @staticmethod
+    def _summary_session(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        session = payload.get("session") if isinstance(payload, dict) else None
+        return session if isinstance(session, dict) else {}
 
-    def _ask_summary_publish_action(self, *, default_on_empty: Optional[str] = None) -> str:
-        while True:
-            choice = self._read_control_input("[SUMMARY] Draft review: [p]ublish / [c]ancel: ")
-            if choice == "" and default_on_empty in {"publish", "cancel"}:
-                return str(default_on_empty)
-            if choice in {"p", "publish"}:
-                return "publish"
-            if choice in {"c", "cancel"}:
-                return "cancel"
+    def _summary_status(self, payload: Optional[Dict[str, Any]], *, default: str = "") -> str:
+        session = self._summary_session(payload)
+        status = str(session.get("status") or "").strip().lower()
+        if status:
+            return status
+        return str(default or "").strip().lower()
 
-    def _resolve_summary_publish_action(self, *, default_on_empty: Optional[str] = None) -> str:
-        if self.summary_publish_policy == "publish":
-            return "publish"
-        if self.summary_publish_policy == "cancel":
-            return "cancel"
-        return self._ask_summary_publish_action(default_on_empty=default_on_empty)
+    def _summary_last_error(self, payload: Optional[Dict[str, Any]], *, fallback: str = "") -> str:
+        session = self._summary_session(payload)
+        for raw in (
+            session.get("last_error"),
+            payload.get("detail") if isinstance(payload, dict) else None,
+            payload.get("error") if isinstance(payload, dict) else None,
+            fallback,
+        ):
+            text = str(raw or "").strip()
+            if text:
+                return text
+        return ""
 
-    def _wait_for_summary_capture_continue(
+    def _emit_summary_state(
         self,
         *,
-        index: int,
-        total: int,
-        step_id: str,
+        robot_id: str,
+        client: DMClient,
+        summary_url: str,
+        payload: Optional[Dict[str, Any]],
+        waiting: bool,
+        connection_ok: bool,
+        last_error: str = "",
+        open_nonce: int = 0,
+    ) -> None:
+        session = self._summary_session(payload)
+        status = self._summary_status(payload, default="unknown")
+        active = not self._summary_is_terminal(status)
+        event: Dict[str, Any] = {
+            "robot_id": str(robot_id or "").strip(),
+            "summary_dm_url": str(client.base_url or "").strip(),
+            "summary_url": str(summary_url or "").strip(),
+            "summary_active": bool(active),
+            "summary_waiting": bool(waiting),
+            "summary_session_id": str(session.get("session_id") or "").strip(),
+            "summary_status": status,
+            "summary_connection_ok": bool(connection_ok),
+            "summary_last_error": self._summary_last_error(payload, fallback=last_error),
+        }
+        if open_nonce > 0:
+            event["summary_open_nonce"] = int(open_nonce)
+        self._emit_event("summary_state", **event)
+
+    def _wait_for_summary_completion(
+        self,
+        *,
+        robot_id: str,
         client: DMClient,
         timeout_s: float,
-        initial_state: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        self._log(f"[{index + 1}/{total}] {step_id}: capturing... press ENTER when ready for summary draft")
-        seen_transcript_count = 0
-        seen_stt_calls = 0
-        last_error: Optional[str] = None
-
-        def _consume_state(state: Dict[str, Any]) -> None:
-            nonlocal seen_transcript_count, seen_stt_calls, last_error
-            if not isinstance(state, dict):
-                return
-
-            stats = state.get("capture_stats") or {}
-            if isinstance(stats, dict):
-                try:
-                    stt_calls = max(0, int(stats.get("stt_calls", 0) or 0))
-                except Exception:
-                    stt_calls = seen_stt_calls
-                if stt_calls > seen_stt_calls:
-                    for _ in range(stt_calls - seen_stt_calls):
-                        self._log(f"[{index + 1}/{total}] {step_id}: transcriberen...")
-                    seen_stt_calls = stt_calls
-
-            raw_transcript = state.get("transcript")
-            if isinstance(raw_transcript, list):
-                transcript_lines = [str(item or "").strip() for item in raw_transcript]
-                transcript_lines = [line for line in transcript_lines if line]
-                if len(transcript_lines) > seen_transcript_count:
-                    for line in transcript_lines[seen_transcript_count:]:
-                        self._log(f"[{index + 1}/{total}] {step_id}: {line}")
-                    seen_transcript_count = len(transcript_lines)
-
-            err = str(state.get("last_error") or "").strip()
-            if err and err != last_error:
-                self._log(f"[{index + 1}/{total}] {step_id}: WARN {err}")
-                last_error = err
-
-        if isinstance(initial_state, dict):
-            _consume_state(initial_state)
-
-        if self.continue_event is not None:
-            self._set_waiting_for_next(
-                reason="summary_capture_continue",
-                index=index,
-                total=total,
-                step_id=step_id,
-            )
-            try:
-                while True:
-                    self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
-                    if self.continue_event.is_set():
-                        self.continue_event.clear()
-                        return
-                    try:
-                        state = client.script_do(payload={"mode": "summary_capture_start"}, timeout_s=timeout_s)
-                        _consume_state(state)
-                    except Exception as exc:
-                        self._log(f"[{index + 1}/{total}] {step_id}: WARN live status poll failed ({exc})")
-                    self._sleep_interruptible(self.summary_live_poll_interval_s)
-            finally:
-                self._clear_waiting_for_next(index=index, total=total, step_id=step_id)
-
-        input_queue: Queue[Any] = Queue()
-        reader_done = threading.Event()
-
-        def _reader() -> None:
-            try:
-                while not reader_done.is_set():
-                    choice = self._read_control_input("")
-                    input_queue.put(("choice", choice))
-                    if choice == "":
-                        return
-            except Exception as exc:
-                input_queue.put(("error", exc))
-
-        reader_thread = threading.Thread(target=_reader, daemon=True)
-        reader_thread.start()
-
-        while True:
-            self._raise_if_abort_requested(context=f"[{index + 1}/{total}] {step_id}")
+        step_index: int,
+        step_total: int,
+        step_id: str,
+        summary_url: str,
+        initial_payload: Dict[str, Any],
+        open_nonce: int,
+    ) -> Dict[str, Any]:
+        self._log(f"[{step_index + 1}/{step_total}] {step_id}: waiting for summary completion")
+        last_payload: Dict[str, Any] = dict(initial_payload or {})
+        last_warn = ""
+        self._set_waiting_for_next(reason="summary_wait", index=step_index, total=step_total, step_id=step_id)
+        try:
             while True:
+                self._raise_if_abort_requested(context=f"[{step_index + 1}/{step_total}] {step_id}")
                 try:
-                    item_type, payload = input_queue.get_nowait()
-                except Empty:
-                    break
-                if item_type == "error":
-                    raise payload
-                choice = str(payload or "").strip().lower()
-                if choice == "":
-                    reader_done.set()
-                    return
-                if choice in {"q", "quit"}:
-                    reader_done.set()
-                    raise _RunAbortRequested(f"[{index + 1}/{total}] {step_id}: abort requested")
-                self._log(f"[{index + 1}/{total}] {step_id}: unknown key '{choice}' (use ENTER/q)")
+                    payload = client.summary_get(timeout_s=timeout_s)
+                except _RunAbortRequested:
+                    raise
+                except Exception as exc:
+                    message = str(exc or "").strip() or "summary poll failed"
+                    if message != last_warn:
+                        self._log(f"[{step_index + 1}/{step_total}] {step_id}: WARN summary poll failed ({message})")
+                        last_warn = message
+                    self._emit_summary_state(
+                        robot_id=robot_id,
+                        client=client,
+                        summary_url=summary_url,
+                        payload=last_payload,
+                        waiting=True,
+                        connection_ok=False,
+                        last_error=message,
+                        open_nonce=open_nonce,
+                    )
+                    self._sleep_interruptible(self.summary_live_poll_interval_s)
+                    continue
 
-            try:
-                state = client.script_do(payload={"mode": "summary_capture_start"}, timeout_s=timeout_s)
-                _consume_state(state)
-            except Exception as exc:
-                self._log(f"[{index + 1}/{total}] {step_id}: WARN live status poll failed ({exc})")
+                last_payload = dict(payload or {})
+                status = self._summary_status(payload)
+                self._emit_summary_state(
+                    robot_id=robot_id,
+                    client=client,
+                    summary_url=summary_url,
+                    payload=payload,
+                    waiting=True,
+                    connection_ok=True,
+                    open_nonce=open_nonce,
+                )
+                if status == "completed":
+                    self._emit_summary_state(
+                        robot_id=robot_id,
+                        client=client,
+                        summary_url=summary_url,
+                        payload=payload,
+                        waiting=False,
+                        connection_ok=True,
+                        open_nonce=open_nonce,
+                    )
+                    return payload
+                if status == "aborted":
+                    self._emit_summary_state(
+                        robot_id=robot_id,
+                        client=client,
+                        summary_url=summary_url,
+                        payload=payload,
+                        waiting=False,
+                        connection_ok=True,
+                        open_nonce=open_nonce,
+                    )
+                    raise RuntimeError("Summary aborted.")
+                if status == "error":
+                    detail = self._summary_last_error(payload, fallback="Summary error.")
+                    self._emit_summary_state(
+                        robot_id=robot_id,
+                        client=client,
+                        summary_url=summary_url,
+                        payload=payload,
+                        waiting=False,
+                        connection_ok=True,
+                        open_nonce=open_nonce,
+                    )
+                    raise RuntimeError(f"Summary error: {detail}")
+                last_warn = ""
+                self._sleep_interruptible(self.summary_live_poll_interval_s)
+        finally:
+            self._clear_waiting_for_next(index=step_index, total=step_total, step_id=step_id)
 
-            self._sleep_interruptible(self.summary_live_poll_interval_s)
+    def _start_summary_step(
+        self,
+        *,
+        action: Dict[str, Any],
+        robot_id: str,
+        client: DMClient,
+        timeout_s: float,
+        step_index: int,
+        step_total: int,
+        step_id: str,
+    ) -> Dict[str, Any]:
+        wait_for_complete = bool(action.get("wait_for_complete", True))
+        open_on_new_tab = bool(action.get("open_on_new_tab", False))
+        summary_url = client.summary_page_url()
+        open_nonce = 0
+        if open_on_new_tab:
+            self._summary_open_nonce += 1
+            open_nonce = self._summary_open_nonce
+        result = client.summary_start(timeout_s=timeout_s)
+        self._emit_summary_state(
+            robot_id=robot_id,
+            client=client,
+            summary_url=summary_url,
+            payload=result,
+            waiting=wait_for_complete,
+            connection_ok=True,
+            open_nonce=open_nonce,
+        )
+        if not wait_for_complete:
+            return result
+        return self._wait_for_summary_completion(
+            robot_id=robot_id,
+            client=client,
+            timeout_s=timeout_s,
+            step_index=step_index,
+            step_total=step_total,
+            step_id=step_id,
+            summary_url=summary_url,
+            initial_payload=result,
+            open_nonce=open_nonce,
+        )
 
     def _ask_error_action(self) -> str:
         while True:

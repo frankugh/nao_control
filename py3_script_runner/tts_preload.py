@@ -422,14 +422,12 @@ class TtsPreloadService:
     def _profile_for_robot(self, robot_cfg: JsonDict) -> JsonDict:
         dm_url = str(robot_cfg.get("dm_url") or "").strip()
         client = self._script_client(dm_url)
-        override = robot_cfg.get("runtime_config") if isinstance(robot_cfg.get("runtime_config"), dict) else None
-        return client.script_tts_profile(runtime_config_override=override, timeout_s=self.timeout_s)
+        return client.script_tts_profile(timeout_s=self.timeout_s)
 
     def _render_for_robot(self, robot_cfg: JsonDict, text: str) -> bytes:
         dm_url = str(robot_cfg.get("dm_url") or "").strip()
         client = self._script_client(dm_url)
-        override = robot_cfg.get("runtime_config") if isinstance(robot_cfg.get("runtime_config"), dict) else None
-        return client.script_tts_render(text=text, runtime_config_override=override, timeout_s=self.timeout_s)
+        return client.script_tts_render(text=text, timeout_s=self.timeout_s)
 
     def _rebuild_manifest(self, script: JsonDict, existing_manifest: JsonDict) -> JsonDict:
         script_id = self._require_script_id(script)

@@ -190,47 +190,21 @@
       "category_label": "Summary",
       "templates": [
         {
-          "template_key": "summary_3_step_flow",
-          "template_label": "3-step flow",
-          "snippet": [
-            {
-              "id": "summary_capture_start_001",
-              "robot_id": "nao1",
-              "start": {
-                "mode": "manual"
-              },
-              "action": {
-                "type": "do",
-                "mode": "summary_capture_start",
-                "hold_until_continue": true
-              }
+          "template_key": "summary_start",
+          "template_label": "start summary",
+          "snippet": {
+            "id": "summary_start_001",
+            "robot_id": "nao1",
+            "start": {
+              "mode": "manual"
             },
-            {
-              "id": "summary_capture_stop_and_draft_001",
-              "robot_id": "nao1",
-              "start": {
-                "mode": "manual"
-              },
-              "action": {
-                "type": "do",
-                "mode": "summary_capture_stop_and_draft",
-                "system_prompt_file": "master_prompts/workshop_summary_system.txt",
-                "input_prompt_template": "Transcriptie:\\n{transcript}\\n\\nOpdracht:\\n{instruction}\\n\\nGeef nu de definitieve gesproken tekst die de robot hardop kan uitspreken.",
-                "instruction": "Houd het kort, natuurlijk en spreekbaar. Geen bullets of kopjes."
-              }
-            },
-            {
-              "id": "summary_publish_001",
-              "robot_id": "nao1",
-              "start": {
-                "mode": "manual"
-              },
-              "action": {
-                "type": "do",
-                "mode": "summary_publish"
-              }
+            "action": {
+              "type": "do",
+              "mode": "summary_start",
+              "wait_for_complete": true,
+              "open_on_new_tab": false
             }
-          ]
+          }
         }
       ]
     }

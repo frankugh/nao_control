@@ -39,10 +39,11 @@ import signal
 from urllib.parse import urlparse
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from flask import Flask, Response, g, has_request_context, jsonify, request, send_from_directory
+from flask import Flask, Response, g, has_request_context, jsonify, request, send_file, send_from_directory
 import requests
 import numpy as np
 from werkzeug.exceptions import HTTPException
+from summary_service import SummaryService
 
 try:
     import sounddevice as sd
@@ -169,8 +170,9 @@ _SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S = 2.0
 _SUMMARY_CAPTURE_TIMEOUT_MAX_S = 5.0
 _SUMMARY_LIVE_TRANSCRIPT_MAX_ITEMS = 500
 _SUMMARY_STT_QUEUE_MAX_ITEMS = 16
-_SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS = 1800
-_SUMMARY_CAPTURE_MIN_PRE_ROLL_MS = 800
+_SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS = 1000
+_SUMMARY_CAPTURE_MIN_PRE_ROLL_MS = 1000
+_SUMMARY_OUTPUT_DEVICE_NAO = "nao_speaker"
 _NAO_BEHAVIOR_CACHE_TTL_S = 5.0
 _SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK = (
     "Je bent de workshop-assistent robot in een AI-geletterdheidsworkshop. "
@@ -180,6 +182,19 @@ _SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK = (
     "Maak daarom een korte, natuurlijk klinkende gesproken samenvatting zonder bullets, kopjes of markdown, "
     "met terugkerende leerwensen, eventuele zorgen, en een korte brug naar de volgende workshopstap. "
     "Gebruik alleen informatie uit de transcriptie."
+)
+_SUMMARY_DEFAULT_INPUT_PROMPT_TEMPLATE = (
+    "Transcriptie:\n{transcript}\n\n"
+    "Opdracht:\n{instruction}\n\n"
+    "Geef nu alleen de definitieve samenvattingstekst zonder inleiding, bullets of extra toelichting."
+)
+_SUMMARY_DEFAULT_SUMMARY_INSTRUCTION = (
+    "Houd het kort, natuurlijk en spreekbaar. Geen bullets of kopjes. "
+    "Noem de belangrijkste onderwerpen en sluit af met een korte brug naar het vervolg."
+)
+_SUMMARY_DEFAULT_FALLBACK_SUMMARY = (
+    "Dank voor jullie input. Er kwamen meerdere vragen en leerwensen naar voren rond AI en robotica. "
+    "In het vervolg pakken we de belangrijkste thema's stap voor stap op, zodat het praktisch, begrijpelijk en bruikbaar blijft."
 )
 
 
@@ -1160,6 +1175,11 @@ def create_app(
         if runtime_state_enabled
         else None
     )
+    summary_state_root = (
+        os.path.join(runtime_state_base_dir, f"summary_{_runtime_state_key(resolved_instance_id)}")
+        if runtime_state_enabled
+        else None
+    )
     runtime_cfg_global: JsonLike = copy.deepcopy(runtime_cfg_default)
 
     def _sanitize_runtime_cfg_inplace(cfg_obj: JsonLike) -> JsonLike:
@@ -1276,8 +1296,7 @@ def create_app(
     stt_by_sid: Dict[str, Any] = {}
     continuous_state: Dict[str, Dict[str, Any]] = {}
     ptt_state: Dict[str, Dict[str, Any]] = {}
-    summary_state_by_sid: Dict[str, Dict[str, Any]] = {}
-    summary_state_lock = threading.RLock()
+    summary_service: Optional[SummaryService] = None
     last_activity = {"ts": time.time()}
     activity_lock = threading.Lock()
     auto_rest_idle_lock = threading.RLock()
@@ -2119,144 +2138,6 @@ def create_app(
             sid,
             {"running": False, "stop": None, "thread": None, "last_error": None, "audio": None, "vad_cfg": None},
         )
-
-    def _new_summary_state() -> Dict[str, Any]:
-        return {
-            "phase": "idle",
-            "capture_thread": None,
-            "stt_thread": None,
-            "stop_event": None,
-            "audio_queue": None,
-            "transcripts": [],
-            "draft_text": None,
-            "last_prompt_meta": None,
-            "last_error": None,
-            "capture_stats": {
-                "loops": 0,
-                "timeouts": 0,
-                "audio_chunks": 0,
-                "dropped_audio_chunks": 0,
-                "stt_calls": 0,
-                "transcript_count": 0,
-                "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
-                "stt_queue_size": 0,
-                "started_at": None,
-                "last_audio_at": None,
-                "last_transcript_at": None,
-            },
-        }
-
-    def _get_summary_state(sid: str) -> Dict[str, Any]:
-        with summary_state_lock:
-            state = summary_state_by_sid.setdefault(sid, _new_summary_state())
-            if "phase" not in state:
-                state["phase"] = "idle"
-            if "capture_thread" not in state:
-                state["capture_thread"] = None
-            if "stt_thread" not in state:
-                state["stt_thread"] = None
-            if "stop_event" not in state:
-                state["stop_event"] = None
-            if "audio_queue" not in state:
-                state["audio_queue"] = None
-            if "transcripts" not in state or not isinstance(state.get("transcripts"), list):
-                state["transcripts"] = []
-            if "draft_text" not in state:
-                state["draft_text"] = None
-            if "last_prompt_meta" not in state:
-                state["last_prompt_meta"] = None
-            if "last_error" not in state:
-                state["last_error"] = None
-            if "capture_stats" not in state or not isinstance(state.get("capture_stats"), dict):
-                state["capture_stats"] = {
-                    "loops": 0,
-                    "timeouts": 0,
-                    "audio_chunks": 0,
-                    "dropped_audio_chunks": 0,
-                    "stt_calls": 0,
-                    "transcript_count": 0,
-                    "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
-                    "stt_queue_size": 0,
-                    "started_at": None,
-                    "last_audio_at": None,
-                    "last_transcript_at": None,
-                }
-            return state
-
-    def _summary_clear_state(state: Dict[str, Any]) -> None:
-        state["phase"] = "idle"
-        state["capture_thread"] = None
-        state["stt_thread"] = None
-        state["stop_event"] = None
-        state["audio_queue"] = None
-        state["transcripts"] = []
-        state["draft_text"] = None
-        state["last_prompt_meta"] = None
-        state["last_error"] = None
-        state["capture_stats"] = {
-            "loops": 0,
-            "timeouts": 0,
-            "audio_chunks": 0,
-            "dropped_audio_chunks": 0,
-            "stt_calls": 0,
-            "transcript_count": 0,
-            "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
-            "stt_queue_size": 0,
-            "started_at": None,
-            "last_audio_at": None,
-            "last_transcript_at": None,
-        }
-
-    def _summary_stop_capture(state: Dict[str, Any], *, join_timeout_s: float = _SUMMARY_CAPTURE_JOIN_TIMEOUT_S) -> bool:
-        with summary_state_lock:
-            stop_event = state.get("stop_event")
-            capture_thread = state.get("capture_thread")
-            stt_thread = state.get("stt_thread")
-        if stop_event is not None:
-            try:
-                stop_event.set()
-            except Exception:
-                pass
-        if capture_thread is not None and hasattr(capture_thread, "is_alive"):
-            try:
-                if capture_thread.is_alive():
-                    capture_thread.join(timeout=join_timeout_s)
-            except Exception:
-                pass
-        if stt_thread is not None and hasattr(stt_thread, "is_alive"):
-            try:
-                if stt_thread.is_alive():
-                    stt_thread.join(timeout=join_timeout_s)
-            except Exception:
-                pass
-        capture_alive = bool(capture_thread is not None and hasattr(capture_thread, "is_alive") and capture_thread.is_alive())
-        stt_alive = bool(stt_thread is not None and hasattr(stt_thread, "is_alive") and stt_thread.is_alive())
-        alive = bool(capture_alive or stt_alive)
-        if not alive:
-            with summary_state_lock:
-                state["capture_thread"] = None
-                state["stt_thread"] = None
-                state["stop_event"] = None
-                state["audio_queue"] = None
-                stats = state.get("capture_stats")
-                if isinstance(stats, dict):
-                    stats["stt_queue_size"] = 0
-        return not alive
-
-    def _summary_cleanup_sid(sid: str) -> None:
-        with summary_state_lock:
-            state = summary_state_by_sid.get(sid)
-        if state is None:
-            return
-        _summary_stop_capture(state)
-        with summary_state_lock:
-            summary_state_by_sid.pop(sid, None)
-
-    def _summary_cleanup_all() -> None:
-        with summary_state_lock:
-            sid_keys = list(summary_state_by_sid.keys())
-        for sid_key in sid_keys:
-            _summary_cleanup_sid(sid_key)
 
     def _set_last_action(sid: str, summary: Optional[str]) -> None:
         _get_runtime_state(sid)["last_action"] = summary
@@ -3932,7 +3813,8 @@ def create_app(
 
     def _stop_all_processes() -> None:
         _stop_dm_event_writer()
-        _summary_cleanup_all()
+        if summary_service is not None:
+            summary_service.shutdown()
         _try_nao_rest(_pick_shutdown_runtime_cfg(), reason="shutdown")
         for name in ("behavior", "base"):
             _stop_process(name)
@@ -4543,6 +4425,14 @@ def create_app(
     @app.get("/active_learning")
     def active_learning_ui():
         return send_from_directory("web", "index.html")
+
+    @app.get("/summary")
+    def summary_ui():
+        resp = send_from_directory("web", "summary.html")
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
     @app.get("/health")
     def health():
@@ -6381,7 +6271,6 @@ def create_app(
     @app.post("/api/reset")
     def api_reset():
         sid = _get_sid()
-        _summary_cleanup_sid(sid)
         sessions[sid] = []
         _set_last_action(sid, None)
         _clear_command_stop_available(sid)
@@ -6739,6 +6628,41 @@ def create_app(
         rel = display_name[len("master_prompts/") :]
         return os.path.join(_master_prompts_dir(), rel)
 
+    def _summary_prompts_dir() -> str:
+        override = str(os.environ.get("DM_SUMMARY_PROMPTS_DIR", "") or "").strip()
+        if override:
+            return os.path.abspath(override)
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(repo_root, "py3_dialog_manager", "configs", "summary_prompts")
+
+    def _normalize_summary_prompt_name(raw: Any) -> Optional[str]:
+        name = str(raw or "").strip().replace("\\", "/")
+        if not name:
+            return None
+        if name.startswith("summary_prompts/"):
+            name = name[len("summary_prompts/") :]
+        name = os.path.basename(name).strip()
+        if not name or name in (".", "..") or "/" in name or "\\" in name:
+            return None
+        if not name.lower().endswith(".txt"):
+            name = f"{name}.txt"
+        return f"summary_prompts/{name}"
+
+    def _summary_prompt_abs_path(display_name: str) -> str:
+        rel = display_name[len("summary_prompts/") :]
+        return os.path.join(_summary_prompts_dir(), rel)
+
+    def _list_summary_prompt_items() -> List[str]:
+        items: List[str] = []
+        try:
+            for name in sorted(os.listdir(_summary_prompts_dir())):
+                if name.startswith(".") or not name.lower().endswith(".txt"):
+                    continue
+                items.append("summary_prompts/" + name)
+        except OSError:
+            pass
+        return items
+
     @app.get("/api/master_prompt_content")
     def api_master_prompt_content():
         display_name = _normalize_master_prompt_name(request.args.get("name"))
@@ -6753,6 +6677,61 @@ def create_app(
         except OSError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 500
         return jsonify({"ok": True, "name": display_name, "content": content})
+
+    @app.get("/api/summary_prompt_content")
+    def api_summary_prompt_content():
+        display_name = _normalize_summary_prompt_name(request.args.get("name"))
+        if not display_name:
+            return jsonify({"ok": False, "error": "prompt naam ontbreekt of ongeldig"}), 400
+        abs_path = _summary_prompt_abs_path(display_name)
+        if not os.path.exists(abs_path):
+            return jsonify({"ok": False, "error": "prompt bestaat niet"}), 404
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                content = fh.read()
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "name": display_name, "content": content})
+
+    @app.post("/api/summary_prompt_save")
+    def api_summary_prompt_save():
+        payload = request.get_json(force=True, silent=True) or {}
+        content_raw = payload.get("content")
+        if content_raw is None:
+            return jsonify({"ok": False, "error": "content ontbreekt"}), 400
+        content = str(content_raw)
+        current_name = _normalize_summary_prompt_name(payload.get("name"))
+        save_as_name = _normalize_summary_prompt_name(payload.get("save_as"))
+        target_name = save_as_name or current_name
+        if not target_name:
+            return jsonify({"ok": False, "error": "prompt naam ontbreekt"}), 400
+
+        prompts_dir = _summary_prompts_dir()
+        try:
+            os.makedirs(prompts_dir, exist_ok=True)
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+        target_path = os.path.abspath(_summary_prompt_abs_path(target_name))
+        prompts_root = os.path.normcase(os.path.abspath(prompts_dir))
+        target_norm = os.path.normcase(target_path)
+        if not target_norm.startswith(prompts_root + os.sep):
+            return jsonify({"ok": False, "error": "ongeldige prompt locatie"}), 400
+        try:
+            with open(target_path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+        items: List[str] = []
+        try:
+            for name in sorted(os.listdir(prompts_dir)):
+                if name.startswith(".") or not name.lower().endswith(".txt"):
+                    continue
+                items.append("summary_prompts/" + name)
+        except OSError:
+            pass
+        return jsonify({"ok": True, "name": target_name, "prompts": items})
 
     @app.post("/api/master_prompt_save")
     def api_master_prompt_save():
@@ -6979,7 +6958,6 @@ def create_app(
                 runtime_cfg_global.update(copy.deepcopy(runtime_cfg_default))
                 _sanitize_runtime_cfg_inplace(runtime_cfg_global)
             _save_runtime_cfg_state()
-            _summary_cleanup_all()
             pipeline_by_sid.pop(sid, None)
             stt_by_sid.pop(sid, None)
             pipeline_by_sid.clear()
@@ -7147,10 +7125,18 @@ def create_app(
                     }
                 )
         if conflict:
+            detail = (
+                "owner={owner}; reason={reason}; lease_expires_at={expires}".format(
+                    owner=str(conflict.get("owner") or "-"),
+                    reason=str(conflict.get("reason") or "-"),
+                    expires=_dm_ts_iso(conflict.get("expires_at")),
+                )
+            )
             resp = jsonify(
                 {
                     "ok": False,
                     "error": "auto-rest suspend already active",
+                    "detail": detail,
                     "active_lease": {
                         "owner": conflict.get("owner"),
                         "reason": conflict.get("reason"),
@@ -7470,6 +7456,119 @@ def create_app(
             data={"ok": True, "mode": mode},
         )
         return out
+
+    def _stop_server_audio_best_effort(
+        *,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        sid: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        sid_value = str(sid or "system")
+        _log_dm_event(
+            sid=sid_value,
+            level="info",
+            category="output",
+            event="server_audio_stop_start",
+            source=source,
+            message="Stopping server audio.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data={"reason": reason or "stop_audio"},
+        )
+        if sd is None:
+            out = {"ok": False, "mode": "server", "error": "sounddevice unavailable"}
+            _log_dm_event(
+                sid=sid_value,
+                level="error",
+                category="output",
+                event="server_audio_stop_result",
+                source=source,
+                message="Server audio stop failed: sounddevice unavailable.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data=out,
+            )
+            return out
+        try:
+            sd.stop()
+        except Exception as exc:
+            out = {"ok": False, "mode": "server", "error": str(exc)}
+            _log_dm_event(
+                sid=sid_value,
+                level="error",
+                category="output",
+                event="server_audio_stop_result",
+                source=source,
+                message="Server audio stop failed.",
+                request_id=request_id,
+                turn_id=turn_id,
+                data={"ok": False, "mode": "server", "error": str(exc), "type": exc.__class__.__name__},
+            )
+            return out
+        out = {"ok": True, "mode": "server"}
+        _log_dm_event(
+            sid=sid_value,
+            level="info",
+            category="output",
+            event="server_audio_stop_result",
+            source=source,
+            message="Server audio stopped.",
+            request_id=request_id,
+            turn_id=turn_id,
+            data=out,
+        )
+        return out
+
+    def _stop_output_best_effort(
+        runtime_cfg: JsonLike,
+        *,
+        source: str = "system_auto",
+        request_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        sid: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        target = str(runtime_cfg.get("output_target") or "").strip().lower() or "server"
+        results: Dict[str, Any] = {}
+        if target == "nao":
+            results["nao"] = _stop_nao_audio_best_effort(
+                runtime_cfg,
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
+                sid=sid,
+                reason=reason or "output_stop",
+            )
+        elif target == "server":
+            results["server"] = _stop_server_audio_best_effort(
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
+                sid=sid,
+                reason=reason or "output_stop",
+            )
+        elif target == "none":
+            results["none"] = {"ok": True, "mode": "none", "detail": "output disabled"}
+        else:
+            results["server"] = _stop_server_audio_best_effort(
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
+                sid=sid,
+                reason=reason or "output_stop",
+            )
+            results["nao"] = _stop_nao_audio_best_effort(
+                runtime_cfg,
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
+                sid=sid,
+                reason=reason or "output_stop",
+            )
+        ok = any(bool((item or {}).get("ok")) for item in results.values())
+        return {"ok": ok, "target": target, "results": results}
 
     def _iter_nao_motion_candidates(runtime_cfg: JsonLike) -> List[Tuple[str, str]]:
         behavior_url = _normalize_url(runtime_cfg.get("behavior_manager_url"))
@@ -8392,18 +8491,26 @@ def create_app(
         health_snapshot = _runtime_health_snapshot(runtime_cfg, request_host=request.host)
         _sync_dm_local_connectivity_issues(health_snapshot.get("local_connectivity_issues") or [])
         _prune_disabled_cloud_connectivity_issues(runtime_cfg)
-        awake = _get_nao_awake_state(runtime_cfg)
-        custom_life = _get_nao_custom_life_ui_state(runtime_cfg)
-        posture = _get_nao_posture_state(runtime_cfg)
+        nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
+        nao_audio_url, _nao_mode = _resolve_nao_audio_url(runtime_cfg)
+        nao_enabled = bool(nao_ip_enabled or nao_audio_url)
+        if nao_enabled:
+            awake = _get_nao_awake_state(runtime_cfg)
+            custom_life = _get_nao_custom_life_ui_state(runtime_cfg)
+            posture = _get_nao_posture_state(runtime_cfg)
+        else:
+            awake = {"ok": False, "disabled": True}
+            custom_life = {"ok": False, "disabled": True, "enabled": False, "state": "disabled"}
+            posture = {"ok": False, "disabled": True}
         auto_rest = health_snapshot.get("auto_rest") or _runtime_health_auto_rest(_auto_rest_timeout_s(runtime_cfg))
         reachable = bool(awake.get("ok") or custom_life.get("ok") or posture.get("ok"))
         warnings: List[str] = []
         errors: List[str] = []
-        if not awake.get("ok") and awake.get("error"):
+        if nao_enabled and not awake.get("ok") and awake.get("error"):
             errors.append(str(awake.get("error")))
-        if not custom_life.get("ok") and custom_life.get("error"):
+        if nao_enabled and not custom_life.get("ok") and custom_life.get("error"):
             errors.append(str(custom_life.get("error")))
-        if not posture.get("ok") and posture.get("error"):
+        if nao_enabled and not posture.get("ok") and posture.get("error"):
             errors.append(str(posture.get("error")))
         awake_value = awake.get("is_awake")
         posture_value = str(posture.get("posture") or "").strip()
@@ -8415,6 +8522,9 @@ def create_app(
         return jsonify(
             {
                 "ok": True,
+                "nao_enabled": nao_enabled,
+                "nao_ip_enabled": nao_ip_enabled,
+                "virtual_robot": not nao_enabled,
                 "reachable": reachable,
                 "awake": awake,
                 "custom_life": custom_life,
@@ -9117,10 +9227,6 @@ def create_app(
                         "behavior_start",
                         "behavior_stop",
                         "dance",
-                        "summary_capture_start",
-                        "summary_capture_stop_and_draft",
-                        "summary_publish",
-                        "summary_cancel",
                     ],
                     "dance_catalog": True,
                 },
@@ -9235,7 +9341,7 @@ def create_app(
 
     def _summary_default_system_prompt_text() -> str:
         try:
-            path = os.path.join(_master_prompts_dir(), "workshop_summary_system.txt")
+            path = os.path.join(_summary_prompts_dir(), "workshop_summary_system.txt")
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 text = fh.read().strip()
             if text:
@@ -9244,11 +9350,20 @@ def create_app(
             pass
         return _SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK
 
+    def _summary_default_input_prompt_template() -> str:
+        return _SUMMARY_DEFAULT_INPUT_PROMPT_TEMPLATE
+
+    def _summary_default_summary_instruction() -> str:
+        return _SUMMARY_DEFAULT_SUMMARY_INSTRUCTION
+
+    def _summary_default_fallback_summary() -> str:
+        return _SUMMARY_DEFAULT_FALLBACK_SUMMARY
+
     def _summary_prompt_from_file(raw_name: Any) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        display_name = _normalize_master_prompt_name(raw_name)
+        display_name = _normalize_summary_prompt_name(raw_name)
         if not display_name:
             return None, None, "invalid_system_prompt_file"
-        abs_path = _master_prompt_abs_path(display_name)
+        abs_path = _summary_prompt_abs_path(display_name)
         if not os.path.exists(abs_path):
             return None, display_name, "system_prompt_file_not_found"
         try:
@@ -9261,356 +9376,1070 @@ def create_app(
         return content, display_name, None
 
     def _summary_resolve_system_prompt(payload_obj: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any], Optional[str]]:
-        inline = str(payload_obj.get("system_prompt") or "").strip()
+        prompts_cfg = payload_obj.get("prompts") if isinstance(payload_obj.get("prompts"), dict) else payload_obj
+        inline = str(prompts_cfg.get("master_prompt_text") or prompts_cfg.get("system_prompt") or "").strip()
         if inline:
             return inline, {"source": "inline", "name": None}, None
 
-        raw_file = payload_obj.get("system_prompt_file")
+        raw_file = prompts_cfg.get("master_prompt_file")
+        if raw_file in (None, ""):
+            raw_file = prompts_cfg.get("system_prompt_file")
         if raw_file not in (None, ""):
             text, display_name, err = _summary_prompt_from_file(raw_file)
             if err:
                 return None, {"source": "file", "name": display_name}, err
             return text, {"source": "file", "name": display_name}, None
 
-        default_name = "master_prompts/workshop_summary_system.txt"
+        default_name = "summary_prompts/workshop_summary_system.txt"
         return _summary_default_system_prompt_text(), {"source": "default", "name": default_name}, None
 
-    def _summary_capture_start_impl(sid: str) -> Tuple[Dict[str, Any], int]:
-        state = _get_summary_state(sid)
-        with summary_state_lock:
-            capture_thread = state.get("capture_thread")
-            stt_thread = state.get("stt_thread")
-            running = bool(
-                (capture_thread is not None and hasattr(capture_thread, "is_alive") and capture_thread.is_alive())
-                or (stt_thread is not None and hasattr(stt_thread, "is_alive") and stt_thread.is_alive())
-            )
-        if running:
-            with summary_state_lock:
-                transcript_list = [str(item or "").strip() for item in (state.get("transcripts") or [])]
-                transcript_list = [item for item in transcript_list if item]
-                capture_stats = copy.deepcopy(state.get("capture_stats") or {})
-                last_error = str(state.get("last_error") or "").strip() or None
-            transcript_count = len(transcript_list)
-            return {
-                "ok": True,
-                "status": "accepted",
-                "action": "do",
-                "mode": "summary_capture_start",
-                "phase": "capturing",
-                "transcript_count": transcript_count,
-                "transcript": transcript_list[-_SUMMARY_LIVE_TRANSCRIPT_MAX_ITEMS:],
-                "capture_stats": capture_stats,
-                "last_error": last_error,
-                "already_running": True,
-            }, 200
+    def _summary_model_ref(provider: str, model: Any = "default") -> str:
+        provider_text = str(provider or "").strip().lower()
+        model_text = str(model or "").strip()
+        if not provider_text:
+            provider_text = "none"
+        if not model_text:
+            model_text = "default"
+        return f"{provider_text}:{model_text}"
 
-        runtime_cfg = _get_runtime_cfg(sid)
-        merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
-        capture_cfg = _summary_capture_mic_config(merged)
-        input_cfg = capture_cfg.get("input", {}) or {}
-        if (input_cfg.get("type") or "audio").lower() != "audio":
-            return {"ok": False, "error": "input_not_audio"}, 400
+    def _summary_split_model_ref(raw_value: Any, *, default_provider: str, default_model: str = "default") -> Tuple[str, str]:
+        text = str(raw_value or "").strip()
+        if not text:
+            return str(default_provider or "").strip().lower() or "none", str(default_model or "default")
+        provider, sep, model = text.partition(":")
+        provider_text = str(provider or "").strip().lower() or str(default_provider or "").strip().lower() or "none"
+        model_text = str(model if sep else default_model).strip() or str(default_model or "default")
+        return provider_text, model_text
+
+    def _summary_is_local_model_ref(stage: str, raw_value: Any) -> bool:
+        stage_key = str(stage or "").strip().lower()
+        provider, _model = _summary_split_model_ref(raw_value, default_provider="none")
+        if stage_key == "stt":
+            return provider in {"whisper", "vosk"}
+        if stage_key == "llm":
+            return provider in {"echo", "ollama_local"}
+        if stage_key == "tts":
+            return provider in {"nao_native", "nao", "piper", "none"}
+        return False
+
+    def _summary_clean_audio_device(raw_value: Any) -> Any:
+        if raw_value in (None, ""):
+            return None
+        text = str(raw_value).strip()
+        if not text:
+            return None
+        if text.lower() == "nao_ssh":
+            return "nao_ssh"
+        if text.lower() == _SUMMARY_OUTPUT_DEVICE_NAO:
+            return _SUMMARY_OUTPUT_DEVICE_NAO
         try:
-            mic = _make_mic_from_config(capture_cfg, mode="continuous")
-        except Exception as exc:
-            return {"ok": False, "error": "mic_unavailable", "detail": str(exc)}, 400
-        timeout_s = _resolve_start_timeout(
-            (input_cfg.get("params") or {}),
-            default=_SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S,
-        )
-        timeout_s = max(0.25, min(timeout_s, _SUMMARY_CAPTURE_TIMEOUT_MAX_S))
-        stop_event = threading.Event()
-        audio_queue: "queue.Queue[Any]" = queue.Queue(maxsize=_SUMMARY_STT_QUEUE_MAX_ITEMS)
-        started_at = time.time()
+            return int(text)
+        except Exception:
+            return text
 
-        def _update_queue_size() -> None:
-            try:
-                qsize = int(audio_queue.qsize())
-            except Exception:
-                qsize = 0
-            with summary_state_lock:
-                stats = state.get("capture_stats")
-                if isinstance(stats, dict):
-                    stats["stt_queue_size"] = max(0, qsize)
+    def _summary_runtime_to_canonical(
+        runtime_cfg_local: Dict[str, Any],
+        *,
+        master_prompt_text: str = "",
+        master_prompt_file: Optional[str] = None,
+        selected_preset_id: Optional[str] = None,
+        summary_instruction: Optional[str] = None,
+        input_prompt_template: Optional[str] = None,
+        fallback_summary: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        runtime_copy = copy.deepcopy(runtime_cfg_local or {})
+        _sanitize_runtime_cfg_inplace(runtime_copy)
+        merged_cfg = _apply_runtime_overrides(base_cfg, runtime_copy)
+        input_cfg = (merged_cfg.get("input") or {}) if isinstance(merged_cfg, dict) else {}
+        stt_cfg = (input_cfg.get("stt") or {}) if isinstance(input_cfg, dict) else {}
+        stt_params = (stt_cfg.get("params") or {}) if isinstance(stt_cfg, dict) else {}
+        mic_cfg = (input_cfg.get("mic") or {}) if isinstance(input_cfg, dict) else {}
+        mic_cont = (mic_cfg.get("params_continuous") or {}) if isinstance(mic_cfg, dict) else {}
 
-        with summary_state_lock:
-            state["phase"] = "capturing"
-            state["transcripts"] = []
-            state["draft_text"] = None
-            state["last_prompt_meta"] = None
-            state["last_error"] = None
-            state["capture_stats"] = {
-                "loops": 0,
-                "timeouts": 0,
-                "audio_chunks": 0,
-                "dropped_audio_chunks": 0,
-                "stt_calls": 0,
-                "transcript_count": 0,
-                "stt_queue_max": _SUMMARY_STT_QUEUE_MAX_ITEMS,
-                "stt_queue_size": 0,
-                "started_at": started_at,
-                "last_audio_at": None,
-                "last_transcript_at": None,
-            }
-            state["stop_event"] = stop_event
-            state["audio_queue"] = audio_queue
-            state["capture_thread"] = None
-            state["stt_thread"] = None
+        stt_type = str(runtime_copy.get("stt_type") or stt_cfg.get("type") or "vosk").strip().lower() or "vosk"
+        if stt_type == "whisper":
+            stt_primary = _summary_model_ref("whisper", stt_params.get("model_name") or "small")
+            stt_fallback = _summary_model_ref("vosk", "default")
+        elif stt_type == "azure":
+            stt_primary = _summary_model_ref("azure", "default")
+            stt_fallback = _summary_model_ref("whisper", "small")
+        else:
+            stt_primary = _summary_model_ref("vosk", "default")
+            stt_fallback = _summary_model_ref("whisper", "small")
 
-        def _capture_worker() -> None:
-            try:
-                while not stop_event.is_set():
-                    with summary_state_lock:
-                        stats = state.get("capture_stats")
-                        if isinstance(stats, dict):
-                            stats["loops"] = int(stats.get("loops") or 0) + 1
-                    try:
-                        audio = mic.capture_utterance(timeout_s=timeout_s)
-                    except TimeoutError:
-                        with summary_state_lock:
-                            stats = state.get("capture_stats")
-                            if isinstance(stats, dict):
-                                stats["timeouts"] = int(stats.get("timeouts") or 0) + 1
-                        continue
-                    except Exception as exc:
-                        if stop_event.is_set():
-                            break
-                        with summary_state_lock:
-                            state["last_error"] = "mic: " + str(exc)
-                        continue
-                    if stop_event.is_set():
-                        break
-                    with summary_state_lock:
-                        stats = state.get("capture_stats")
-                        if isinstance(stats, dict):
-                            stats["audio_chunks"] = int(stats.get("audio_chunks") or 0) + 1
-                            stats["last_audio_at"] = time.time()
+        llm_type = str(runtime_copy.get("llm_type") or "echo").strip().lower() or "echo"
+        llm_model = str(runtime_copy.get("llm_model") or "").strip()
+        if llm_type in {"ollama", "ollama_cloud"}:
+            llm_primary = _summary_model_ref("ollama_cloud", llm_model or "gpt-oss:120b-cloud")
+            llm_fallback = _summary_model_ref("ollama_local", "gemma:2b")
+        elif llm_type == "ollama_local":
+            llm_primary = _summary_model_ref("ollama_local", llm_model or "gemma:2b")
+            llm_fallback = _summary_model_ref("ollama_local", llm_model or "gemma:2b")
+        else:
+            llm_primary = _summary_model_ref("echo", "default")
+            llm_fallback = _summary_model_ref("ollama_local", "gemma:2b")
 
-                    enqueued = False
-                    while not stop_event.is_set():
-                        try:
-                            audio_queue.put_nowait(audio)
-                            enqueued = True
-                            break
-                        except queue.Full:
-                            dropped = False
-                            try:
-                                audio_queue.get_nowait()
-                                dropped = True
-                            except queue.Empty:
-                                pass
-                            if dropped:
-                                with summary_state_lock:
-                                    stats = state.get("capture_stats")
-                                    if isinstance(stats, dict):
-                                        stats["dropped_audio_chunks"] = int(stats.get("dropped_audio_chunks") or 0) + 1
-                            else:
-                                break
-                    if enqueued:
-                        _update_queue_size()
-            finally:
-                with summary_state_lock:
-                    current = state.get("capture_thread")
-                    if current is threading.current_thread():
-                        state["capture_thread"] = None
+        tts_engine = str(runtime_copy.get("tts_engine") or "").strip().lower() or "nao_native"
+        output_device = runtime_copy.get("output_device")
+        _piper_models, default_piper_model = _list_piper_models()
+        fallback_piper_ref = _summary_model_ref("piper", default_piper_model or "default")
+        if tts_engine == "azure":
+            tts_primary = _summary_model_ref("azure", runtime_copy.get("azure_tts_voice") or "default")
+            tts_fallback = _summary_model_ref("piper", runtime_copy.get("piper_model_path") or default_piper_model or "default")
+        elif tts_engine == "piper":
+            tts_primary = _summary_model_ref("piper", runtime_copy.get("piper_model_path") or "default")
+            tts_fallback = _summary_model_ref("nao_native", "default")
+        elif tts_engine in {"none"}:
+            tts_primary = fallback_piper_ref
+            tts_fallback = _summary_model_ref("nao_native", "default")
+        else:
+            tts_primary = _summary_model_ref("nao_native", "default")
+            tts_fallback = _summary_model_ref("piper", runtime_copy.get("piper_model_path") or default_piper_model or "default")
 
-        def _stt_worker() -> None:
-            try:
-                while True:
-                    if stop_event.is_set() and audio_queue.empty():
-                        break
-                    try:
-                        queued_audio = audio_queue.get(timeout=0.1)
-                    except queue.Empty:
-                        continue
+        pre_roll_ms = mic_cont.get("pre_roll_ms")
+        stop_silence_ms = mic_cont.get("stop_silence_ms")
+        min_speech_ms = mic_cont.get("min_speech_ms")
+        max_utterance_s = mic_cont.get("max_utterance_s")
+        start_timeout_s = ((input_cfg.get("params") or {}) if isinstance(input_cfg, dict) else {}).get("start_timeout_s")
 
-                    _update_queue_size()
-                    try:
-                        with summary_state_lock:
-                            stats = state.get("capture_stats")
-                            if isinstance(stats, dict):
-                                stats["stt_calls"] = int(stats.get("stt_calls") or 0) + 1
-                        stt_res = _transcribe_with_connectivity_tracking(
-                            sid,
-                            queued_audio,
-                            runtime_cfg_local=_get_runtime_cfg(sid),
-                        )
-                        text = str(getattr(stt_res, "text", "") or "").strip()
-                    except Exception as exc:
-                        with summary_state_lock:
-                            state["last_error"] = "stt: " + str(exc)
-                        continue
-                    if text:
-                        with summary_state_lock:
-                            transcripts = state.get("transcripts")
-                            if not isinstance(transcripts, list):
-                                transcripts = []
-                                state["transcripts"] = transcripts
-                            transcripts.append(text)
-                            stats = state.get("capture_stats")
-                            if isinstance(stats, dict):
-                                stats["transcript_count"] = len(transcripts)
-                                stats["last_transcript_at"] = time.time()
-            finally:
-                with summary_state_lock:
-                    current = state.get("stt_thread")
-                    if current is threading.current_thread():
-                        state["stt_thread"] = None
-                _update_queue_size()
-
-        capture_thread_obj = threading.Thread(target=_capture_worker, daemon=True)
-        stt_thread_obj = threading.Thread(target=_stt_worker, daemon=True)
-        with summary_state_lock:
-            state["capture_thread"] = capture_thread_obj
-            state["stt_thread"] = stt_thread_obj
-        stt_thread_obj.start()
-        capture_thread_obj.start()
-        with summary_state_lock:
-            start_stats = copy.deepcopy(state.get("capture_stats") or {})
         return {
-            "ok": True,
-            "status": "accepted",
-            "action": "do",
-            "mode": "summary_capture_start",
-            "phase": "capturing",
-            "transcript_count": 0,
-            "transcript": [],
-            "capture_stats": start_stats,
-            "last_error": None,
-            "capture_timeout_s": timeout_s,
-            "mic_mode": "continuous",
-        }, 200
-
-    def _summary_capture_stop_and_draft_impl(sid: str, payload_obj: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
-        input_prompt_template = str(payload_obj.get("input_prompt_template") or "").strip()
-        if not input_prompt_template:
-            return {"ok": False, "error": "missing_input_prompt_template"}, 400
-
-        state = _get_summary_state(sid)
-        with summary_state_lock:
-            phase = str(state.get("phase") or "idle").strip().lower()
-        if phase != "capturing":
-            return {"ok": False, "error": "invalid_summary_state", "phase": phase}, 400
-
-        if not _summary_stop_capture(state):
-            return {"ok": False, "error": "summary_capture_stop_timeout"}, 409
-
-        with summary_state_lock:
-            transcripts = [str(item or "").strip() for item in (state.get("transcripts") or [])]
-            transcripts = [item for item in transcripts if item]
-            last_error = str(state.get("last_error") or "").strip()
-            capture_stats = copy.deepcopy(state.get("capture_stats") or {})
-        if not transcripts:
-            with summary_state_lock:
-                state["phase"] = "idle"
-            out: Dict[str, Any] = {
-                "ok": False,
-                "error": "summary_transcript_empty",
-                "phase": "idle",
-                "transcript_count": 0,
-            }
-            if last_error:
-                out["detail"] = last_error
-            if isinstance(capture_stats, dict) and capture_stats:
-                out["capture_stats"] = capture_stats
-            return out, 400
-
-        system_prompt, system_meta, prompt_err = _summary_resolve_system_prompt(payload_obj)
-        if prompt_err:
-            with summary_state_lock:
-                state["phase"] = "idle"
-            return {"ok": False, "error": prompt_err, "system_prompt_meta": system_meta}, 400
-
-        instruction = str(payload_obj.get("instruction") or "").strip()
-        transcript_text = _summary_transcript_text(transcripts)
-        rendered = input_prompt_template.replace("{transcript}", transcript_text).replace("{instruction}", instruction)
-        if "{transcript}" not in input_prompt_template:
-            rendered = (rendered + "\n\nTranscript:\n" + transcript_text).strip()
-        if "{instruction}" not in input_prompt_template and instruction:
-            rendered = (rendered + "\n\nOpdracht:\n" + instruction).strip()
-
-        messages: List[Dict[str, str]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": rendered})
-
-        pipeline = _get_pipeline(sid)
-        try:
-            llm_res = _TrackedLlmBackend(sid, _get_runtime_cfg(sid), pipeline.llm).generate(messages)
-        except Exception as exc:
-            with summary_state_lock:
-                state["phase"] = "idle"
-                state["last_error"] = "llm: " + str(exc)
-            return {"ok": False, "error": "summary_generation_failed", "detail": str(exc)}, 400
-        draft_text = str(getattr(llm_res, "reply", "") or "").strip()
-        if not draft_text:
-            with summary_state_lock:
-                state["phase"] = "idle"
-                state["last_error"] = "llm: empty reply"
-            return {"ok": False, "error": "summary_generation_empty"}, 400
-
-        prompt_meta = {
-            "system_prompt_source": system_meta.get("source"),
-            "system_prompt_name": system_meta.get("name"),
-            "instruction": instruction,
-            "input_prompt_template": input_prompt_template,
+            "selected_preset_id": str(selected_preset_id or "").strip() or None,
+            "devices": {
+                "input_audio_device": _summary_clean_audio_device(runtime_copy.get("input_device")),
+                "output_audio_device": _summary_clean_audio_device(output_device),
+            },
+            "models": {
+                "stt_primary": stt_primary,
+                "stt_fallback": stt_fallback,
+                "llm_primary": llm_primary,
+                "llm_fallback": llm_fallback,
+                "tts_primary": tts_primary,
+                "tts_fallback": tts_fallback,
+            },
+            "prompts": {
+                "master_prompt_file": _normalize_summary_prompt_name(master_prompt_file) or "summary_prompts/workshop_summary_system.txt",
+                "master_prompt_text": str(master_prompt_text or ""),
+                "summary_instruction": str(summary_instruction or _summary_default_summary_instruction()),
+                "input_prompt_template": str(input_prompt_template or _summary_default_input_prompt_template()),
+            },
+            "fallbacks": {
+                "fallback_summary": str(fallback_summary or _summary_default_fallback_summary()),
+            },
+            "advanced": {
+                "pre_roll_ms": max(int(pre_roll_ms or _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS), int(_SUMMARY_CAPTURE_MIN_PRE_ROLL_MS)),
+                "stop_silence_ms": max(int(stop_silence_ms or _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS), int(_SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS)),
+                "min_speech_ms": int(min_speech_ms) if min_speech_ms is not None else None,
+                "max_utterance_s": float(max_utterance_s) if max_utterance_s is not None else None,
+                "start_timeout_s": float(start_timeout_s) if start_timeout_s is not None else None,
+            },
         }
-        with summary_state_lock:
-            state["phase"] = "draft_ready"
-            state["draft_text"] = draft_text
-            state["last_prompt_meta"] = dict(prompt_meta)
-            state["last_error"] = None
-        return {
-            "ok": True,
-            "status": "accepted",
-            "action": "do",
-            "mode": "summary_capture_stop_and_draft",
-            "phase": "draft_ready",
-            "draft": draft_text,
-            "transcript": transcripts,
-            "transcript_count": len(transcripts),
-            "prompt_meta": prompt_meta,
-        }, 200
 
-    def _summary_publish_impl(sid: str) -> Tuple[Dict[str, Any], int]:
-        state = _get_summary_state(sid)
-        with summary_state_lock:
-            phase = str(state.get("phase") or "idle").strip().lower()
-            draft_text = str(state.get("draft_text") or "").strip()
-        if phase != "draft_ready" or not draft_text:
-            return {"ok": False, "error": "summary_draft_not_ready", "phase": phase}, 400
-
-        runtime_cfg = _get_runtime_cfg(sid)
-        pipeline = _get_pipeline(sid)
-        _emit_followup_text(
-            pipeline=pipeline,
-            emit_used="pipeline",
-            runtime_cfg=runtime_cfg,
-            text=draft_text,
+    def _normalize_summary_config(raw_cfg: Any) -> Dict[str, Any]:
+        base_runtime = copy.deepcopy(runtime_cfg_default)
+        _sanitize_runtime_cfg_inplace(base_runtime)
+        cfg = _summary_runtime_to_canonical(
+            base_runtime,
+            master_prompt_text="",
+            master_prompt_file="summary_prompts/workshop_summary_system.txt",
         )
-        with summary_state_lock:
-            _summary_clear_state(state)
-        return {
-            "ok": True,
-            "status": "accepted",
-            "action": "do",
-            "mode": "summary_publish",
-            "phase": "idle",
-            "published_text": draft_text,
-        }, 200
+        raw_obj = raw_cfg if isinstance(raw_cfg, dict) else {}
 
-    def _summary_cancel_impl(sid: str) -> Tuple[Dict[str, Any], int]:
-        state = _get_summary_state(sid)
-        _summary_stop_capture(state)
-        with summary_state_lock:
-            _summary_clear_state(state)
+        if "runtime_overrides" in raw_obj or "system_prompt" in raw_obj or "system_prompt_file" in raw_obj:
+            runtime_raw = raw_obj.get("runtime_overrides") if isinstance(raw_obj.get("runtime_overrides"), dict) else {}
+            runtime_cfg_local = copy.deepcopy(base_runtime)
+            runtime_cfg_local.update(copy.deepcopy(runtime_raw))
+            _sanitize_runtime_cfg_inplace(runtime_cfg_local)
+            raw_obj = _summary_runtime_to_canonical(
+                runtime_cfg_local,
+                master_prompt_text=str(raw_obj.get("system_prompt") or ""),
+                master_prompt_file=raw_obj.get("system_prompt_file") or "summary_prompts/workshop_summary_system.txt",
+            )
+
+        selected_preset_id = str(raw_obj.get("selected_preset_id") or "").strip() or None
+        cfg["selected_preset_id"] = selected_preset_id
+
+        devices_raw = raw_obj.get("devices") if isinstance(raw_obj.get("devices"), dict) else {}
+        devices_cfg = cfg["devices"]
+        if "input_audio_device" in devices_raw:
+            devices_cfg["input_audio_device"] = _summary_clean_audio_device(devices_raw.get("input_audio_device"))
+        if "output_audio_device" in devices_raw:
+            devices_cfg["output_audio_device"] = _summary_clean_audio_device(devices_raw.get("output_audio_device"))
+
+        models_raw = raw_obj.get("models") if isinstance(raw_obj.get("models"), dict) else {}
+        models_cfg = cfg["models"]
+        for key, stage in (
+            ("stt_primary", "stt"),
+            ("stt_fallback", "stt"),
+            ("llm_primary", "llm"),
+            ("llm_fallback", "llm"),
+            ("tts_primary", "tts"),
+            ("tts_fallback", "tts"),
+        ):
+            if key not in models_raw:
+                continue
+            raw_value = str(models_raw.get(key) or "").strip()
+            if not raw_value:
+                raise ValueError(f"summary.models.{key} ontbreekt.")
+            provider, model = _summary_split_model_ref(
+                raw_value,
+                default_provider=models_cfg[key].split(":", 1)[0],
+            )
+            normalized_ref = _summary_model_ref(provider, model)
+            if key.endswith("_fallback") and not _summary_is_local_model_ref(stage, normalized_ref):
+                raise ValueError(f"summary.models.{key} moet lokaal zijn.")
+            models_cfg[key] = normalized_ref
+
+        prompts_raw = raw_obj.get("prompts") if isinstance(raw_obj.get("prompts"), dict) else {}
+        prompts_cfg = cfg["prompts"]
+        if "master_prompt_file" in prompts_raw:
+            prompt_file = _normalize_summary_prompt_name(prompts_raw.get("master_prompt_file"))
+            if prompts_raw.get("master_prompt_file") not in (None, "") and not prompt_file:
+                raise ValueError("summary.prompts.master_prompt_file is ongeldig.")
+            prompts_cfg["master_prompt_file"] = prompt_file or prompts_cfg["master_prompt_file"]
+        if "master_prompt_text" in prompts_raw:
+            prompts_cfg["master_prompt_text"] = str(prompts_raw.get("master_prompt_text") or "")
+        if "summary_instruction" in prompts_raw:
+            prompts_cfg["summary_instruction"] = str(prompts_raw.get("summary_instruction") or "")
+        if "input_prompt_template" in prompts_raw:
+            template_value = str(prompts_raw.get("input_prompt_template") or "")
+            if "{transcript}" not in template_value:
+                raise ValueError("summary.prompts.input_prompt_template moet {transcript} bevatten.")
+            prompts_cfg["input_prompt_template"] = template_value
+
+        fallbacks_raw = raw_obj.get("fallbacks") if isinstance(raw_obj.get("fallbacks"), dict) else {}
+        if "fallback_summary" in fallbacks_raw:
+            cfg["fallbacks"]["fallback_summary"] = str(fallbacks_raw.get("fallback_summary") or "")
+
+        advanced_raw = raw_obj.get("advanced") if isinstance(raw_obj.get("advanced"), dict) else {}
+        advanced_cfg = cfg["advanced"]
+        if "pre_roll_ms" in advanced_raw:
+            try:
+                advanced_cfg["pre_roll_ms"] = max(int(advanced_raw.get("pre_roll_ms")), int(_SUMMARY_CAPTURE_MIN_PRE_ROLL_MS))
+            except Exception as exc:
+                raise ValueError("summary.advanced.pre_roll_ms moet een integer zijn.") from exc
+        if "stop_silence_ms" in advanced_raw:
+            try:
+                advanced_cfg["stop_silence_ms"] = max(
+                    int(advanced_raw.get("stop_silence_ms")),
+                    int(_SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS),
+                )
+            except Exception as exc:
+                raise ValueError("summary.advanced.stop_silence_ms moet een integer zijn.") from exc
+        for key in ("min_speech_ms",):
+            if key not in advanced_raw:
+                continue
+            value = advanced_raw.get(key)
+            if value in (None, ""):
+                advanced_cfg[key] = None
+                continue
+            try:
+                advanced_cfg[key] = int(value)
+            except Exception as exc:
+                raise ValueError(f"summary.advanced.{key} moet een integer zijn.") from exc
+        for key in ("max_utterance_s", "start_timeout_s"):
+            if key not in advanced_raw:
+                continue
+            value = advanced_raw.get(key)
+            if value in (None, ""):
+                advanced_cfg[key] = None
+                continue
+            try:
+                advanced_cfg[key] = float(value)
+            except Exception as exc:
+                raise ValueError(f"summary.advanced.{key} moet een getal zijn.") from exc
+        return cfg
+
+    def _default_summary_config() -> Dict[str, Any]:
+        return _normalize_summary_config({})
+
+    def _summary_build_app_config(summary_cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        cfg_obj = _normalize_summary_config(summary_cfg)
+        runtime_cfg = copy.deepcopy(runtime_cfg_default)
+        _sanitize_runtime_cfg_inplace(runtime_cfg)
+
+        devices_cfg = cfg_obj.get("devices") if isinstance(cfg_obj.get("devices"), dict) else {}
+        models_cfg = cfg_obj.get("models") if isinstance(cfg_obj.get("models"), dict) else {}
+        prompts_cfg = cfg_obj.get("prompts") if isinstance(cfg_obj.get("prompts"), dict) else {}
+        advanced_cfg = cfg_obj.get("advanced") if isinstance(cfg_obj.get("advanced"), dict) else {}
+
+        runtime_cfg["input_device"] = _summary_clean_audio_device(devices_cfg.get("input_audio_device"))
+        runtime_cfg["output_device"] = _summary_clean_audio_device(devices_cfg.get("output_audio_device"))
+        output_device_value = runtime_cfg.get("output_device")
+        use_nao_speaker = output_device_value == _SUMMARY_OUTPUT_DEVICE_NAO
+
+        stt_provider, stt_model = _summary_split_model_ref(models_cfg.get("stt_primary"), default_provider="vosk")
+        if stt_provider not in {"azure", "vosk", "whisper"}:
+            raise ValueError(f"Onbekende summary STT provider: {stt_provider}")
+        runtime_cfg["stt_type"] = stt_provider
+
+        llm_provider, llm_model = _summary_split_model_ref(models_cfg.get("llm_primary"), default_provider="echo")
+        if llm_provider == "ollama":
+            llm_provider = "ollama_cloud"
+        if llm_provider not in {"echo", "ollama_local", "ollama_cloud"}:
+            raise ValueError(f"Onbekende summary LLM provider: {llm_provider}")
+        runtime_cfg["llm_type"] = llm_provider
+        runtime_cfg["llm_model"] = "" if llm_provider == "echo" else llm_model
+
+        tts_provider, tts_model = _summary_split_model_ref(models_cfg.get("tts_primary"), default_provider="nao_native")
+        if tts_provider in {"nao", "nao_native"}:
+            runtime_cfg["tts_engine"] = "nao_native"
+            runtime_cfg["output_target"] = "nao"
+            runtime_cfg["output_device"] = None
+            runtime_cfg["piper_model_path"] = None
+            runtime_cfg["azure_tts_voice"] = None
+        elif tts_provider == "piper":
+            runtime_cfg["tts_engine"] = "piper"
+            runtime_cfg["piper_model_path"] = None if tts_model in {"", "default"} else tts_model
+            runtime_cfg["azure_tts_voice"] = None
+            runtime_cfg["output_target"] = "nao" if use_nao_speaker else "server"
+            runtime_cfg["output_device"] = None if use_nao_speaker else output_device_value
+        elif tts_provider == "azure":
+            runtime_cfg["tts_engine"] = "azure"
+            runtime_cfg["azure_tts_voice"] = None if tts_model in {"", "default"} else tts_model
+            runtime_cfg["piper_model_path"] = None
+            runtime_cfg["output_target"] = "nao" if use_nao_speaker else "server"
+            runtime_cfg["output_device"] = None if use_nao_speaker else output_device_value
+        elif tts_provider == "none":
+            runtime_cfg["tts_engine"] = "none"
+            runtime_cfg["output_target"] = "none"
+            runtime_cfg["output_device"] = None
+            runtime_cfg["piper_model_path"] = None
+            runtime_cfg["azure_tts_voice"] = None
+        else:
+            raise ValueError(f"Onbekende summary TTS provider: {tts_provider}")
+
+        runtime_cfg["master_prompt_file"] = prompts_cfg.get("master_prompt_file")
+        runtime_cfg["master_prompt_text"] = prompts_cfg.get("master_prompt_text")
+
+        mic_cont = copy.deepcopy(runtime_cfg.get("mic_params_continuous") or {})
+        mic_cont["pre_roll_ms"] = max(int(advanced_cfg.get("pre_roll_ms") or _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS), int(_SUMMARY_CAPTURE_MIN_PRE_ROLL_MS))
+        mic_cont["stop_silence_ms"] = max(
+            int(advanced_cfg.get("stop_silence_ms") or _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS),
+            int(_SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS),
+        )
+        if advanced_cfg.get("min_speech_ms") is not None:
+            mic_cont["min_speech_ms"] = int(advanced_cfg.get("min_speech_ms"))
+        if advanced_cfg.get("max_utterance_s") is not None:
+            mic_cont["max_utterance_s"] = float(advanced_cfg.get("max_utterance_s"))
+        runtime_cfg["mic_params_continuous"] = mic_cont
+        if advanced_cfg.get("start_timeout_s") is not None:
+            runtime_cfg["start_timeout_s"] = float(advanced_cfg.get("start_timeout_s"))
+
+        _sanitize_runtime_cfg_inplace(runtime_cfg)
+        merged = _apply_runtime_overrides(base_cfg, runtime_cfg)
+        if advanced_cfg.get("start_timeout_s") is not None:
+            input_cfg = merged.setdefault("input", {})
+            input_params = input_cfg.setdefault("params", {})
+            input_params["start_timeout_s"] = float(advanced_cfg.get("start_timeout_s"))
+        if stt_provider == "whisper" and stt_model not in {"", "default"}:
+            input_cfg = merged.setdefault("input", {})
+            stt_cfg = input_cfg.setdefault("stt", {})
+            stt_params = stt_cfg.setdefault("params", {})
+            stt_params["model_name"] = stt_model
+        return _summary_capture_mic_config(merged), runtime_cfg
+
+    def _summary_presets_path() -> str:
+        return os.path.join(repo_root, "py3_dialog_manager", "configs", "summary_presets.json")
+
+    def _load_summary_presets() -> List[Dict[str, Any]]:
+        path = _summary_presets_path()
+        presets: List[Dict[str, Any]] = []
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if isinstance(raw, dict):
+                presets = raw.get("presets") or []
+            elif isinstance(raw, list):
+                presets = raw
+        except Exception:
+            presets = []
+        out: List[Dict[str, Any]] = []
+        for preset in presets:
+            if not isinstance(preset, dict):
+                continue
+            preset_id = str(preset.get("id") or "").strip()
+            name = str(preset.get("name") or "").strip()
+            if not preset_id or not name:
+                continue
+            try:
+                config_value = _normalize_summary_config(preset.get("config") or {})
+            except Exception:
+                continue
+            config_value["selected_preset_id"] = None
+            out.append({"id": preset_id, "name": name, "config": config_value})
+        if not os.path.isfile(path):
+            _save_summary_presets(out)
+        return out
+
+    def _save_summary_presets(presets: List[Dict[str, Any]]) -> None:
+        path = _summary_presets_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"presets": presets}, fh, ensure_ascii=False, indent=2)
+
+    def _summary_option_item(
+        value: str,
+        *,
+        cloud: bool,
+        local_only: bool = False,
+        enabled: bool = True,
+        label: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = "☁ " if cloud else "⌂ "
+        return {
+            "value": value,
+            "label": prefix + value,
+            "cloud": bool(cloud),
+            "local_only": bool(local_only),
+        }
+
+    def _summary_model_suggestions() -> Dict[str, Any]:
+        piper_models, _default_piper_model = _list_piper_models()
+        azure_voices, _default_azure_voice, azure_voice_err = _list_azure_voices()
+        ollama_local_models, ollama_cloud_models, ollama_err = _split_ollama_models()
+
+        stt_primary = [
+            _summary_option_item("azure:default", cloud=True),
+            _summary_option_item("whisper:small", cloud=False),
+            _summary_option_item("whisper:base", cloud=False),
+            _summary_option_item("vosk:default", cloud=False),
+        ]
+        stt_fallback = [item for item in stt_primary if not item["cloud"]]
+        for item in stt_fallback:
+            item["local_only"] = True
+
+        llm_primary: List[Dict[str, Any]] = [_summary_option_item("echo:default", cloud=False)]
+        seen_llm_values = {"echo:default"}
+        for model_name in ollama_local_models or ["gemma:2b"]:
+            value = f"ollama_local:{model_name}"
+            if value in seen_llm_values:
+                continue
+            seen_llm_values.add(value)
+            llm_primary.append(_summary_option_item(value, cloud=False))
+        for model_name in ollama_cloud_models or ["gpt-oss:120b-cloud"]:
+            value = f"ollama_cloud:{model_name}"
+            if value in seen_llm_values:
+                continue
+            seen_llm_values.add(value)
+            llm_primary.append(_summary_option_item(value, cloud=True))
+        llm_fallback = [dict(item, local_only=True) for item in llm_primary if not item["cloud"]]
+
+        tts_primary: List[Dict[str, Any]] = [_summary_option_item("nao_native:default", cloud=False)]
+        seen_tts_values = {"nao_native:default"}
+        for model_info in piper_models:
+            model_path = str(model_info.get("path") or "").strip()
+            if not model_path:
+                continue
+            value = f"piper:{model_path}"
+            if value in seen_tts_values:
+                continue
+            seen_tts_values.add(value)
+            tts_primary.append(_summary_option_item(value, cloud=False))
+        for voice in azure_voices:
+            short_name = str(voice.get("short_name") or "").strip()
+            if not short_name:
+                continue
+            value = f"azure:{short_name}"
+            if value in seen_tts_values:
+                continue
+            seen_tts_values.add(value)
+            tts_primary.append(_summary_option_item(value, cloud=True))
+        tts_fallback = [dict(item, local_only=True) for item in tts_primary if not item["cloud"]]
+
+        return {
+            "stt_primary": stt_primary,
+            "stt_fallback": stt_fallback,
+            "llm_primary": llm_primary,
+            "llm_fallback": llm_fallback,
+            "tts_primary": tts_primary,
+            "tts_fallback": tts_fallback,
+            "meta": {
+                "azure_voice_error": azure_voice_err,
+                "ollama_error": ollama_err,
+            },
+        }
+
+    def _summary_options_payload() -> Dict[str, Any]:
+        sid = _get_sid()
+        current_runtime = _get_runtime_cfg(sid)
+        input_info = _list_audio_devices()
+        output_info = _list_audio_output_devices()
+        chat_input = _summary_clean_audio_device(current_runtime.get("input_device"))
+        chat_output = _summary_clean_audio_device(current_runtime.get("output_device"))
+
+        def _device_rows(raw_items: List[Dict[str, Any]], selected_value: Any, *, include_nao_ssh: bool = False) -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            if include_nao_ssh:
+                rows.append(
+                    {
+                        "value": "nao_ssh",
+                        "label": "NAO SSH mic" + (" *" if selected_value == "nao_ssh" else ""),
+                        "is_default": False,
+                        "is_chat_selected": selected_value == "nao_ssh",
+                    }
+                )
+            for item in raw_items:
+                value = item.get("index")
+                label = str(item.get("name") or "").strip() or f"Device {value}"
+                is_selected = selected_value == value
+                if is_selected:
+                    label += " *"
+                rows.append(
+                    {
+                        "value": value,
+                        "label": label,
+                        "is_default": bool(item.get("default")),
+                        "is_chat_selected": is_selected,
+                    }
+                )
+            return rows
+
+        prompt_items: List[str] = []
+        try:
+            for name in sorted(os.listdir(_master_prompts_dir())):
+                if name.startswith(".") or not name.lower().endswith(".txt"):
+                    continue
+                prompt_items.append("master_prompts/" + name)
+        except OSError:
+            prompt_items = []
+        model_suggestions = _summary_model_suggestions()
         return {
             "ok": True,
-            "status": "accepted",
-            "action": "do",
-            "mode": "summary_cancel",
-            "phase": "idle",
-        }, 200
+            "instance_id": resolved_instance_id,
+            "default_config": _default_summary_config(),
+            "input_devices": _device_rows(input_info.get("devices") or [], chat_input, include_nao_ssh=True),
+            "output_devices": _device_rows(output_info.get("devices") or [], chat_output),
+            "chat_devices": {
+                "input_audio_device": chat_input,
+                "output_audio_device": chat_output,
+            },
+            "master_prompts": prompt_items,
+            "model_suggestions": model_suggestions,
+        }
+
+    def _summary_runtime_capabilities(runtime_cfg_local: Dict[str, Any], *, request_host: Optional[str]) -> Dict[str, Any]:
+        runtime_health = _runtime_health_snapshot(runtime_cfg_local, request_host=request_host)
+        nao_audio_url, nao_audio_mode = _resolve_nao_audio_url(runtime_cfg_local)
+        base_info = runtime_health.get("base") if isinstance(runtime_health.get("base"), dict) else {}
+        behavior_info = runtime_health.get("behavior") if isinstance(runtime_health.get("behavior"), dict) else {}
+        nao_info = runtime_health.get("nao") if isinstance(runtime_health.get("nao"), dict) else {}
+        nao_connected = bool(nao_info.get("ping"))
+        nao_audio_available = bool(
+            nao_audio_url
+            and nao_audio_mode in {"behavior", "base"}
+            and (bool(base_info.get("ping")) or bool(behavior_info.get("ping")))
+        )
+        return {
+            "runtime_health": runtime_health,
+            "nao_connected": nao_connected,
+            "nao_audio_available": nao_audio_available,
+            "summary_nao_input_supported": False,
+            "summary_nao_output_supported": nao_audio_available,
+        }
+
+    def _summary_health_pills(
+        runtime_cfg_local: Dict[str, Any],
+        *,
+        request_host: Optional[str],
+        session: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        capabilities = _summary_runtime_capabilities(runtime_cfg_local, request_host=request_host)
+        runtime_health = capabilities.get("runtime_health") if isinstance(capabilities.get("runtime_health"), dict) else {}
+        base_info = runtime_health.get("base") if isinstance(runtime_health.get("base"), dict) else {}
+        behavior_info = runtime_health.get("behavior") if isinstance(runtime_health.get("behavior"), dict) else {}
+        nao_enabled = bool(runtime_cfg_local.get("nao_ip_enabled", False))
+        base_enabled = bool(runtime_cfg_local.get("base_enabled", True))
+        behavior_enabled = bool(runtime_cfg_local.get("behavior_enabled", True))
+        summary_status = str((session or {}).get("status") or "idle").strip().lower() or "idle"
+        summary_error = str((session or {}).get("last_error") or "").strip()
+
+        def _pill_status(ok: bool, *, off_when_missing: bool = False) -> str:
+            if ok:
+                return "ok"
+            if off_when_missing:
+                return "off"
+            return "error"
+
+        return [
+            {
+                "key": "summary",
+                "label": "Summary",
+                "status": "error" if summary_error else ("active" if summary_status in {"capturing", "summarizing", "publishing"} else "ok"),
+                "detail": summary_error or summary_status,
+            },
+            {
+                "key": "nao",
+                "label": "NAO",
+                "status": _pill_status(bool(capabilities.get("nao_connected")), off_when_missing=not nao_enabled),
+                "detail": "Uitgeschakeld." if not nao_enabled else ("NAO bereikbaar." if bool(capabilities.get("nao_connected")) else "NAO niet verbonden."),
+            },
+            {
+                "key": "base",
+                "label": "Base",
+                "status": _pill_status(bool(base_info.get("ping")), off_when_missing=not base_enabled),
+                "detail": "Uitgeschakeld." if not base_enabled else ("Base connector bereikbaar." if bool(base_info.get("ping")) else "Base connector niet bereikbaar."),
+            },
+            {
+                "key": "behavior",
+                "label": "Behavior",
+                "status": _pill_status(
+                    bool(behavior_info.get("ping")),
+                    off_when_missing=not behavior_enabled,
+                ),
+                "detail": "Uitgeschakeld." if not behavior_enabled else ("Behavior manager bereikbaar." if bool(behavior_info.get("ping")) else "Behavior manager niet bereikbaar."),
+            },
+        ]
+
+    def _summary_option_item(
+        value: str,
+        *,
+        cloud: bool,
+        local_only: bool = False,
+        enabled: bool = True,
+        label: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = "\u2601 " if cloud else "\u2302 "
+        return {
+            "value": value,
+            "label": label or (prefix + value),
+            "cloud": bool(cloud),
+            "local_only": bool(local_only),
+            "enabled": bool(enabled),
+        }
+
+    def _summary_model_suggestions(*, nao_audio_available: bool) -> Dict[str, Any]:
+        piper_models, _default_piper_model = _list_piper_models()
+        azure_voices, _default_azure_voice, azure_voice_err = _list_azure_voices()
+        ollama_local_models, ollama_cloud_models, ollama_err = _split_ollama_models()
+
+        stt_primary = [
+            _summary_option_item("azure:default", cloud=True),
+            _summary_option_item("whisper:tiny", cloud=False),
+            _summary_option_item("whisper:base", cloud=False),
+            _summary_option_item("whisper:small", cloud=False),
+            _summary_option_item("whisper:medium", cloud=False),
+            _summary_option_item("whisper:large-v3", cloud=False),
+            _summary_option_item("vosk:default", cloud=False),
+        ]
+        stt_fallback = [dict(item, local_only=True) for item in stt_primary if not item["cloud"]]
+
+        llm_primary: List[Dict[str, Any]] = [_summary_option_item("echo:default", cloud=False)]
+        seen_llm_values = {"echo:default"}
+        for model_name in ollama_local_models or ["gemma3:latest"]:
+            value = f"ollama_local:{model_name}"
+            if value in seen_llm_values:
+                continue
+            seen_llm_values.add(value)
+            llm_primary.append(_summary_option_item(value, cloud=False))
+        for model_name in ollama_cloud_models or ["gpt-oss:120b-cloud"]:
+            value = f"ollama_cloud:{model_name}"
+            if value in seen_llm_values:
+                continue
+            seen_llm_values.add(value)
+            llm_primary.append(_summary_option_item(value, cloud=True))
+        llm_fallback = [dict(item, local_only=True) for item in llm_primary if not item["cloud"]]
+
+        tts_primary: List[Dict[str, Any]] = []
+        seen_tts_values = set()
+        if nao_audio_available:
+            tts_primary.append(_summary_option_item("nao_native:default", cloud=False))
+            seen_tts_values.add("nao_native:default")
+        if "piper:default" not in seen_tts_values:
+            tts_primary.append(_summary_option_item("piper:default", cloud=False))
+            seen_tts_values.add("piper:default")
+        for model_info in piper_models:
+            model_path = str(model_info.get("path") or "").strip()
+            if not model_path:
+                continue
+            value = f"piper:{model_path}"
+            if value in seen_tts_values:
+                continue
+            seen_tts_values.add(value)
+            label = model_info.get("label")
+            tts_primary.append(_summary_option_item(value, cloud=False, label=f"\u2302 {label or value}"))
+        for voice in azure_voices:
+            short_name = str(voice.get("short_name") or "").strip()
+            if not short_name:
+                continue
+            value = f"azure:{short_name}"
+            if value in seen_tts_values:
+                continue
+            seen_tts_values.add(value)
+            locale = str(voice.get("locale") or "").strip()
+            label = f"{short_name} ({locale})" if locale else short_name
+            tts_primary.append(_summary_option_item(value, cloud=True, label=f"\u2601 {label}"))
+        tts_fallback = [dict(item, local_only=True) for item in tts_primary if not item["cloud"]]
+
+        return {
+            "stt_primary": stt_primary,
+            "stt_fallback": stt_fallback,
+            "llm_primary": llm_primary,
+            "llm_fallback": llm_fallback,
+            "tts_primary": tts_primary,
+            "tts_fallback": tts_fallback,
+            "meta": {
+                "azure_voice_error": azure_voice_err,
+                "ollama_error": ollama_err,
+            },
+        }
+
+    def _summary_options_payload() -> Dict[str, Any]:
+        sid = _get_sid()
+        current_runtime = _get_runtime_cfg(sid)
+        request_host = request.host if has_request_context() else None
+        capabilities = _summary_runtime_capabilities(current_runtime, request_host=request_host)
+        input_info = _list_audio_devices()
+        output_info = _list_audio_output_devices()
+        chat_input = _summary_clean_audio_device(current_runtime.get("input_device"))
+        chat_output = (
+            _SUMMARY_OUTPUT_DEVICE_NAO
+            if str(current_runtime.get("output_target") or "").strip().lower() == "nao"
+            else _summary_clean_audio_device(current_runtime.get("output_device"))
+        )
+        input_default = input_info.get("default_input")
+        output_default = output_info.get("default_output")
+        nao_connected = bool(capabilities.get("nao_connected"))
+        summary_nao_output_supported = bool(capabilities.get("summary_nao_output_supported"))
+
+        def _system_default_label(kind: str, default_value: Any, raw_items: List[Dict[str, Any]]) -> str:
+            default_name = None
+            for item in raw_items:
+                if item.get("index") == default_value:
+                    default_name = str(item.get("name") or "").strip()
+                    break
+            base_label = "Default mic" if str(kind) == "input" else "Default speakers"
+            if default_name:
+                return f"{base_label} ({default_name})"
+            return base_label
+
+        def _device_rows(
+            raw_items: List[Dict[str, Any]],
+            selected_value: Any,
+            *,
+            default_value: Any,
+            kind: str,
+            include_nao_ssh: bool = False,
+            include_nao_speaker: bool = False,
+        ) -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = [
+                {
+                    "value": None,
+                    "label": _system_default_label(kind, default_value, raw_items) + (" *" if selected_value is None else ""),
+                    "is_default": True,
+                    "is_chat_selected": selected_value is None,
+                    "enabled": True,
+                }
+            ]
+            if include_nao_ssh:
+                rows.append(
+                    {
+                        "value": "nao_ssh",
+                        "label": "NAO mic (nog niet beschikbaar)" + (" *" if selected_value == "nao_ssh" else ""),
+                        "is_default": False,
+                        "is_chat_selected": selected_value == "nao_ssh",
+                        "enabled": False,
+                    }
+                )
+            if include_nao_speaker:
+                rows.append(
+                    {
+                        "value": _SUMMARY_OUTPUT_DEVICE_NAO,
+                        "label": "NAO speaker" + (" *" if selected_value == _SUMMARY_OUTPUT_DEVICE_NAO else ""),
+                        "is_default": False,
+                        "is_chat_selected": selected_value == _SUMMARY_OUTPUT_DEVICE_NAO,
+                        "enabled": summary_nao_output_supported,
+                    }
+                )
+            for item in raw_items:
+                value = item.get("index")
+                label = str(item.get("name") or "").strip() or f"Device {value}"
+                if item.get("default"):
+                    label += " (default)"
+                is_selected = selected_value == value
+                if is_selected:
+                    label += " *"
+                rows.append(
+                    {
+                        "value": value,
+                        "label": label,
+                        "is_default": bool(item.get("default")),
+                        "is_chat_selected": is_selected,
+                        "enabled": True,
+                    }
+                )
+            return rows
+
+        return {
+            "ok": True,
+            "instance_id": resolved_instance_id,
+            "default_config": _default_summary_config(),
+            "input_devices": _device_rows(
+                input_info.get("devices") or [],
+                chat_input,
+                default_value=input_default,
+                kind="input",
+                include_nao_ssh=nao_connected,
+            ),
+            "output_devices": _device_rows(
+                output_info.get("devices") or [],
+                chat_output,
+                default_value=output_default,
+                kind="output",
+                include_nao_speaker=summary_nao_output_supported,
+            ),
+            "chat_devices": {
+                "input_audio_device": chat_input,
+                "output_audio_device": chat_output,
+            },
+            "capabilities": capabilities,
+            "master_prompts": _list_summary_prompt_items(),
+            "model_suggestions": _summary_model_suggestions(nao_audio_available=bool(capabilities.get("nao_audio_available"))),
+        }
+
+    def _summary_generate_reply(pipeline: InputLLMOutputPipeline, runtime_cfg_local: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
+        result = _TrackedLlmBackend(f"summary:{resolved_instance_id}", runtime_cfg_local, pipeline.llm).generate(messages)
+        return str(getattr(result, "reply", "") or "").strip()
+
+    def _summary_publish_text(pipeline: InputLLMOutputPipeline, runtime_cfg_local: Dict[str, Any], text: str) -> None:
+        if not _output_enabled(runtime_cfg_local):
+            raise RuntimeError("output disabled")
+        spoken_text = str(text or "")
+        normalizer = getattr(pipeline, "normalize_output_text", None)
+        if callable(normalizer):
+            spoken_text = str(normalizer(spoken_text) or "")
+        if not spoken_text:
+            raise RuntimeError("empty spoken text")
+        _emit_output_with_connectivity_tracking(f"summary:{resolved_instance_id}", runtime_cfg_local, pipeline.output, spoken_text)
+        detail = re.sub(r"^\[output\]\s*", "", _output_backend_last_error(pipeline.output))
+        if detail:
+            raise RuntimeError(detail)
+        _touch_activity()
+
+    def _summary_stop_output(runtime_cfg_local: Dict[str, Any]) -> Dict[str, Any]:
+        return _stop_output_best_effort(
+            runtime_cfg_local,
+            source="summary_ui",
+            sid=f"summary:{resolved_instance_id}",
+            reason="summary_output_stop",
+        )
+
+    def _summary_log_event(level: str, event: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
+        _log_dm_event(
+            sid=f"summary:{resolved_instance_id}",
+            level=level,
+            category="state",
+            event=event,
+            source="system",
+            message=message,
+            data=data or {},
+        )
+
+    summary_service = SummaryService(
+        instance_id=resolved_instance_id,
+        state_root=summary_state_root,
+        default_config=_default_summary_config(),
+        normalize_config=_normalize_summary_config,
+        build_app_config=_summary_build_app_config,
+        resolve_prompt=_summary_resolve_system_prompt,
+        make_mic=lambda cfg_obj: _make_mic_from_config(cfg_obj, mode="continuous"),
+        build_stt_backend=make_stt_backend_from_config,
+        build_pipeline=lambda cfg_obj: build_pipeline_from_config(cfg_obj, config_path=base_config_path),
+        transcribe_audio=lambda audio, backend, runtime_cfg_local: _transcribe_with_connectivity_tracking(
+            f"summary:{resolved_instance_id}",
+            audio,
+            stt_backend=backend,
+            runtime_cfg_local=runtime_cfg_local,
+        ),
+        generate_reply=_summary_generate_reply,
+        publish_text=_summary_publish_text,
+        stop_output=_summary_stop_output,
+        connectivity_snapshot=_connectivity_issue_snapshot,
+        log_event=_summary_log_event,
+        capture_timeout_default_s=_SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S,
+        capture_timeout_max_s=_SUMMARY_CAPTURE_TIMEOUT_MAX_S,
+        stt_queue_max_items=_SUMMARY_STT_QUEUE_MAX_ITEMS,
+    )
+
+    @app.get("/api/summary")
+    def api_summary_get():
+        payload = summary_service.get_payload()
+        runtime_cfg_local = _get_runtime_cfg(_get_sid())
+        payload["health"] = _summary_health_pills(
+            runtime_cfg_local,
+            request_host=request.host if has_request_context() else None,
+            session=payload.get("session") if isinstance(payload.get("session"), dict) else None,
+        )
+        resp = jsonify(payload)
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.get("/api/summary/config")
+    def api_summary_config_get():
+        resp = jsonify(summary_service.get_config_payload())
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/config")
+    def api_summary_config_post():
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = summary_service.update_config(payload.get("config"))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.get("/api/summary/options")
+    def api_summary_options():
+        resp = jsonify(_summary_options_payload())
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.get("/api/summary/presets")
+    def api_summary_presets_get():
+        resp = jsonify({"ok": True, "presets": _load_summary_presets(), "instance_id": resolved_instance_id})
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/presets")
+    def api_summary_presets_post():
+        payload = request.get_json(force=True, silent=True) or {}
+        mode = str(payload.get("mode") or "").strip().lower() or "create"
+        preset_id = str(payload.get("id") or "").strip() or None
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "preset naam ontbreekt"}), 400
+        try:
+            config_value = _normalize_summary_config(payload.get("config") or {})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        config_value["selected_preset_id"] = None
+        presets = _load_summary_presets()
+        by_id = {item.get("id"): item for item in presets if isinstance(item, dict) and item.get("id")}
+        if mode == "create" or preset_id is None:
+            new_id = _unique_preset_id(_slugify(name), presets)
+            preset = {"id": new_id, "name": name, "config": config_value}
+            presets.append(preset)
+            _save_summary_presets(presets)
+            return jsonify({"ok": True, "preset": preset, "presets": presets})
+        existing = by_id.get(preset_id)
+        if existing is None:
+            return jsonify({"ok": False, "error": "preset bestaat niet"}), 404
+        existing["name"] = name or existing.get("name") or preset_id
+        existing["config"] = config_value
+        _save_summary_presets(presets)
+        return jsonify({"ok": True, "preset": existing, "presets": presets})
+
+    @app.post("/api/summary/start")
+    def api_summary_start():
+        out, status_code = summary_service.start()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/stop")
+    def api_summary_stop():
+        out, status_code = summary_service.stop()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/transcript")
+    def api_summary_transcript():
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = summary_service.update_transcript(payload.get("transcript_text"))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/generate")
+    def api_summary_generate():
+        out, status_code = summary_service.generate()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/draft")
+    def api_summary_draft():
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = summary_service.update_draft(payload.get("draft_text"))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/publish")
+    def api_summary_publish():
+        payload = request.get_json(force=True, silent=True) or {}
+        draft_text = payload.get("draft_text")
+        if draft_text is not None:
+            out, status_code = summary_service.update_draft(draft_text)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+        out, status_code = summary_service.publish()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/abort")
+    def api_summary_abort():
+        out, status_code = summary_service.abort()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/stop_output")
+    def api_summary_stop_output():
+        out, status_code = summary_service.stop_output()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/clear")
+    def api_summary_clear():
+        out, status_code = summary_service.clear_recent()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/save")
+    def api_summary_save():
+        payload = request.get_json(force=True, silent=True) or {}
+        draft_text = payload.get("draft_text")
+        if draft_text is not None:
+            out, status_code = summary_service.update_draft(draft_text)
+            if status_code != 200:
+                resp = jsonify(out)
+                resp.status_code = status_code
+                resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+                return resp
+        out, status_code = summary_service.save()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.get("/api/summary/save/<session_id>.txt")
+    def api_summary_save_text(session_id: str):
+        path = summary_service.saved_text_path(session_id)
+        if not path:
+            return jsonify({"ok": False, "error": "summary_save_not_found"}), 404
+        return send_file(
+            path,
+            as_attachment=True,
+            download_name=os.path.basename(path),
+            mimetype="text/plain; charset=utf-8",
+        )
 
     @app.post("/api/script/do")
     def api_script_do():
@@ -9700,26 +10529,6 @@ def create_app(
             )
             if status_code != 200:
                 return _error_response(out, status_code)
-        elif mode == "summary_capture_start":
-            out, status_code = _summary_capture_start_impl(sid)
-            if status_code != 200:
-                return _error_response(out, status_code)
-            result_payload = out
-        elif mode == "summary_capture_stop_and_draft":
-            out, status_code = _summary_capture_stop_and_draft_impl(sid, payload)
-            if status_code != 200:
-                return _error_response(out, status_code)
-            result_payload = out
-        elif mode == "summary_publish":
-            out, status_code = _summary_publish_impl(sid)
-            if status_code != 200:
-                return _error_response(out, status_code)
-            result_payload = out
-        elif mode == "summary_cancel":
-            out, status_code = _summary_cancel_impl(sid)
-            if status_code != 200:
-                return _error_response(out, status_code)
-            result_payload = out
         else:
             return jsonify({"ok": False, "error": "invalid_mode", "mode": mode}), 400
 

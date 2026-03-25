@@ -88,6 +88,18 @@ class DMClient:
     def capabilities(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("GET", "/api/script/capabilities", timeout_s=timeout_s)
 
+    def summary_page_url(self) -> str:
+        return f"{self.base_url}/summary"
+
+    def summary_get(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        return self._request("GET", "/api/summary", timeout_s=timeout_s)
+
+    def summary_start(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/summary/start", payload={}, timeout_s=timeout_s)
+
+    def summary_abort(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/summary/abort", payload={}, timeout_s=timeout_s)
+
     def script_say(
         self,
         text: str,
@@ -108,24 +120,17 @@ class DMClient:
     def script_tts_profile(
         self,
         *,
-        runtime_config_override: Optional[Dict[str, Any]] = None,
         timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {}
-        if isinstance(runtime_config_override, dict) and runtime_config_override:
-            payload["runtime_config_override"] = dict(runtime_config_override)
-        return self._request("POST", "/api/script/tts_profile", payload=payload, timeout_s=timeout_s)
+        return self._request("POST", "/api/script/tts_profile", payload={}, timeout_s=timeout_s)
 
     def script_tts_render(
         self,
         *,
         text: str,
-        runtime_config_override: Optional[Dict[str, Any]] = None,
         timeout_s: Optional[float] = None,
     ) -> bytes:
         payload: Dict[str, Any] = {"text": text}
-        if isinstance(runtime_config_override, dict) and runtime_config_override:
-            payload["runtime_config_override"] = dict(runtime_config_override)
         return self._request_bytes("POST", "/api/script/tts_render", payload=payload, timeout_s=timeout_s)
 
     def nao_set_eye_color(
@@ -139,9 +144,6 @@ class DMClient:
         if duration is not None:
             payload["duration"] = float(duration)
         return self._request("POST", "/api/nao_set_eye_color", payload=payload, timeout_s=timeout_s)
-
-    def set_runtime_config(self, config: Dict[str, Any], timeout_s: Optional[float] = None) -> Dict[str, Any]:
-        return self._request("POST", "/api/runtime_config", payload={"config": dict(config or {})}, timeout_s=timeout_s)
 
     def runtime_effective(self, timeout_s: Optional[float] = None) -> Dict[str, Any]:
         return self._request("GET", "/api/runtime_effective", timeout_s=timeout_s)

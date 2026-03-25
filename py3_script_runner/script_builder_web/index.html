@@ -37,36 +37,56 @@
           </div>
 
           <div class="view-tabs" role="tablist" aria-label="Editor view">
-            <button id="btnTabJson" class="tab-btn is-active" type="button">JSON</button>
-            <button id="btnTabBlocks" class="tab-btn" type="button">Blocks</button>
+            <button id="btnTabJson" class="tab-btn" type="button">Full JSON</button>
+            <button id="btnTabConfig" class="tab-btn" type="button">Config</button>
+            <button id="btnTabBlocks" class="tab-btn is-active" type="button">Steps</button>
           </div>
         </div>
 
-        <div id="jsonView" class="editor-view">
+        <div id="jsonView" class="editor-view is-hidden">
           <div class="json-shell">
-            <label for="editorJson" class="label">Script JSON</label>
-            <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+            <div class="editor-header">
+              <div>
+                <label for="editorJson" class="label">Script JSON</label>
+              </div>
+              <div class="editor-position">
+                <span id="editorPosition">Ln 1, Col 1</span>
+              </div>
+            </div>
+            <div class="code-editor-wrapper">
+              <ol id="jsonLineNumbers" class="line-numbers"></ol>
+              <textarea id="editorJson" spellcheck="false" autocomplete="off"></textarea>
+            </div>
+            <div class="row-actions json-editor-actions">
+              <button id="btnUndoJson" type="button">Undo</button>
+              <button id="btnRedoJson" type="button">Redo</button>
+              <button id="btnApplyJson" type="button">JSON toepassen</button>
+            </div>
+            <div id="jsonError" class="inline-error is-hidden"></div>
           </div>
         </div>
 
-        <div id="blocksView" class="editor-view is-hidden">
-          <details id="blocksConfigSection" class="config-section">
-            <summary>
-              <div class="summary-main">
-                <span class="summary-title">Config</span>
-                <span id="blocksConfigSummary" class="summary-meta">Geen configuratie geladen.</span>
+        <div id="configView" class="editor-view is-hidden">
+          <div class="config-shell">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow">Script config</div>
+                <h2>Config</h2>
               </div>
-            </summary>
-            <div class="config-section-body">
-              <label for="blocksConfigJson" class="label">Config JSON (robots / ppt / defaults)</label>
-              <textarea id="blocksConfigJson" spellcheck="false" autocomplete="off"></textarea>
-              <div class="row-actions blocks-config-actions">
-                <button id="btnApplyConfig" type="button">Apply config</button>
-              </div>
-              <div id="blocksConfigError" class="inline-error is-hidden"></div>
+              <div id="blocksConfigSummary" class="section-count">Geen configuratie geladen.</div>
             </div>
-          </details>
+            <label for="blocksConfigJson" class="label">Config JSON (robots / ppt / defaults)</label>
+            <textarea id="blocksConfigJson" spellcheck="false" autocomplete="off"></textarea>
+            <div class="row-actions blocks-config-actions">
+              <button id="btnUndoConfig" type="button">Undo</button>
+              <button id="btnRedoConfig" type="button">Redo</button>
+              <button id="btnApplyConfig" type="button">Config toepassen</button>
+            </div>
+            <div id="blocksConfigError" class="inline-error is-hidden"></div>
+          </div>
+        </div>
 
+        <div id="blocksView" class="editor-view">
           <div class="blocks-studio">
             <section class="studio-card steps-panel">
               <div class="section-head">
@@ -131,6 +151,7 @@
             <button id="btnPreloadAudio" type="button">Preload audio...</button>
             <button id="btnPreloadPrune" type="button">Opschonen preload-cache...</button>
           </div>
+          <section id="summaryBanner" class="summary-banner is-hidden" aria-live="polite"></section>
           <div id="dmStartResults" class="dm-start-results is-hidden"></div>
           <section id="robotStatusSection" class="robot-status-section is-hidden" aria-live="polite">
             <div class="runtime-label">Robotstatus</div>

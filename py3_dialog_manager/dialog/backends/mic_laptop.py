@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import queue
 import sys
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import sounddevice as sd
@@ -11,6 +11,7 @@ import sounddevice as sd
 from dialog.interfaces import MicBackend, UtteranceAudio
 from dialog.backends.vad_segmenter import (
     RmsVadConfig,
+    RmsVadStreamingSegmenter,
     RmsVadUtteranceCapturer,
     int16_to_wav_bytes,
 )
@@ -55,6 +56,7 @@ class LaptopMic(MicBackend):
     def capture_utterance(self, timeout_s: float = 10.0) -> UtteranceAudio:
         blocksize = int(self.cfg.sample_rate * (self.cfg.block_ms / 1000.0))
         vad = RmsVadUtteranceCapturer(self.cfg)
+        self._q = queue.Queue()
 
         def get_block(timeout: float) -> Optional[np.ndarray]:
             try:
@@ -87,6 +89,7 @@ class LaptopMic(MicBackend):
         """
         blocksize = int(self.cfg.sample_rate * (self.cfg.block_ms / 1000.0))
         max_samples = None if max_duration_s is None else int(self.cfg.sample_rate * float(max_duration_s))
+        self._q = queue.Queue()
 
         def get_block(timeout: float) -> Optional[np.ndarray]:
             try:
@@ -130,3 +133,57 @@ class LaptopMic(MicBackend):
             channels=1,
             sample_width=2,
         )
+
+    def stream_utterances(
+        self,
+        stop_event,
+        *,
+        timeout_s: float = 10.0,
+        on_utterance: Callable[[UtteranceAudio], None],
+        on_timeout: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """
+        Houd de microfoonstream open en lever utterances door zodra de
+        stateful VAD ze afgrenst.
+        """
+        blocksize = int(self.cfg.sample_rate * (self.cfg.block_ms / 1000.0))
+        q: "queue.Queue[np.ndarray]" = queue.Queue()
+        vad = RmsVadStreamingSegmenter(self.cfg)
+
+        def _cb(indata, frames, t, status):
+            if status:
+                print(status, file=sys.stderr)
+            q.put(indata[:, 0].copy())
+
+        def _emit(audio_int16: Optional[np.ndarray]) -> None:
+            if audio_int16 is None or audio_int16.size == 0:
+                return
+            wav_bytes = int16_to_wav_bytes(audio_int16, self.cfg.sample_rate)
+            on_utterance(
+                UtteranceAudio(
+                    pcm=wav_bytes,
+                    sample_rate=self.cfg.sample_rate,
+                    channels=1,
+                    sample_width=2,
+                )
+            )
+
+        with sd.InputStream(
+            samplerate=self.cfg.sample_rate,
+            channels=1,
+            dtype="int16",
+            callback=_cb,
+            blocksize=blocksize,
+            device=self.input_device,
+        ):
+            while not stop_event.is_set():
+                try:
+                    block = q.get(timeout=0.1)
+                except queue.Empty:
+                    if on_timeout is not None and vad.poll_timeout(timeout_s):
+                        on_timeout()
+                    continue
+                utterance = vad.feed(block)
+                if utterance is not None:
+                    _emit(utterance)
+            _emit(vad.flush())

@@ -15,7 +15,7 @@ The web runner is the primary path. The console runner is deprecated and kept on
   - `with_prev` (starts in parallel with previous step)
 - Supports step action types:
   - `say`
-  - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`, `nao_set_eye_color`, `summary_capture_start`, `summary_capture_stop_and_draft`, `summary_publish`, `summary_cancel`)
+  - `do` (`command`, `behavior_start`, `behavior_stop`, `dance`, `nao_set_eye_color`, `summary_start`)
   - `pause`
   - `ppt` (`next_slide`, `previous_slide`, `goto`)
 - Uses DM wrapper endpoints:
@@ -97,7 +97,6 @@ Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Acce
 - `version` must be `1`
 - `robots` maps `robot_id -> { dm_url }`
   - optional: `instance_id` for local DM autostart from the Script Builder webapp
-  - optional: `runtime_config` (same keys as DM `/api/runtime_config`)
 - `defaults`:
   - `request_timeout_s` (number > 0)
   - `readiness_poll_interval_s` (number > 0, default `3`)
@@ -112,9 +111,8 @@ Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Acce
     - `say`: requires `robot_id`, `action.text`
     - `do`: requires `robot_id`, `action.mode`
       - `nao_set_eye_color`: requires `action.color`, optional `action.duration` (seconds, `>= 0`)
-      - `summary_capture_start`: optional `action.hold_until_continue` (bool, default `true`)
-      - `summary_capture_stop_and_draft`: requires `action.input_prompt_template`
-      - optional for `summary_capture_stop_and_draft`: `action.instruction`, `action.system_prompt`, `action.system_prompt_file`
+      - `summary_start`: optional `action.wait_for_complete` (bool, default `true`)
+      - `summary_start`: optional `action.open_on_new_tab` (bool, default `false`)
     - `pause`: requires `action.seconds`
     - `ppt`: `action.mode` is `next_slide|previous_slide|goto`
       - `goto`: requires `action.slide`, optional `action.click` (0 = slide start state)
@@ -148,41 +146,26 @@ Notes:
 
 - only local DM targets are supported (`127.0.0.1`, `localhost`, `0.0.0.0`, `::1`)
 - `dm_url` must include an explicit port
-- the button ignores `runtime_config`; DM runtime state stays on the DM side via `runtime_<instance>.json`
+- DM runtime state stays on the DM side via `runtime_<instance>.json`
 
 By default, the runner executes against the current runtime config already active on each DM instance.
 
-### Optional per-robot runtime config
-
-You can force each DM instance to a known runtime setup at preflight:
-
-```json
-{
-  "robots": {
-    "nao1": {
-      "dm_url": "http://127.0.0.1:5301",
-      "runtime_config": {
-        "nao_ip": "192.168.68.101",
-        "nao_base_url": "http://127.0.0.1:5101",
-        "output_target": "nao",
-        "tts_engine": "azure"
-      }
-    }
-  }
-}
-```
-
 The runner uses a persistent HTTP session per robot, so one stable DM `sid` is reused across all steps.
 
-### Summary flow (3-step)
+### Summary flow
 
-Use three `do` steps on the same robot:
+Use one `do` step on the same robot:
 
-1. `summary_capture_start`: starts capture and keeps capturing until operator presses ENTER to continue.
-2. `summary_capture_stop_and_draft`: stops capture, returns `draft + transcript`, prints the draft in the runner log, then asks `[p]ublish / [c]ancel` (ENTER defaults to publish).
-3. `summary_publish`: if step 2 chose publish, this step speaks the summary; if step 2 chose cancel, this step is skipped.
+1. `summary_start`: starts DM summary on `/summary`.
+2. If `wait_for_complete=true`, the script waits until the summary is `completed`.
+3. If `wait_for_complete=false`, the script continues immediately while the summary stays active in DM.
 
-For less clipped utterance starts, set a larger continuous mic pre-roll in `robots.<id>.runtime_config.mic_params_continuous.pre_roll_ms` (typically `800-1000` ms).
+The Script Builder run screen shows a sticky summary banner with:
+
+- `Open summary`
+- `Samenvatting annuleren`
+
+Summary-specific capture, prompt and publish tuning belongs in DM summary settings, not in the script file.
 
 ### Eye color example snippet
 
@@ -234,7 +217,7 @@ Default `on_error` is `prompt`:
 - `a` / `abort`: stop run
 
 For timeout-like request errors while `on_error=prompt`, the runner defaults to `next` automatically.
-Use per-step `request_timeout_s` for long operations such as `summary_publish`.
+Use per-step `request_timeout_s` for long operations such as `summary_start`.
 
 ## Startup readiness behavior
 

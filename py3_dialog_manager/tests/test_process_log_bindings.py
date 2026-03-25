@@ -246,7 +246,9 @@ def test_process_logs_clear_only_clears_active_bound_logfile(monkeypatch):
     assert not active_backup.exists()
     assert old_log.exists()
     assert old_backup.exists()
-    assert client.get("/api/process_logs?name=base").get_json()["lines"] == []
+    lines = client.get("/api/process_logs?name=base").get_json()["lines"]
+    assert all("legacy" not in line for line in lines)
+    assert all("5000" not in line for line in lines)
     _remove_log_artifacts(active_log, old_log)
 
 

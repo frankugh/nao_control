@@ -188,7 +188,7 @@ def test_command_execute_stop_stops_audio_and_clears_stop_state(monkeypatch):
     assert stop_data["ok"] is True
     assert stop_data["command_stop_available"] is False
     assert stop_data["command_stop_label"] is None
-    assert executor.calls[-1] == "STOP"
+    assert executor.calls[-2:] == ["STOP", "STAND_UP"]
     assert calls[-1][0] == "http://base:5000/stop_audio"
 
 
