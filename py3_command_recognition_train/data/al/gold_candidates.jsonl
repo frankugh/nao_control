@@ -84,3 +84,14 @@
 {"text": "Vertel eens een leuk verhaal, iets dat me blij maakt", "label": "NONE", "source": "al_gold_candidate"}
 {"text": "oeps, stoppen!", "label": "STOP", "source": "al_gold_candidate"}
 {"text": "OK loop maar met me mee.", "label": "WALK\\_WITH\\_ME", "source": "al_gold_candidate"}
+{"text": "Ik hou ook van praten over robots.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Dat was echt heel leuk.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ik vind het leukste van robots dat ze kunnen dansen.", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Kan jij samenvatten wat ik zeg?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Vertel eens, wat kun je allemaal?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Staan.", "label": "STAND\\_UP", "source": "al_gold_candidate"}
+{"text": "Heb je zin In de workshop vandaag?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Maar werkt AI dan net zoals mensen? Is AI intelligentie zo vergelijkbaar?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Ga maar zitten, hoor.", "label": "SITDOWN", "source": "al_gold_candidate"}
+{"text": "Hoe kwam dat dan dat Mensen een AI elkaar niet vertrouwden?", "label": "NONE", "source": "al_gold_candidate"}
+{"text": "Sta maar op.", "label": "STAND\\_UP", "source": "al_gold_candidate"}

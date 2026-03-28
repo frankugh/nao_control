@@ -37,7 +37,7 @@ import unicodedata
 from pathlib import Path
 import signal
 from urllib.parse import urlparse
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from flask import Flask, Response, g, has_request_context, jsonify, request, send_file, send_from_directory
 import requests
@@ -170,6 +170,7 @@ _SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S = 2.0
 _SUMMARY_CAPTURE_TIMEOUT_MAX_S = 5.0
 _SUMMARY_LIVE_TRANSCRIPT_MAX_ITEMS = 500
 _SUMMARY_STT_QUEUE_MAX_ITEMS = 16
+_SUMMARY_STT_DISK_SPOOL_MAX_ITEMS = 96
 _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS = 1000
 _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS = 1000
 _SUMMARY_OUTPUT_DEVICE_NAO = "nao_speaker"
@@ -606,10 +607,14 @@ def _parse_host_port(raw: Optional[str], default_port: int) -> Tuple[Optional[st
 
 
 def _check_tcp(host: Optional[str], port: int) -> bool:
+    return _check_tcp_with_timeout(host, port, timeout_s=2.5)
+
+
+def _check_tcp_with_timeout(host: Optional[str], port: int, *, timeout_s: float = 2.5) -> bool:
     if not host:
         return False
     try:
-        with socket.create_connection((host, port), timeout=2.5):
+        with socket.create_connection((host, port), timeout=max(0.1, float(timeout_s))):
             return True
     except OSError:
         return False
@@ -9359,6 +9364,112 @@ def create_app(
     def _summary_default_fallback_summary() -> str:
         return _SUMMARY_DEFAULT_FALLBACK_SUMMARY
 
+    def _summary_banner_catalog_path() -> str:
+        return os.path.join(repo_root, "SUMMARY_STICKY_BANNERS.txt")
+
+    def _load_summary_banner_catalog() -> Dict[str, Any]:
+        path = _summary_banner_catalog_path()
+        catalog: Dict[str, Any] = {}
+        current_key: Optional[str] = None
+        current_entry: Dict[str, Any] = {}
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                for raw_line in fh:
+                    line = raw_line.rstrip("\r\n")
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#") or stripped.startswith("="):
+                        continue
+                    if stripped.startswith("[") and stripped.endswith("]"):
+                        if current_key:
+                            current_entry.setdefault("buttons", [])
+                            catalog[current_key] = current_entry
+                        current_key = stripped[1:-1].strip()
+                        current_entry = {}
+                        continue
+                    if not current_key or ":" not in stripped:
+                        continue
+                    field, value = stripped.split(":", 1)
+                    field_key = field.strip().lower()
+                    text_value = value.strip()
+                    if field_key == "title":
+                        current_entry["title"] = text_value
+                    elif field_key == "text":
+                        current_entry["text"] = text_value
+                    elif field_key == "buttons":
+                        buttons: List[Dict[str, str]] = []
+                        if text_value:
+                            for item in text_value.split(","):
+                                part = item.strip()
+                                if not part:
+                                    continue
+                                action, sep, label = part.partition("|")
+                                action_text = str(action or "").strip()
+                                label_text = str(label or action or "").strip()
+                                if action_text:
+                                    buttons.append({"action": action_text, "label": label_text})
+                        current_entry["buttons"] = buttons
+        except OSError:
+            return {}
+        if current_key:
+            current_entry.setdefault("buttons", [])
+            catalog[current_key] = current_entry
+        return catalog
+
+    def _summary_resolve_incident_key(session: Optional[Dict[str, Any]]) -> Optional[str]:
+        if not isinstance(session, dict):
+            return None
+        recovery = session.get("recovery") if isinstance(session.get("recovery"), dict) else {}
+        status = str(session.get("status") or "").strip().lower()
+        execution_mode = str(session.get("execution_mode") or "cloud").strip().lower() or "cloud"
+        last_error = str(session.get("last_error") or "").strip().lower()
+        if recovery:
+            stage = str(recovery.get("stage") or "").strip().lower()
+            kind = str(recovery.get("kind") or "").strip().lower()
+            if stage == "stt":
+                if kind == "resource":
+                    return "input_device_unavailable"
+                return "stt_cloud_unavailable" if execution_mode == "cloud" else "stt_local_unavailable"
+            if stage == "llm":
+                if kind == "result":
+                    return "llm_invalid_result"
+                return "llm_cloud_unavailable" if execution_mode == "cloud" else "llm_local_unavailable"
+            if stage == "tts":
+                if "nao" in last_error:
+                    return "nao_output_unavailable"
+                if kind == "resource":
+                    return "output_device_unavailable"
+                return "tts_cloud_unavailable" if execution_mode == "cloud" else "tts_local_unavailable"
+        stats = session.get("capture_stats") if isinstance(session.get("capture_stats"), dict) else {}
+        if status == "capturing":
+            disk_spool_count = int(stats.get("disk_spool_count") or 0)
+            disk_spool_limit = int(stats.get("disk_spool_limit") or 0)
+            queue_size = int(stats.get("stt_queue_size") or 0)
+            dropped = int(stats.get("dropped_audio_chunks") or 0)
+            if disk_spool_limit > 0 and disk_spool_count >= disk_spool_limit:
+                return "stt_backlog_overflow"
+            if dropped > 0 and disk_spool_count > 0:
+                return "stt_backlog_overflow"
+            if disk_spool_count > 0:
+                return "stt_backlog_disk"
+            if queue_size > 0:
+                return "stt_backlog_memory"
+        return None
+
+    def _summary_incident_banner(session: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        key = _summary_resolve_incident_key(session)
+        if not key:
+            return None
+        catalog = _load_summary_banner_catalog()
+        entry = catalog.get(key)
+        if not isinstance(entry, dict):
+            return None
+        return {
+            "key": key,
+            "title": str(entry.get("title") or "Summary status"),
+            "text": str(entry.get("text") or ""),
+            "buttons": copy.deepcopy(entry.get("buttons") or []),
+        }
+
     def _summary_prompt_from_file(raw_name: Any) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         display_name = _normalize_summary_prompt_name(raw_name)
         if not display_name:
@@ -9679,6 +9790,12 @@ def create_app(
             raise ValueError(f"Onbekende summary LLM provider: {llm_provider}")
         runtime_cfg["llm_type"] = llm_provider
         runtime_cfg["llm_model"] = "" if llm_provider == "echo" else llm_model
+        if llm_provider == "ollama_local":
+            runtime_cfg["llm_host"] = str(os.environ.get("OLLAMA_HOST") or "http://localhost:11434").strip()
+        elif llm_provider == "ollama_cloud":
+            runtime_cfg["llm_host"] = str(os.environ.get("OLLAMA_HOST") or "https://ollama.com").strip()
+        else:
+            runtime_cfg["llm_host"] = None
 
         tts_provider, tts_model = _summary_split_model_ref(models_cfg.get("tts_primary"), default_provider="nao_native")
         if tts_provider in {"nao", "nao_native"}:
@@ -9737,6 +9854,108 @@ def create_app(
             stt_params = stt_cfg.setdefault("params", {})
             stt_params["model_name"] = stt_model
         return _summary_capture_mic_config(merged), runtime_cfg
+
+    _summary_cloud_probe_lock = threading.Lock()
+    _summary_cloud_probe_next_allowed: Dict[str, float] = {}
+    _SUMMARY_CLOUD_PROBE_INTERVAL_S = 1.5
+    _SUMMARY_CLOUD_PROBE_TIMEOUT_S = 0.75
+
+    def _summary_issue_message_looks_like_connectivity(issue: JsonLike) -> bool:
+        message = str(issue.get("message") or "").strip().lower()
+        if not message:
+            return False
+        connectivity_terms = (
+            "connection failed",
+            "no connection",
+            "name resolution",
+            "dns",
+            "network",
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+            "unreachable",
+            "ws_open_error_underlying_io_open_failed",
+            "could not connect",
+        )
+        return any(term in message for term in connectivity_terms)
+
+    def _summary_runtime_cfg_for_cloud_probe(session: JsonLike) -> Optional[Dict[str, Any]]:
+        if not isinstance(session, dict):
+            return None
+        if str(session.get("execution_mode") or "cloud").strip().lower() == "local":
+            return None
+        config_snapshot = session.get("config_snapshot") if isinstance(session.get("config_snapshot"), dict) else {}
+        summary_cfg = config_snapshot.get("config") if isinstance(config_snapshot.get("config"), dict) else None
+        if not isinstance(summary_cfg, dict):
+            return None
+        try:
+            _app_cfg, runtime_cfg = _summary_build_app_config(summary_cfg)
+        except Exception:
+            return None
+        return runtime_cfg
+
+    def _summary_cloud_probe_host_port(issue_key: str, runtime_cfg_local: Dict[str, Any]) -> Tuple[Optional[str], Optional[int]]:
+        kind = str(issue_key or "").strip().lower()
+        if kind.startswith("cloud:"):
+            kind = kind.split(":", 1)[1]
+        source = _cloud_connectivity_issue_source(runtime_cfg_local, kind)
+        if source == "stt.azure":
+            region = str(os.environ.get("AZURE_SPEECH_REGION") or "").strip()
+            if not region:
+                return None, None
+            return f"{region}.stt.speech.microsoft.com", 443
+        if source == "tts.azure":
+            region = str(os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("AZURE_TTS_REGION") or "").strip()
+            if not region:
+                return None, None
+            return f"{region}.tts.speech.microsoft.com", 443
+        if source and source.startswith("llm."):
+            llm_host = str(runtime_cfg_local.get("llm_host") or os.environ.get("OLLAMA_HOST") or "https://ollama.com").strip()
+            return _url_host_port(llm_host)
+        return None, None
+
+    def _summary_reconcile_cloud_connectivity(session: JsonLike, connectivity_issues: List[JsonLike]) -> Set[str]:
+        if not isinstance(session, dict):
+            return set()
+        status = str(session.get("status") or "").strip().lower()
+        if not status or status in {"completed", "aborted", "error"}:
+            return set()
+        if str(session.get("execution_mode") or "cloud").strip().lower() == "local":
+            return set()
+        active_cloud_issues = [
+            issue
+            for issue in (connectivity_issues or [])
+            if isinstance(issue, dict)
+            and bool(issue.get("active"))
+            and str(issue.get("issue_type") or "").strip().lower() == "cloud"
+            and _summary_issue_message_looks_like_connectivity(issue)
+        ]
+        if not active_cloud_issues:
+            return set()
+        runtime_cfg_local = _summary_runtime_cfg_for_cloud_probe(session)
+        if not isinstance(runtime_cfg_local, dict):
+            return set()
+        cleared_issue_keys: Set[str] = set()
+        now_ts = time.time()
+        for issue in active_cloud_issues:
+            issue_key = str(issue.get("issue_key") or "").strip().lower()
+            if not issue_key:
+                continue
+            host, port = _summary_cloud_probe_host_port(issue_key, runtime_cfg_local)
+            if not host or not isinstance(port, int) or port <= 0:
+                continue
+            should_probe = False
+            with _summary_cloud_probe_lock:
+                next_allowed = float(_summary_cloud_probe_next_allowed.get(issue_key) or 0.0)
+                if now_ts >= next_allowed:
+                    _summary_cloud_probe_next_allowed[issue_key] = now_ts + _SUMMARY_CLOUD_PROBE_INTERVAL_S
+                    should_probe = True
+            if not should_probe:
+                continue
+            if _check_tcp_with_timeout(host, port, timeout_s=_SUMMARY_CLOUD_PROBE_TIMEOUT_S):
+                _clear_connectivity_issue(issue_key)
+                cleared_issue_keys.add(issue_key)
+        return cleared_issue_keys
 
     def _summary_presets_path() -> str:
         return os.path.join(repo_root, "py3_dialog_manager", "configs", "summary_presets.json")
@@ -9950,9 +10169,6 @@ def create_app(
         nao_enabled = bool(runtime_cfg_local.get("nao_ip_enabled", False))
         base_enabled = bool(runtime_cfg_local.get("base_enabled", True))
         behavior_enabled = bool(runtime_cfg_local.get("behavior_enabled", True))
-        summary_status = str((session or {}).get("status") or "idle").strip().lower() or "idle"
-        summary_error = str((session or {}).get("last_error") or "").strip()
-
         def _pill_status(ok: bool, *, off_when_missing: bool = False) -> str:
             if ok:
                 return "ok"
@@ -9961,12 +10177,6 @@ def create_app(
             return "error"
 
         return [
-            {
-                "key": "summary",
-                "label": "Summary",
-                "status": "error" if summary_error else ("active" if summary_status in {"capturing", "summarizing", "publishing"} else "ok"),
-                "detail": summary_error or summary_status,
-            },
             {
                 "key": "nao",
                 "label": "NAO",
@@ -10194,11 +10404,64 @@ def create_app(
             "capabilities": capabilities,
             "master_prompts": _list_summary_prompt_items(),
             "model_suggestions": _summary_model_suggestions(nao_audio_available=bool(capabilities.get("nao_audio_available"))),
+            "sticky_banner_catalog": _load_summary_banner_catalog(),
         }
 
     def _summary_generate_reply(pipeline: InputLLMOutputPipeline, runtime_cfg_local: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
         result = _TrackedLlmBackend(f"summary:{resolved_instance_id}", runtime_cfg_local, pipeline.llm).generate(messages)
         return str(getattr(result, "reply", "") or "").strip()
+
+    def _summary_is_local_ollama_host(raw_host: Optional[str]) -> bool:
+        if not str(raw_host or "").strip():
+            return True
+        host, _port = _url_host_port(raw_host)
+        return host in {None, "localhost", "127.0.0.1", "::1"}
+
+    def _summary_stop_local_llm_model(host: str, model: str) -> Dict[str, Any]:
+        response: Dict[str, Any] = {
+            "attempted": False,
+            "stopped": False,
+            "host": str(host or "").strip(),
+            "model": str(model or "").strip(),
+        }
+        model_text = str(model or "").strip()
+        if not model_text:
+            response["detail"] = "llm model ontbreekt"
+            return response
+        if not _summary_is_local_ollama_host(host):
+            response["detail"] = "ollama host is niet lokaal"
+            return response
+        cli_path = shutil.which("ollama")
+        if not cli_path:
+            response["detail"] = "ollama cli niet gevonden"
+            return response
+        env = os.environ.copy()
+        host_text = str(host or "").strip()
+        if host_text:
+            env["OLLAMA_HOST"] = host_text
+        response["attempted"] = True
+        try:
+            completed = subprocess.run(
+                [cli_path, "stop", model_text],
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+                env=env,
+            )
+        except Exception as exc:
+            response["detail"] = str(exc)
+            return response
+        response["returncode"] = int(completed.returncode)
+        stdout = str(completed.stdout or "").strip()
+        stderr = str(completed.stderr or "").strip()
+        if stdout:
+            response["stdout"] = stdout
+        if stderr:
+            response["stderr"] = stderr
+        response["stopped"] = completed.returncode == 0
+        if not response["stopped"] and "detail" not in response:
+            response["detail"] = stderr or stdout or f"ollama stop faalde met exitcode {completed.returncode}"
+        return response
 
     def _summary_publish_text(pipeline: InputLLMOutputPipeline, runtime_cfg_local: Dict[str, Any], text: str) -> None:
         if not _output_enabled(runtime_cfg_local):
@@ -10253,22 +10516,33 @@ def create_app(
         generate_reply=_summary_generate_reply,
         publish_text=_summary_publish_text,
         stop_output=_summary_stop_output,
+        stop_local_llm_model=_summary_stop_local_llm_model,
         connectivity_snapshot=_connectivity_issue_snapshot,
         log_event=_summary_log_event,
         capture_timeout_default_s=_SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S,
         capture_timeout_max_s=_SUMMARY_CAPTURE_TIMEOUT_MAX_S,
         stt_queue_max_items=_SUMMARY_STT_QUEUE_MAX_ITEMS,
+        stt_disk_spool_max_items=_SUMMARY_STT_DISK_SPOOL_MAX_ITEMS,
     )
 
     @app.get("/api/summary")
     def api_summary_get():
         payload = summary_service.get_payload()
+        session = payload.get("session") if isinstance(payload.get("session"), dict) else None
+        cleared_issue_keys = _summary_reconcile_cloud_connectivity(session, payload.get("connectivity_issues") or [])
+        auto_resumed = False
+        if "cloud:stt" in cleared_issue_keys:
+            auto_resumed = bool(summary_service.try_auto_resume_stt_connectivity_recovery())
+        if cleared_issue_keys or auto_resumed:
+            payload = summary_service.get_payload()
+            session = payload.get("session") if isinstance(payload.get("session"), dict) else None
         runtime_cfg_local = _get_runtime_cfg(_get_sid())
         payload["health"] = _summary_health_pills(
             runtime_cfg_local,
             request_host=request.host if has_request_context() else None,
-            session=payload.get("session") if isinstance(payload.get("session"), dict) else None,
+            session=session,
         )
+        payload["incident_banner"] = _summary_incident_banner(session)
         resp = jsonify(payload)
         resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
@@ -10362,6 +10636,57 @@ def create_app(
         resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
+    @app.post("/api/summary/navigate")
+    def api_summary_navigate():
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = summary_service.navigate(payload.get("target_phase"))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/capture/resume")
+    def api_summary_capture_resume():
+        out, status_code = summary_service.resume_capture()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/repair")
+    def api_summary_repair():
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = summary_service.repair(payload.get("repair_prompt"))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/use_fallback_summary")
+    def api_summary_use_fallback_summary():
+        out, status_code = summary_service.use_fallback_summary()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/execution_mode")
+    def api_summary_execution_mode():
+        payload = request.get_json(force=True, silent=True) or {}
+        out, status_code = summary_service.update_execution_mode(payload.get("execution_mode"))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/capture/recover")
+    def api_summary_capture_recover():
+        out, status_code = summary_service.recover_capture()
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
     @app.post("/api/summary/draft")
     def api_summary_draft():
         payload = request.get_json(force=True, silent=True) or {}
@@ -10382,7 +10707,15 @@ def create_app(
                 resp.status_code = status_code
                 resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
                 return resp
-        out, status_code = summary_service.publish()
+        out, status_code = summary_service.publish(allow_stale=bool(payload.get("allow_stale")))
+        resp = jsonify(out)
+        resp.status_code = status_code
+        resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
+        return resp
+
+    @app.post("/api/summary/complete_without_publish")
+    def api_summary_complete_without_publish():
+        out, status_code = summary_service.complete_without_publish()
         resp = jsonify(out)
         resp.status_code = status_code
         resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")

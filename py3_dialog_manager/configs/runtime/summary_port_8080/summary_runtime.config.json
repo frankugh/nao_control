@@ -2,7 +2,7 @@
   "selected_preset_id": "summary_default",
   "devices": {
     "input_audio_device": null,
-    "output_audio_device": null
+    "output_audio_device": 4
   },
   "models": {
     "stt_primary": "azure:default",
