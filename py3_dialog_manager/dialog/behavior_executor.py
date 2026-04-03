@@ -9,6 +9,8 @@ import requests
 from dialog.interfaces import CommandDecision, ICommandExecutor
 from dialog.nao_api_router import NaoApiRouter
 
+DEFAULT_BEHAVIOR_TIMEOUT_S = 60.0
+
 
 class BehaviorExecutor(ICommandExecutor):
     def __init__(
@@ -31,7 +33,7 @@ class BehaviorExecutor(ICommandExecutor):
             self.base_url = None
         if timeout_s is None and self.api_router is not None:
             timeout_s = self.api_router.timeout_s
-        self.timeout_s = float(timeout_s or 5.0)
+        self.timeout_s = float(timeout_s or DEFAULT_BEHAVIOR_TIMEOUT_S)
         self._on_finish = on_finish
         self._custom_life_enabled = bool(custom_life_enabled)
         self._custom_life_settings = (
@@ -150,7 +152,7 @@ class BehaviorExecutor(ICommandExecutor):
         if payload_data.get("ran") is False:
             return "error", "Behavior startte niet."
         if payload_data.get("is_awake") is False:
-            return "error", f"Behavior {behavior} niet uitgevoerd: robot meldt rust/wake-state false."
+            return "error", f"Behavior {behavior} niet uitgevoerd: robot staat in ruststand."
         if status in ("", "ok"):
             return "ok", None
         if err_txt:
@@ -199,41 +201,41 @@ class BehaviorExecutor(ICommandExecutor):
             if exec_error is not None:
                 raise exec_error
             return
-        behavior = self._behavior_for_command(cmd)
-        if not behavior:
-            self._log_exec(
-                label=label,
-                started_at=started_at,
-                result="error",
-                error=f"Geen behavior mapping voor label {cmd.label!r}.",
-            )
-            raise ValueError(f"Geen behavior mapping voor label {cmd.label!r}.")
-        payload = {"behavior": behavior}
-        pause_state = self._pause_custom_life()
+        behavior: Optional[str] = None
+        pause_state: Optional[dict] = None
         exec_error: Optional[Exception] = None
         exec_result = "ok"
         try:
-            if self.api_router is not None:
-                resp = self.api_router.post("/do_behavior", json=payload, timeout=self.timeout_s)
-            else:
-                resp = requests.post(f"{self.base_url}/do_behavior", json=payload, timeout=self.timeout_s)
-            resp.raise_for_status()
             try:
-                data = resp.json()
-            except ValueError:
-                exec_result = "error"
-                exec_error = RuntimeError("Behavior endpoint gaf geen JSON terug.")
-            else:
-                exec_result, error_text = self._behavior_error_from_payload(data, behavior=behavior)
-                if error_text:
-                    exec_error = RuntimeError(error_text)
-        except requests.RequestException as exc:
-            msg = str(exc)
-            if "already running" in msg.lower():
-                exec_result = "already_running"
-            else:
-                exec_result = "error"
-                exec_error = RuntimeError(msg)
+                behavior = self._behavior_for_command(cmd)
+                if not behavior:
+                    raise ValueError(f"Geen behavior mapping voor label {cmd.label!r}.")
+                payload = {"behavior": behavior}
+                pause_state = self._pause_custom_life()
+                if self.api_router is not None:
+                    resp = self.api_router.post("/do_behavior", json=payload, timeout=self.timeout_s)
+                else:
+                    resp = requests.post(f"{self.base_url}/do_behavior", json=payload, timeout=self.timeout_s)
+                resp.raise_for_status()
+                try:
+                    data = resp.json()
+                except ValueError:
+                    exec_result = "error"
+                    exec_error = RuntimeError("Behavior endpoint gaf geen JSON terug.")
+                else:
+                    exec_result, error_text = self._behavior_error_from_payload(data, behavior=behavior)
+                    if error_text:
+                        exec_error = RuntimeError(error_text)
+            except requests.RequestException as exc:
+                msg = str(exc)
+                if "already running" in msg.lower():
+                    exec_result = "already_running"
+                else:
+                    exec_result = "error"
+                    exec_error = RuntimeError(msg)
+        except Exception as exc:
+            exec_result = "error"
+            exec_error = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
         finally:
             self._restore_custom_life(pause_state)
             self._notify_finish(cmd)
@@ -301,6 +303,22 @@ class BehaviorExecutor(ICommandExecutor):
                 return result.strip()
         return None
 
+    def _is_robot_awake(self) -> Optional[bool]:
+        try:
+            if self.api_router is not None:
+                resp = self.api_router.get("/is_awake", timeout=self.timeout_s)
+            else:
+                resp = requests.get(f"{self.base_url}/is_awake", timeout=self.timeout_s)
+            data = resp.json() if resp.ok else {}
+        except Exception as exc:
+            self._emit_log(f"[NAO] is_awake request failed: {exc}")
+            return None
+
+        payload = data.get("data") or {}
+        if isinstance(payload, dict) and "is_awake" in payload:
+            return bool(payload.get("is_awake"))
+        return None
+
     def _behavior_for_command(self, cmd: CommandDecision) -> Optional[str]:
         label = self._normalize_label(cmd.label)
         if label == "DANCE":
@@ -323,6 +341,8 @@ class BehaviorExecutor(ICommandExecutor):
                     return "greetings/doboxsit"
                 if posture_l.startswith("stand"):
                     return "greetings"
+            if self._is_robot_awake() is False:
+                raise RuntimeError("BOX niet uitgevoerd: robot staat in ruststand.")
 
         mapping = {
             "SITDOWN": "basic/sitdown",

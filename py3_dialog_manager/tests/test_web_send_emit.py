@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 from dialog.interfaces import LLMResult
@@ -89,6 +90,62 @@ def test_web_send_emit_pipeline_calls_output(monkeypatch):
     assert data["ok"] is True
     assert data["emit_used"] == "pipeline"
     assert spy.calls == ["hi"]
+
+
+def test_web_send_commits_history_before_pipeline_output_finishes(monkeypatch):
+    output_started = threading.Event()
+    output_release = threading.Event()
+
+    class BlockingOutput:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def emit(self, text: str) -> None:
+            self.calls.append(text)
+            output_started.set()
+            assert output_release.wait(timeout=2.0)
+
+    base_pipeline = SimpleNamespace(
+        llm=StubLLMBackend("hi"),
+        output=BlockingOutput(),
+        status_to_console=True,
+        system_prompt="SYSTEM",
+        log_messages_path=None,
+        log_meta={},
+        max_history_turns=None,
+    )
+    monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
+    monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
+
+    app, _, _ = webapp_server.create_app(
+        cfg={"output": {"type": "console"}},
+        config_path="<memory>",
+    )
+    worker_client = app.test_client()
+    observer_client = app.test_client()
+    worker_client.set_cookie("sid", "send-early-history")
+    observer_client.set_cookie("sid", "send-early-history")
+    result = {}
+
+    def _send() -> None:
+        result["resp"] = worker_client.post("/api/send", json={"text": "hello", "emit": "pipeline"})
+
+    thread = threading.Thread(target=_send, daemon=True)
+    thread.start()
+    assert output_started.wait(timeout=1.0)
+
+    state_resp = observer_client.get("/api/state")
+    assert state_resp.status_code == 200
+    state = state_resp.get_json()
+    assert state["ok"] is True
+    history = state["history"]
+    assert [item["role"] for item in history] == ["user", "assistant"]
+    assert history[0]["content"] == "hello"
+    assert history[1]["content"] == "hi"
+
+    output_release.set()
+    thread.join(timeout=2.0)
+    assert result["resp"].status_code == 200
 
 
 def test_api_state_history_version_is_stable_without_changes(monkeypatch):

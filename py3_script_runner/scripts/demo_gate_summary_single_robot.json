@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "robots": {
+    "nao1": {
+      "dm_url": "http://127.0.0.1:5301"
+    }
+  },
+  "defaults": {
+    "request_timeout_s": 45,
+    "on_error": "prompt"
+  },
+  "steps": [
+    {
+      "id": "summary_start",
+      "robot_id": "nao1",
+      "start": {
+        "mode": "manual"
+      },
+      "action": {
+        "type": "do",
+        "mode": "summary_start",
+        "wait_for_complete": true,
+        "open_on_new_tab": false
+      }
+    }
+  ]
+}

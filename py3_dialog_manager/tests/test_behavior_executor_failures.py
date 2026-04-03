@@ -73,9 +73,27 @@ def test_behavior_executor_raises_on_warning_payload_when_robot_reports_rest(mon
         resolved={"dance_behavior": "dances/stoomboot"},
     )
 
-    with pytest.raises(RuntimeError, match="wake-state false"):
+    with pytest.raises(RuntimeError, match="robot staat in ruststand"):
         ex.execute(cmd)
     assert finished == ["DANCE"]
+
+
+def test_behavior_executor_box_in_rest_state_reports_rest_instead_of_missing_mapping(monkeypatch):
+    def fake_get(url, **kwargs):
+        if url.endswith("/posture"):
+            return _Resp({"status": "error", "error": "posture unavailable"}, status_code=500)
+        if url.endswith("/is_awake"):
+            return _Resp({"status": "ok", "data": {"is_awake": False}})
+        raise AssertionError(f"unexpected GET url: {url}")
+
+    monkeypatch.setattr("dialog.behavior_executor.requests.get", fake_get)
+    finished = []
+    ex = BehaviorExecutor(base_url="http://base:5000", timeout_s=1.0, on_finish=lambda cmd: finished.append(cmd.label))
+    cmd = CommandDecision(label="BOX", confidence=1.0, raw_text="geef me een box", resolved={})
+
+    with pytest.raises(RuntimeError, match="BOX niet uitgevoerd: robot staat in ruststand"):
+        ex.execute(cmd)
+    assert finished == ["BOX"]
 
 
 def test_behavior_executor_rest_raises_on_error_payload_and_calls_finish(monkeypatch):

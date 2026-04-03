@@ -567,6 +567,28 @@ def test_summary_publish_inherits_chat_output_when_device_is_null(monkeypatch, t
 
 def test_summary_publish_explicit_output_device_overrides_chat_output(monkeypatch, tmp_path: Path):
     built_cfgs = []
+    class FakeSoundDevice:
+        default = SimpleNamespace(hostapi=0, device=[None, 11])
+
+        @staticmethod
+        def query_devices():
+            raw = []
+            for idx in range(12):
+                raw.append(
+                    {
+                        "name": f"Device {idx}",
+                        "hostapi": 0,
+                        "max_input_channels": 0,
+                        "max_output_channels": 2 if idx == 11 else 0,
+                    }
+                )
+            return raw
+
+    def _raise_probe_error(*_a, **_k):
+        raise RuntimeError("skip probe snapshot")
+
+    monkeypatch.setattr(webapp_server, "sd", FakeSoundDevice())
+    monkeypatch.setattr(webapp_server.subprocess, "check_output", _raise_probe_error)
     app = _make_app(
         monkeypatch,
         tmp_path,
@@ -612,6 +634,57 @@ def test_summary_publish_explicit_output_device_overrides_chat_output(monkeypatc
     assert output_cfg["params"]["output_device"] == 11
 
 
+def test_summary_publish_unavailable_output_device_falls_back_to_chat_output(monkeypatch, tmp_path: Path):
+    built_cfgs = []
+    monkeypatch.setattr(webapp_server, "sd", None)
+    app = _make_app(
+        monkeypatch,
+        tmp_path,
+        stt_backend=StubSTTBackend(["tekst"]),
+        cfg={
+            "output": {
+                "type": "router",
+                "target": "nao",
+                "engine": "azure",
+                "device": None,
+                "params": {},
+            }
+        },
+        built_pipeline_cfgs=built_cfgs,
+    )
+    client = app.test_client()
+    summary_cfg = _summary_config()
+    summary_cfg["devices"]["output_audio_device"] = 4
+    cfg_resp = client.post("/api/summary/config", json={"config": summary_cfg})
+    assert cfg_resp.status_code == 200
+    assert cfg_resp.get_json()["config"]["devices"]["output_audio_device"] is None
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    assert client.post("/api/summary/start").status_code == 200
+    time.sleep(0.05)
+    assert client.post("/api/summary/stop").status_code == 200
+    assert client.post("/api/summary/generate").status_code == 200
+    _wait_for_summary_status(client, "summary_review")
+    publish_resp = client.post("/api/summary/publish")
+    assert publish_resp.status_code == 502
+
+    output_cfg = built_cfgs[-1]["output"]
+    assert output_cfg["params"]["target"] == "nao"
+    assert output_cfg["params"]["output_device"] is None
+
+
 def test_summary_publish_failure_reverts_to_summary_review(monkeypatch, tmp_path: Path):
     output = StubOutput(error=RuntimeError("tts boom"))
     app = _make_app(monkeypatch, tmp_path, stt_backend=StubSTTBackend(["tekst"]), output_backend=output)
@@ -640,6 +713,39 @@ def test_summary_publish_failure_reverts_to_summary_review(monkeypatch, tmp_path
     session = publish_resp.get_json()["session"]
     assert session["status"] == "summary_review"
     assert session["last_error_stage"] == "publish"
+
+
+def test_summary_publish_output_disabled_returns_clear_tts_message(monkeypatch, tmp_path: Path):
+    output = StubOutput(error=RuntimeError("output disabled"))
+    app = _make_app(monkeypatch, tmp_path, stt_backend=StubSTTBackend(["tekst"]), output_backend=output)
+    client = app.test_client()
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    assert client.post("/api/summary/start").status_code == 200
+    time.sleep(0.05)
+    assert client.post("/api/summary/stop").status_code == 200
+    assert client.post("/api/summary/generate").status_code == 200
+    _wait_for_summary_status(client, "summary_review")
+
+    publish_resp = client.post("/api/summary/publish")
+    assert publish_resp.status_code == 502
+    payload = publish_resp.get_json()
+    assert payload["detail"] == "Uitspreken mislukt: er is geen bruikbaar output-device geconfigureerd."
+    assert payload["session"]["recovery"]["stage"] == "tts"
+    assert payload["session"]["recovery"]["kind"] == "resource"
+    assert payload["session"]["recovery"]["message"] == "Uitspreken mislukt: er is geen bruikbaar output-device geconfigureerd."
 
 
 def test_summary_stop_output_stops_server_audio_for_completed_publish(monkeypatch, tmp_path: Path):
@@ -1258,6 +1364,68 @@ def test_summary_fallback_summary_publishes_without_overwriting_draft(monkeypatc
     assert fallback_session["published_at"]
 
 
+def test_summary_get_refreshes_stale_base_connectivity_issue(monkeypatch, tmp_path: Path):
+    ping_state = {"ok": False}
+
+    class FakeResp:
+        def __init__(self, *, ok: bool) -> None:
+            self.status_code = 200 if ok else 503
+            self.ok = bool(ok)
+
+        def json(self):
+            return {"status": "ok" if self.ok else "error"}
+
+    def fake_get(_url, timeout=0, **_kwargs):
+        del timeout
+        return FakeResp(ok=bool(ping_state["ok"]))
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+    app = _make_app(monkeypatch, tmp_path)
+    client = app.test_client()
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "output_target": "server",
+                "base_enabled": True,
+                "behavior_enabled": False,
+                "nao_ip_enabled": False,
+                "nao_base_url": "http://127.0.0.1:5103",
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    health_resp = client.post(
+        "/api/runtime_health",
+        json={
+            "base_enabled": True,
+            "behavior_enabled": False,
+            "nao_ip_enabled": False,
+            "nao_base_url": "http://127.0.0.1:5103",
+        },
+    )
+    assert health_resp.status_code == 200
+    health_payload = health_resp.get_json()
+    assert "dm_local:base_ping" in {
+        str(item.get("issue_key") or "")
+        for item in (health_payload.get("connectivity_issues") or [])
+        if item.get("active")
+    }
+
+    ping_state["ok"] = True
+    summary_resp = client.get("/api/summary")
+    assert summary_resp.status_code == 200
+    summary_payload = summary_resp.get_json()
+    assert "dm_local:base_ping" not in {
+        str(item.get("issue_key") or "")
+        for item in (summary_payload.get("connectivity_issues") or [])
+        if item.get("active")
+    }
+    base_pill = next(item for item in summary_payload["health"] if item["key"] == "base")
+    assert base_pill["status"] == "ok"
+
+
 def test_summary_complete_without_publish(monkeypatch, tmp_path: Path):
     llm = PlannedLLMBackend(["eerste draft"])
     app = _make_app(monkeypatch, tmp_path, stt_backend=StubSTTBackend(["tekst"]), llm_backend=llm)
@@ -1855,6 +2023,41 @@ def test_summary_active_session_snapshot_stays_unchanged_when_draft_config_chang
     live_snapshot = summary_resp.get_json()["session"]["config_snapshot"]["config"]
     assert live_snapshot["prompts"]["summary_instruction"] == "Eerste instructie"
     assert client.post("/api/summary/abort").status_code == 200
+
+
+def test_summary_review_config_update_changes_active_session_snapshot(monkeypatch, tmp_path: Path):
+    app = _make_app(monkeypatch, tmp_path, stt_backend=StubSTTBackend(["tekst"]))
+    client = app.test_client()
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    cfg = _summary_config()
+    cfg["prompts"]["summary_instruction"] = "Review instructie 1"
+    assert client.post("/api/summary/config", json={"config": cfg}).status_code == 200
+    assert client.post("/api/summary/start").status_code == 200
+    time.sleep(0.05)
+    assert client.post("/api/summary/stop").status_code == 200
+
+    cfg["prompts"]["summary_instruction"] = "Review instructie 2"
+    cfg_resp = client.post("/api/summary/config", json={"config": cfg})
+    assert cfg_resp.status_code == 200
+    assert cfg_resp.get_json()["applies_to_active_session"] is True
+
+    summary_resp = client.get("/api/summary")
+    assert summary_resp.status_code == 200
+    live_snapshot = summary_resp.get_json()["session"]["config_snapshot"]["config"]
+    assert live_snapshot["prompts"]["summary_instruction"] == "Review instructie 2"
 
 
 def test_summary_abort_clears_spool_directory(monkeypatch, tmp_path: Path):

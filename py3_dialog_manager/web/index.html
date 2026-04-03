@@ -469,6 +469,7 @@
       .composer { margin-top: 10px; }
       .msg { margin: 8px 0; display: flex; }
       .msg.user { justify-content: flex-end; }
+      .msg.pending .bubble { background: #f3f5f8; border-style: dashed; color: #566273; font-style: italic; }
       .bubble { max-width: 100%; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border-soft); background: #ffffff; white-space: pre-wrap; overflow-wrap: anywhere; }
       .user .bubble { background: var(--user-bubble-bg); border-color: var(--user-bubble-border); }
       .role { width: 100%; font-size: 12px; color: #5e7085; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -756,6 +757,8 @@
           <div class="row" style="margin-top:10px">
             <button id="btnRec">🎙️ Opnemen</button>
             <button id="btnSend" disabled>Send</button>
+            <button id="btnStopCommand" type="button" hidden disabled>Stop</button>
+            <button id="btnStopAll" type="button" disabled>Stop all</button>
             <button id="btnReset">🧹 Reset</button>
             <span id="recState" class="pill">idle</span>
           </div>
@@ -1406,6 +1409,8 @@
     <script>
       const btnRec = document.getElementById('btnRec');
       const btnSend = document.getElementById('btnSend');
+      const btnStopCommand = document.getElementById('btnStopCommand');
+      const btnStopAll = document.getElementById('btnStopAll');
       const btnReset = document.getElementById('btnReset');
       const txt = document.getElementById('txt');
       const statusEl = document.getElementById('status');
@@ -1813,12 +1818,16 @@
       let activeActionController = null;
       let sendSpeakingTimer = null;
       const SEND_REQUEST_TIMEOUT_MS = 90000;
+      const SEND_STATE_POLL_MS = 700;
       let commandStopAvailable = false;
       let commandStopLabel = null;
       let clientInputMode = 'client';
       let clientOutputMode = 'text';
       let clientSpeechUtterance = null;
       let clientAudioPrefsLoaded = false;
+      let localPendingTurn = null;
+      let sendStatePollTimer = null;
+      let lastRenderedHistory = [];
       let lastHistoryVersion = null;
       let promptEditorLoadedName = '';
       let promptEditorLoadedContent = '';
@@ -1926,19 +1935,58 @@
 
       function updateSendButton() {
         if (!btnSend) return;
-        const busy = sendStopInFlight || !!sendBusyPhase || !!activeActionController || !!commandStopAvailable;
-        if (busy) {
-          btnSend.textContent = sendStopInFlight ? 'Stopping...' : 'Stop';
-          btnSend.disabled = !!sendStopInFlight;
-          return;
-        }
-        if (recording || serverPttActive) {
-          btnSend.textContent = 'Send';
-          btnSend.disabled = true;
-          return;
-        }
         btnSend.textContent = 'Send';
-        btnSend.disabled = !txt.value.trim();
+        if (recording || serverPttActive) {
+          btnSend.disabled = true;
+          updateStopButtons();
+          updateSendStatePolling();
+          return;
+        }
+        const busy = sendStopInFlight || !!sendBusyPhase || !!activeActionController;
+        btnSend.disabled = busy || !txt.value.trim();
+        updateStopButtons();
+        updateSendStatePolling();
+      }
+
+      function formatStopCommandButtonText() {
+        const label = formatCommandLabelUi(commandStopLabel) || String(commandStopLabel || '').trim();
+        return label ? `Stop ${label}` : 'Stop';
+      }
+
+      function updateStopButtons() {
+        if (btnStopCommand) {
+          const hasCommandStop = !!commandStopAvailable;
+          btnStopCommand.hidden = !hasCommandStop;
+          btnStopCommand.textContent = formatStopCommandButtonText();
+          btnStopCommand.disabled = sendStopInFlight || !hasCommandStop;
+        }
+        if (btnStopAll) {
+          const stopAllAvailable = !!commandStopAvailable || !!sendBusyPhase || !!activeActionController || !!sendSpeakingTimer || !!clientSpeechUtterance;
+          btnStopAll.textContent = sendStopInFlight ? 'Stop all...' : 'Stop all';
+          btnStopAll.disabled = sendStopInFlight || !stopAllAvailable;
+        }
+      }
+
+      function updateSendStatePolling() {
+        const shouldPoll = !!activeActionController || !!localPendingTurn || sendBusyPhase === 'speaking';
+        if (!shouldPoll) {
+          if (sendStatePollTimer) {
+            clearInterval(sendStatePollTimer);
+            sendStatePollTimer = null;
+          }
+          return;
+        }
+        if (sendStatePollTimer) return;
+        sendStatePollTimer = setInterval(() => {
+          const stillNeeded = !!activeActionController || !!localPendingTurn || sendBusyPhase === 'speaking';
+          if (!stillNeeded) {
+            clearInterval(sendStatePollTimer);
+            sendStatePollTimer = null;
+            return;
+          }
+          if (document.visibilityState === 'hidden') return;
+          refreshState().catch(() => {});
+        }, SEND_STATE_POLL_MS);
       }
 
       function setSendBusyPhase(phase) {
@@ -2068,6 +2116,25 @@
         }
       }
 
+      async function stopCurrentBehavior() {
+        if (sendStopInFlight || !commandStopAvailable) return;
+        const label = formatCommandLabelUi(commandStopLabel) || String(commandStopLabel || '').trim() || 'actieve gedrag';
+        sendStopInFlight = true;
+        updateSendButton();
+        try {
+          const commandStopOk = await requestCommandStop();
+          if (commandStopOk) {
+            setStatus(`Stop-commando verstuurd voor ${label}.`);
+            setRecState('idle');
+          } else {
+            setStatus(`Stop-commando voor ${label} kon niet bevestigd worden.`);
+          }
+        } finally {
+          sendStopInFlight = false;
+          updateSendButton();
+        }
+      }
+
       async function stopCurrentAction() {
         if (sendStopInFlight) return;
         sendStopInFlight = true;
@@ -2091,7 +2158,7 @@
           if (commandStopOk) {
             commandStopAvailable = false;
             commandStopLabel = null;
-            setStatus('Gestopt.');
+            setStatus('Alles gestopt.');
           }
           setRecState('idle');
           if (!commandStopOk) {
@@ -3930,44 +3997,110 @@
         return d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
       }
 
-      function clearOptimisticUserMessage() {
-        if (!chatEl) return;
-        const pending = chatEl.querySelectorAll('.msg.user[data-local-pending="1"]');
-        pending.forEach((node) => node.remove());
+      function clearLocalPendingTurn() {
+        localPendingTurn = null;
       }
 
-      function appendOptimisticUserMessage(text) {
-        if (!chatEl) return;
-        clearOptimisticUserMessage();
+      function setLocalPendingTurn(text, emitMode = 'pipeline') {
+        const normalized = String(text || '').trim();
+        if (!normalized) {
+          localPendingTurn = null;
+          return;
+        }
+        localPendingTurn = {
+          userText: normalized,
+          assistantPending: true,
+          startedAt: Date.now(),
+          emitMode: String(emitMode || 'pipeline'),
+          requestIdLocal: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        };
+      }
 
-        const msg = document.createElement('div');
-        msg.className = 'msg user';
-        msg.dataset.text = text;
-        msg.dataset.localPending = '1';
+      function historyHasCommittedLocalPendingTurn(history) {
+        if (!localPendingTurn || !Array.isArray(history) || history.length < 2) return false;
+        const pendingUserText = String(localPendingTurn.userText || '').trim();
+        if (!pendingUserText) return false;
+        for (let idx = history.length - 1; idx >= 1; idx--) {
+          const assistant = history[idx];
+          const user = history[idx - 1];
+          if ((assistant?.role || '') !== 'assistant') continue;
+          if ((user?.role || '') !== 'user') continue;
+          if (String(user?.content || '').trim() !== pendingUserText) continue;
+          if (!String(assistant?.content || '').trim()) continue;
+          return true;
+        }
+        return false;
+      }
 
-        const wrap = document.createElement('div');
-        wrap.className = 'bubblewrap';
+      function syncPendingTurnFromHistory(history) {
+        if (!historyHasCommittedLocalPendingTurn(history)) return false;
+        const previousPending = localPendingTurn;
+        clearLocalPendingTurn();
+        if (activeActionController && previousPending && previousPending.emitMode === 'pipeline') {
+          setStatus('Antwoord zichtbaar; spraak wordt nog uitgesproken...');
+          setRecState('praten', 'thinking');
+        }
+        return true;
+      }
 
-        const roleEl = document.createElement('div');
-        roleEl.className = 'role';
-        roleEl.textContent = 'You';
+      function appendLocalPendingTurn() {
+        if (!chatEl || !localPendingTurn) return;
+        const tsLabel = _formatLocalTimestamp(localPendingTurn.startedAt);
 
-        const ts = document.createElement('span');
-        ts.className = 'timestamp';
-        ts.textContent = _formatLocalTimestamp(Date.now());
-        if (ts.textContent) {
-          roleEl.appendChild(ts);
+        const userMsg = document.createElement('div');
+        userMsg.className = 'msg user';
+        userMsg.dataset.text = localPendingTurn.userText || '';
+        userMsg.dataset.localPending = localPendingTurn.requestIdLocal || '1';
+
+        const userWrap = document.createElement('div');
+        userWrap.className = 'bubblewrap';
+
+        const userRole = document.createElement('div');
+        userRole.className = 'role';
+        userRole.textContent = 'You';
+        if (tsLabel) {
+          const userTs = document.createElement('span');
+          userTs.className = 'timestamp';
+          userTs.textContent = tsLabel;
+          userRole.appendChild(userTs);
         }
 
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.textContent = text;
+        const userBubble = document.createElement('div');
+        userBubble.className = 'bubble';
+        userBubble.textContent = localPendingTurn.userText || '';
 
-        wrap.appendChild(roleEl);
-        wrap.appendChild(bubble);
-        msg.appendChild(wrap);
-        chatEl.appendChild(msg);
-        chatEl.scrollTop = chatEl.scrollHeight;
+        userWrap.appendChild(userRole);
+        userWrap.appendChild(userBubble);
+        userMsg.appendChild(userWrap);
+        chatEl.appendChild(userMsg);
+
+        if (!localPendingTurn.assistantPending) return;
+
+        const assistantMsg = document.createElement('div');
+        assistantMsg.className = 'msg assistant pending';
+        assistantMsg.dataset.localPending = localPendingTurn.requestIdLocal || '1';
+
+        const assistantWrap = document.createElement('div');
+        assistantWrap.className = 'bubblewrap';
+
+        const assistantRole = document.createElement('div');
+        assistantRole.className = 'role';
+        assistantRole.textContent = getRobotDisplayName();
+        if (tsLabel) {
+          const assistantTs = document.createElement('span');
+          assistantTs.className = 'timestamp';
+          assistantTs.textContent = tsLabel;
+          assistantRole.appendChild(assistantTs);
+        }
+
+        const assistantBubble = document.createElement('div');
+        assistantBubble.className = 'bubble pending';
+        assistantBubble.textContent = 'Antwoord wordt gemaakt...';
+
+        assistantWrap.appendChild(assistantRole);
+        assistantWrap.appendChild(assistantBubble);
+        assistantMsg.appendChild(assistantWrap);
+        chatEl.appendChild(assistantMsg);
       }
 
       function renderHistory(history, debug, opts = {}) {
@@ -3977,6 +4110,7 @@
         const prevClientHeight = chatEl.clientHeight;
         const distanceFromBottom = prevScrollHeight - (prevScrollTop + prevClientHeight);
         const wasNearBottom = distanceFromBottom <= 24;
+        lastRenderedHistory = Array.isArray(history) ? history.slice() : [];
 
         chatEl.innerHTML = '';
         let lastAssistantWrap = null;
@@ -4116,6 +4250,8 @@
           }
           lastAssistantWrap.appendChild(dbg);
         }
+
+        appendLocalPendingTurn();
 
         if (forceScroll || wasNearBottom) {
           chatEl.scrollTop = chatEl.scrollHeight;
@@ -6949,9 +7085,11 @@
           const j = await r.json();
           if (j.ok) {
             syncStopAvailability(j);
+            const pendingReplyCommitted = syncPendingTurnFromHistory(j.history || []);
             const version = Number(j.history_version);
             const hasVersion = Number.isFinite(version);
-            const shouldRenderHistory = !hasVersion || lastHistoryVersion === null || version !== lastHistoryVersion;
+            const shouldRenderHistory =
+              pendingReplyCommitted || !hasVersion || lastHistoryVersion === null || version !== lastHistoryVersion;
             if (shouldRenderHistory) {
               renderHistory(j.history || [], null, { forceScroll: false });
               if (hasVersion) {
@@ -7293,10 +7431,7 @@
       });
 
       btnSend.addEventListener('click', async () => {
-        if (sendStopInFlight || sendBusyPhase || activeActionController) {
-          await stopCurrentAction();
-          return;
-        }
+        if (sendStopInFlight || sendBusyPhase || activeActionController) return;
         clearSpeakingWindow();
         const text = txt.value.trim();
         if (!text) return;
@@ -7304,10 +7439,11 @@
         const sttEdited = sttUsed && text !== lastTranscript;
         const input_meta = { stt_used: sttUsed, stt_edited: sttEdited };
         const emitMode = isClientOutputUsingServerConfig() ? 'pipeline' : 'none';
-        appendOptimisticUserMessage(text);
+        setLocalPendingTurn(text, emitMode);
+        renderHistory(lastRenderedHistory, null);
         setSendBusyPhase('thinking');
-        setStatus('LLM + output...');
-        setRecState('thinking');
+        setStatus('LLM antwoord aan het maken...');
+        setRecState('denken', 'thinking');
         const controller = createActionController();
         let requestTimedOut = false;
         const requestTimeout = setTimeout(() => {
@@ -7327,7 +7463,7 @@
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'send failed');
           syncStopAvailability(j);
-
+          clearLocalPendingTurn();
           renderHistory(j.history || [], j.debug || null);
           renderPrompt(j.system_prompt || '');
           txt.value = '';
@@ -7343,7 +7479,8 @@
             speakingWindowStarted = startClientSpeaking(j.reply || '');
           }
         } catch (e) {
-          clearOptimisticUserMessage();
+          clearLocalPendingTurn();
+          renderHistory(lastRenderedHistory, null, { forceScroll: false });
           if (isAbortError(e)) {
             setStatus(requestTimedOut ? 'Verzoek timeout tijdens denken.' : 'Verzoek gestopt.');
           } else {
@@ -7361,6 +7498,17 @@
           triggerHealthSoon(150);
         }
       });
+
+      if (btnStopCommand) {
+        btnStopCommand.addEventListener('click', async () => {
+          await stopCurrentBehavior();
+        });
+      }
+      if (btnStopAll) {
+        btnStopAll.addEventListener('click', async () => {
+          await stopCurrentAction();
+        });
+      }
 
       if (btnConnectivityBannerClose) {
         btnConnectivityBannerClose.addEventListener('click', () => {
@@ -7418,6 +7566,7 @@
           const r = await fetch('/api/reset', { method: 'POST' });
           const j = await r.json();
           syncStopAvailability(j);
+          clearLocalPendingTurn();
           renderHistory(j.history || []);
           renderPrompt(j.system_prompt || '');
           setStatus('🧹 History gereset.');

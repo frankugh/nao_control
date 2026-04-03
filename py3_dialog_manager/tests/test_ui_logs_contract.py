@@ -172,3 +172,81 @@ def test_refresh_state_gates_history_render_on_history_version(monkeypatch):
     assert "lastHistoryVersion" in body
     assert "version !== lastHistoryVersion" in body
     assert "renderHistory(j.history || [], null, { forceScroll: false });" in body
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_keeps_send_button_stable_and_exposes_separate_stop_buttons(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    update_body = _extract_function_body(html, "updateSendButton")
+    stop_buttons_body = _extract_function_body(html, "updateStopButtons")
+
+    assert 'id="btnSend"' in html
+    assert 'id="btnStopCommand"' in html
+    assert 'id="btnStopAll"' in html
+    assert "btnSend.textContent = 'Send';" in update_body
+    assert "btnSend.textContent = sendStopInFlight ? 'Stopping...' : 'Stop';" not in html
+    assert "if (sendStopInFlight || sendBusyPhase || activeActionController) return;" in html
+    assert "if (sendStopInFlight || sendBusyPhase || activeActionController) {\n          await stopCurrentAction();\n          return;\n        }" not in html
+    assert "btnStopCommand.hidden = !hasCommandStop;" in stop_buttons_body
+    assert "btnStopAll.textContent = sendStopInFlight ? 'Stop all...' : 'Stop all';" in stop_buttons_body
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_renders_local_pending_turn_while_llm_is_thinking(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert "let localPendingTurn = null;" in html
+    assert "function setLocalPendingTurn(text, emitMode = 'pipeline')" in html
+    assert "function appendLocalPendingTurn()" in html
+    assert "Antwoord wordt gemaakt..." in html
+    assert "appendLocalPendingTurn();" in html
+    assert "setStatus('LLM antwoord aan het maken...');" in html
+    assert "setLocalPendingTurn(text, emitMode);" in html
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_polls_state_and_promotes_pending_reply_while_tts_is_running(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    refresh_body = _extract_function_body(html, "refreshState")
+
+    assert "const SEND_STATE_POLL_MS = 700;" in html
+    assert "let sendStatePollTimer = null;" in html
+    assert "function updateSendStatePolling()" in html
+    assert "function historyHasCommittedLocalPendingTurn(history)" in html
+    assert "function syncPendingTurnFromHistory(history)" in html
+    assert "setStatus('Antwoord zichtbaar; spraak wordt nog uitgesproken...');" in html
+    assert "const pendingReplyCommitted = syncPendingTurnFromHistory(j.history || []);" in refresh_body
+    assert "pendingReplyCommitted || !hasVersion" in refresh_body
+
+
+@pytest.mark.ui_contract
+def test_chat_stop_buttons_split_behavior_stop_and_stop_all(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    stop_behavior_body = _extract_function_body(html, "stopCurrentBehavior")
+    stop_all_body = _extract_function_body(html, "stopCurrentAction")
+
+    assert "await requestCommandStop();" in stop_behavior_body
+    assert "await requestNaoAudioStop();" not in stop_behavior_body
+    assert "setStatus(`Stop-commando verstuurd voor ${label}.`);" in stop_behavior_body
+    assert "await requestNaoAudioStop();" in stop_all_body
+    assert "setStatus('Alles gestopt.');" in stop_all_body

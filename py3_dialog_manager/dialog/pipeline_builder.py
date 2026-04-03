@@ -488,7 +488,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
     runtime_context_enabled = _extract_runtime_context_enabled(cfg)
     cmdrec_cfg = _extract_cmdrec_config(cfg)
     nao_conn = _extract_nao_connection(cfg)
-    behavior_timeout_s = cfg.get("behavior_timeout_s", 8.0)
+    behavior_timeout_s = cfg.get("behavior_timeout_s", 60.0)
     if not isinstance(behavior_timeout_s, (int, float)):
         raise ValueError("behavior_timeout_s moet een getal zijn.")
     behavior_timeout_s = float(behavior_timeout_s)

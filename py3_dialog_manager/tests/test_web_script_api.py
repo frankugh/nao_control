@@ -412,6 +412,40 @@ def test_script_do_behavior_modes_reuse_behavior_endpoints(monkeypatch):
     assert any(url.endswith("/nao/stop_behavior") for url in urls)
 
 
+def test_script_do_behavior_modes_use_production_behavior_timeout(monkeypatch):
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return _Resp({"status": "ok", "data": {}})
+
+    monkeypatch.setattr(webapp_server.requests, "post", fake_post)
+    app, _ = _make_app(monkeypatch, executor=StubExecutor(), cmdrec=StubCmdrec())
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={
+            "config": {
+                "behavior_enabled": True,
+                "behavior_manager_url": "http://behavior:5001",
+                "base_enabled": False,
+            }
+        },
+    )
+    assert cfg_resp.status_code == 200
+
+    start_resp = client.post("/api/script/do", json={"mode": "behavior_start", "behavior": "walkwithme/walkwithme"})
+    assert start_resp.status_code == 200
+
+    stop_resp = client.post("/api/script/do", json={"mode": "behavior_stop", "behavior": "walkwithme/walkwithme"})
+    assert stop_resp.status_code == 200
+
+    behavior_calls = [kwargs for (url, kwargs) in calls if url.endswith("/nao/do_behavior") or url.endswith("/nao/stop_behavior")]
+    assert behavior_calls
+    assert all(kwargs.get("timeout") == 60.0 for kwargs in behavior_calls)
+
+
 def test_script_do_behavior_start_surfaces_warning_payload_as_failure(monkeypatch):
     def fake_post(url, **kwargs):
         return _Resp({"status": "warning", "data": {"behavior": "walkwithme/walkwithme", "is_awake": False}})

@@ -9,6 +9,8 @@ terwijl de onderliggende Py2-implementatie later vervangen kan worden.
 
 import requests
 
+DEFAULT_BEHAVIOR_TIMEOUT_S = 60.0
+
 
 class NaoActions(object):
     def __init__(self, base_url, timeout=5):
@@ -46,6 +48,11 @@ class NaoActions(object):
             params=params or {},
             timeout=timeout,
         )
+
+    def _behavior_timeout(self, timeout):
+        if timeout is not None:
+            return timeout
+        return max(float(self.timeout), DEFAULT_BEHAVIOR_TIMEOUT_S)
 
     # ===== eenvoudige NAO-acties (JSON) =====
 
@@ -175,20 +182,20 @@ class NaoActions(object):
     def do_behavior(self, behavior_name, timeout=None):
         """Start een behavior via /do_behavior."""
         payload = {"behavior": behavior_name}
-        resp = self._post_json("/do_behavior", payload, timeout=timeout or self.timeout)
+        resp = self._post_json("/do_behavior", payload, timeout=self._behavior_timeout(timeout))
         resp.raise_for_status()
         return resp.json()
 
     def stop_behavior(self, behavior_name, timeout=None):
         """Stop een behavior via /stop_behavior."""
         payload = {"behavior": behavior_name}
-        resp = self._post_json("/stop_behavior", payload, timeout=timeout or self.timeout)
+        resp = self._post_json("/stop_behavior", payload, timeout=self._behavior_timeout(timeout))
         resp.raise_for_status()
         return resp.json()
 
     def stop_all_behaviors(self, timeout=None):
         """Stop alle behaviors via /stop_all_behaviors."""
-        resp = self._post_json("/stop_all_behaviors", {}, timeout=timeout or self.timeout)
+        resp = self._post_json("/stop_all_behaviors", {}, timeout=self._behavior_timeout(timeout))
         resp.raise_for_status()
         return resp.json()
 

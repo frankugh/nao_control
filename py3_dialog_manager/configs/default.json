@@ -11,6 +11,7 @@
   "base_enabled": true,
   "base_autostart": true,
   "behavior_enabled": false,
+  "behavior_timeout_s": 60.0,
   "custom_life_enabled": false,
   "custom_life_settings": {
     "basic_awareness": true,

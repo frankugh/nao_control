@@ -175,6 +175,7 @@ _SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS = 1000
 _SUMMARY_CAPTURE_MIN_PRE_ROLL_MS = 1000
 _SUMMARY_OUTPUT_DEVICE_NAO = "nao_speaker"
 _NAO_BEHAVIOR_CACHE_TTL_S = 5.0
+_NAO_BEHAVIOR_REQUEST_TIMEOUT_S = 60.0
 _SUMMARY_DEFAULT_SYSTEM_PROMPT_FALLBACK = (
     "Je bent de workshop-assistent robot in een AI-geletterdheidsworkshop. "
     "De transcriptie bevat antwoorden op de vraag: "
@@ -2685,10 +2686,18 @@ def create_app(
         return None
 
     class _TrackedLlmBackend:
-        def __init__(self, sid_value: str, runtime_cfg_local: JsonLike, backend: Any) -> None:
+        def __init__(
+            self,
+            sid_value: str,
+            runtime_cfg_local: JsonLike,
+            backend: Any,
+            *,
+            on_reply_ready: Optional[Callable[[Any], None]] = None,
+        ) -> None:
             self._sid = sid_value
             self._runtime_cfg = runtime_cfg_local
             self._backend = backend
+            self._on_reply_ready = on_reply_ready
 
         def __getattr__(self, name: str) -> Any:
             return getattr(self._backend, name)
@@ -2700,6 +2709,8 @@ def create_app(
                 _mark_cloud_connectivity_issue(self._runtime_cfg, "llm", str(exc))
                 raise
             _clear_cloud_connectivity_issue(self._runtime_cfg, "llm")
+            if callable(self._on_reply_ready):
+                self._on_reply_ready(result)
             return result
 
     class _TrackedOutputBackend:
@@ -4986,7 +4997,22 @@ def create_app(
         if not output_enabled:
             emit_used = "none"
         output_backend = pipeline.output if emit_used == "pipeline" else NoOpOutputBackend()
-        llm_backend = _TrackedLlmBackend(sid, runtime_cfg, pipeline.llm)
+        history_committed = False
+
+        def _commit_dialog_turn_early(result: Any) -> None:
+            nonlocal history_committed
+            if history_committed:
+                return
+            reply_text = str(getattr(result, "reply", "") or "").strip()
+            sessions[sid] = _append_turn(history, text, reply_text)
+            history_committed = True
+
+        llm_backend = _TrackedLlmBackend(
+            sid,
+            runtime_cfg,
+            pipeline.llm,
+            on_reply_ready=_commit_dialog_turn_early,
+        )
         if emit_used == "pipeline":
             output_backend = _TrackedOutputBackend(sid, runtime_cfg, output_backend)
         status_to_console = pipeline.status_to_console if emit_used == "pipeline" else False
@@ -5025,7 +5051,8 @@ def create_app(
         if reply and emit_used == "pipeline" and output_enabled:
             _touch_activity()
 
-        sessions[sid] = _append_turn(history, text, reply)
+        if not history_committed:
+            sessions[sid] = _append_turn(history, text, reply)
 
         payload = {
             "ok": True,
@@ -6521,11 +6548,10 @@ def create_app(
             return False
         if target == "server":
             return True
-        base_enabled = bool(runtime_cfg.get("base_enabled", True))
-        if not base_enabled:
+        endpoint_url, endpoint_mode = _resolve_nao_audio_url(runtime_cfg)
+        if not endpoint_url or endpoint_mode not in ("behavior", "base"):
             return False
-        base_url = _normalize_url(runtime_cfg.get("nao_base_url"))
-        if not _check_ping(base_url, "/ping"):
+        if not _check_ping(endpoint_url, "/ping"):
             return False
         return True
 
@@ -9021,7 +9047,7 @@ def create_app(
                 )
             try:
                 url = endpoint_base_url + "/nao/do_behavior" if mode == "behavior" else endpoint_base_url + "/do_behavior"
-                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+                resp = requests.post(url, json={"behavior": behavior}, timeout=_NAO_BEHAVIOR_REQUEST_TIMEOUT_S)
                 resp.raise_for_status()
                 try:
                     data = resp.json()
@@ -9156,7 +9182,7 @@ def create_app(
         for endpoint_base_url, mode in candidates:
             try:
                 url = endpoint_base_url + "/nao/stop_behavior" if mode == "behavior" else endpoint_base_url + "/stop_behavior"
-                resp = requests.post(url, json={"behavior": behavior}, timeout=5.0)
+                resp = requests.post(url, json={"behavior": behavior}, timeout=_NAO_BEHAVIOR_REQUEST_TIMEOUT_S)
                 resp.raise_for_status()
                 try:
                     data = resp.json()
@@ -9176,7 +9202,11 @@ def create_app(
                     if delay_s > 0.0:
                         time.sleep(delay_s)
                     do_behavior_url = endpoint_base_url + "/nao/do_behavior" if mode == "behavior" else endpoint_base_url + "/do_behavior"
-                    requests.post(do_behavior_url, json={"behavior": "basic/standup"}, timeout=5.0)
+                    requests.post(
+                        do_behavior_url,
+                        json={"behavior": "basic/standup"},
+                        timeout=_NAO_BEHAVIOR_REQUEST_TIMEOUT_S,
+                    )
                 except Exception:
                     pass
             _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
@@ -9548,6 +9578,20 @@ def create_app(
         except Exception:
             return text
 
+    def _summary_normalize_output_audio_device(raw_value: Any) -> Any:
+        cleaned = _summary_clean_audio_device(raw_value)
+        if cleaned in (None, _SUMMARY_OUTPUT_DEVICE_NAO):
+            return cleaned
+        output_info = _list_audio_output_devices()
+        available_values = {
+            str(item.get("index"))
+            for item in (output_info.get("devices") or [])
+            if isinstance(item, dict) and item.get("index") is not None
+        }
+        if not available_values:
+            return None
+        return cleaned if str(cleaned) in available_values else None
+
     def _summary_runtime_to_canonical(
         runtime_cfg_local: Dict[str, Any],
         *,
@@ -9674,7 +9718,9 @@ def create_app(
         if "input_audio_device" in devices_raw:
             devices_cfg["input_audio_device"] = _summary_clean_audio_device(devices_raw.get("input_audio_device"))
         if "output_audio_device" in devices_raw:
-            devices_cfg["output_audio_device"] = _summary_clean_audio_device(devices_raw.get("output_audio_device"))
+            devices_cfg["output_audio_device"] = _summary_normalize_output_audio_device(
+                devices_raw.get("output_audio_device")
+            )
 
         models_raw = raw_obj.get("models") if isinstance(raw_obj.get("models"), dict) else {}
         models_cfg = cfg["models"]
@@ -9776,7 +9822,7 @@ def create_app(
         runtime_cfg["input_device"] = _summary_clean_audio_device(devices_cfg.get("input_audio_device"))
         inherited_output_target = str(runtime_cfg.get("output_target") or "server").strip().lower()
         inherited_output_device = _summary_clean_audio_device(runtime_cfg.get("output_device"))
-        configured_output_device = _summary_clean_audio_device(devices_cfg.get("output_audio_device"))
+        configured_output_device = _summary_normalize_output_audio_device(devices_cfg.get("output_audio_device"))
         if configured_output_device is None:
             output_target_value = inherited_output_target
             output_device_value = inherited_output_device
@@ -10537,6 +10583,12 @@ def create_app(
 
     @app.get("/api/summary")
     def api_summary_get():
+        runtime_cfg_local = _get_runtime_cfg(_get_sid())
+        health_snapshot = _runtime_health_snapshot(
+            runtime_cfg_local,
+            request_host=request.host if has_request_context() else None,
+        )
+        _sync_dm_local_connectivity_issues(health_snapshot.get("local_connectivity_issues") or [])
         payload = summary_service.get_payload()
         session = payload.get("session") if isinstance(payload.get("session"), dict) else None
         cleared_issue_keys = _summary_reconcile_cloud_connectivity(session, payload.get("connectivity_issues") or [])
@@ -10546,7 +10598,6 @@ def create_app(
         if cleared_issue_keys or auto_resumed:
             payload = summary_service.get_payload()
             session = payload.get("session") if isinstance(payload.get("session"), dict) else None
-        runtime_cfg_local = _get_runtime_cfg(_get_sid())
         payload["health"] = _summary_health_pills(
             runtime_cfg_local,
             request_host=request.host if has_request_context() else None,

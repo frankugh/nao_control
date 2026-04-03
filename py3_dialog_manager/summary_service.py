@@ -158,21 +158,55 @@ class SummaryService:
     def update_config(self, raw_config: Any) -> Tuple[JsonDict, int]:
         with self._lock:
             try:
-                self._config = self._normalize_config(raw_config)
+                normalized_config = self._normalize_config(raw_config)
             except Exception as exc:
                 return self._payload(error="invalid_summary_config", detail=str(exc)), 400
+            self._config = normalized_config
+            session = self._session
+            phase = str((session or {}).get("status") or "").strip().lower()
+            applies_to_active_session = bool(
+                session is not None and phase in {"transcript_review", "summary_review"}
+            )
+            if applies_to_active_session and isinstance(session, dict):
+                config_snapshot = session.get("config_snapshot")
+                if not isinstance(config_snapshot, dict):
+                    config_snapshot = {}
+                config_snapshot["config"] = _deepcopy_json(normalized_config)
+                config_snapshot["summary_instruction"] = str(
+                    (normalized_config.get("prompts") or {}).get("summary_instruction") or ""
+                )
+                config_snapshot["input_prompt_template"] = str(
+                    (normalized_config.get("prompts") or {}).get("input_prompt_template")
+                    or self._generate_user_template
+                )
+                app_cfg, _runtime_cfg = self._build_app_config(normalized_config)
+                config_snapshot["system_prompt_text"] = str(app_cfg.get("system_prompt") or "")
+                config_snapshot["system_prompt_meta"] = _deepcopy_json(
+                    app_cfg.get("system_prompt_meta") or {}
+                )
+                config_snapshot["runtime_overrides"] = _deepcopy_json(
+                    app_cfg.get("_runtime_overrides") or {}
+                )
+                session["config_snapshot"] = config_snapshot
+                session["updated_at"] = _utc_now()
+                self._persist_active_session()
             self._persist_config()
             self._log_event(
                 "info",
                 "summary_config_updated",
                 "Summary config updated.",
-                {"keys": sorted(list(self._config.keys()))},
+                {
+                    "keys": sorted(list(self._config.keys())),
+                    "active_session_phase": phase,
+                    "applies_to_active_session": applies_to_active_session,
+                },
             )
             return {
                 "ok": True,
                 "instance_id": self.instance_id,
                 "config": _deepcopy_json(self._config),
                 "applies_to_next_session": True,
+                "applies_to_active_session": applies_to_active_session,
             }, 200
 
     def _make_toast(self, key: str, *, level: str = "warning") -> JsonDict:
@@ -286,6 +320,24 @@ class SummaryService:
         if stage_key == "llm" and "reply" in lowered:
             return "result"
         return "service"
+
+    def _failure_message(self, stage: str, detail: str) -> str:
+        stage_key = str(stage or "").strip().lower()
+        text = str(detail or "").strip()
+        if not text:
+            return "De actie is mislukt."
+        lowered = text.lower()
+        if stage_key == "tts":
+            if "output disabled" in lowered:
+                return "Uitspreken mislukt: er is geen bruikbaar output-device geconfigureerd."
+            if "invalid number of channels" in lowered or "outputstream" in lowered:
+                return (
+                    "Uitspreken mislukt: het geselecteerde output-device kan niet worden geopend "
+                    "of heeft een ongeldige audioconfiguratie."
+                )
+            if "device" in lowered or "speaker" in lowered or "nao audio" in lowered or "nao speaker" in lowered:
+                return f"Uitspreken mislukt door een output-device probleem: {text}"
+        return text
 
     def _is_retryable_failure(self, kind: str) -> bool:
         return str(kind or "").strip().lower() in {"connectivity", "service"}
@@ -1955,14 +2007,15 @@ class SummaryService:
                     payload = self._payload()
                     payload["publish_interrupted"] = True
                     return payload, 200
+                recovery_message = self._failure_message("tts", str(exc))
                 session["status"] = "summary_review"
-                session["last_error"] = "tts: " + str(exc)
+                session["last_error"] = "tts: " + recovery_message
                 session["last_error_stage"] = "publish_fallback"
                 self._set_recovery_locked(
                     session,
                     stage="tts",
                     kind=self._classify_failure("tts", str(exc)),
-                    message=str(exc),
+                    message=recovery_message,
                     blocking=False,
                     auto_retry_used=attempt > 1,
                 )
@@ -1974,7 +2027,7 @@ class SummaryService:
                     "Fallback summary publish failed.",
                     {"session_id": session["session_id"], "detail": str(exc)},
                 )
-                return self._payload(error="summary_fallback_publish_failed", detail=str(exc)), 502
+                return self._payload(error="summary_fallback_publish_failed", detail=recovery_message), 502
 
         with self._lock:
             session = self._session
@@ -2068,14 +2121,15 @@ class SummaryService:
                     payload = self._payload()
                     payload["publish_interrupted"] = True
                     return payload, 200
+                recovery_message = self._failure_message("tts", str(exc))
                 session["status"] = "summary_review"
-                session["last_error"] = "tts: " + str(exc)
+                session["last_error"] = "tts: " + recovery_message
                 session["last_error_stage"] = "publish"
                 self._set_recovery_locked(
                     session,
                     stage="tts",
                     kind=self._classify_failure("tts", str(exc)),
-                    message=str(exc),
+                    message=recovery_message,
                     blocking=False,
                     auto_retry_used=attempt > 1,
                 )
@@ -2087,7 +2141,7 @@ class SummaryService:
                     "Summary publish failed.",
                     {"session_id": session["session_id"], "detail": str(exc)},
                 )
-                return self._payload(error="summary_publish_failed", detail=str(exc)), 502
+                return self._payload(error="summary_publish_failed", detail=recovery_message), 502
 
         with self._lock:
             session = self._session
