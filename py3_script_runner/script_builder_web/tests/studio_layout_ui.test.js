@@ -577,7 +577,7 @@ describe("studio layout ui", () => {
                 {
                   robot_id: "nao1",
                   dm_url: "http://127.0.0.1:5301",
-                  instance_id: "alex",
+                  preset: "alex",
                   ok: true,
                   reachable: true,
                   awake: { ok: true, is_awake: true },
@@ -632,7 +632,7 @@ describe("studio layout ui", () => {
                 {
                   robot_id: "nao1",
                   dm_url: "http://127.0.0.1:5301",
-                  instance_id: "alex",
+                  preset: "alex",
                   nao_enabled: false,
                   virtual_robot: true,
                   ok: false,
@@ -684,7 +684,7 @@ describe("studio layout ui", () => {
               {
                 robot_id: "nao1",
                 dm_url: "http://127.0.0.1:5301",
-                instance_id: "alex",
+                preset: "alex",
                 ok: true,
                 reachable: true,
                 awake: { ok: true, is_awake: true },
@@ -747,7 +747,7 @@ describe("studio layout ui", () => {
               {
                 robot_id: "nao1",
                 dm_url: "http://127.0.0.1:5301",
-                instance_id: "alex",
+                preset: "alex",
                 ok: false,
                   reachable: false,
                   awake: {},
@@ -1060,7 +1060,7 @@ describe("studio layout ui", () => {
                   {
                     robot_id: "nao1",
                     dm_url: "http://127.0.0.1:5301",
-                    instance_id: "alex",
+                    preset: "alex",
                     ok: true,
                     reachable: true,
                     awake: { ok: true, is_awake: true },
@@ -1072,7 +1072,7 @@ describe("studio layout ui", () => {
                   {
                     robot_id: "nao2",
                     dm_url: "http://127.0.0.1:5302",
-                    instance_id: "renee",
+                    preset: "renee",
                     ok: true,
                     reachable: true,
                     awake: { ok: true, is_awake: true },
@@ -1090,7 +1090,7 @@ describe("studio layout ui", () => {
                 {
                   robot_id: "nao1",
                   dm_url: "http://127.0.0.1:5301",
-                  instance_id: "alex",
+                  preset: "alex",
                   ok: true,
                   reachable: true,
                   awake: { ok: true, is_awake: true },
@@ -1112,7 +1112,7 @@ describe("studio layout ui", () => {
                 {
                   robot_id: "nao2",
                   dm_url: "http://127.0.0.1:5302",
-                  instance_id: "renee",
+                  preset: "renee",
                   ok: false,
                   reachable: false,
                   awake: {},
@@ -1166,7 +1166,7 @@ describe("studio layout ui", () => {
               {
                 robot_id: "nao1",
                 dm_url: "http://127.0.0.1:5301",
-                instance_id: "alex",
+                preset: "alex",
                 ok: true,
                 reachable: true,
                 awake: { ok: true, is_awake: true },
@@ -1222,7 +1222,7 @@ describe("studio layout ui", () => {
                   {
                     robot_id: "nao1",
                     dm_url: "http://127.0.0.1:5301",
-                    instance_id: "alex",
+                    preset: "alex",
                     ok: true,
                     reachable: true,
                     awake: { ok: true, is_awake: true },
@@ -1250,7 +1250,7 @@ describe("studio layout ui", () => {
                 {
                   robot_id: "nao1",
                   dm_url: "http://127.0.0.1:5301",
-                  instance_id: "alex",
+                  preset: "alex",
                   ok: true,
                   reachable: true,
                   awake: { ok: true, is_awake: true },

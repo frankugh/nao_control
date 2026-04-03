@@ -12,7 +12,7 @@ const TEMPLATE_FIXTURE = {
     robots: {
       nao1: {
         dm_url: "http://127.0.0.1:5301",
-        instance_id: "alex",
+        preset: "alex",
       },
     },
     defaults: { request_timeout_s: 12, on_error: "prompt" },
@@ -124,7 +124,7 @@ describe("dm start button", () => {
             {
               robot_id: "nao1",
               dm_url: "http://127.0.0.1:5301",
-              instance_id: "alex",
+              preset: "alex",
               started: true,
               message: "DM gestart in een nieuw cmd-venster.",
             },
@@ -143,7 +143,7 @@ describe("dm start button", () => {
     expect(dmStartCall).toBeTruthy();
     const body = JSON.parse(dmStartCall[1].body);
     expect(body.script.robots.nao1.dm_url).toBe("http://127.0.0.1:5301");
-    expect(body.script.robots.nao1.instance_id).toBe("alex");
+    expect(body.script.robots.nao1.preset).toBe("alex");
     expect(document.getElementById("statusMessage").textContent).toContain("1 DM gestart");
     expect(document.getElementById("dmStartResults").textContent).toContain("nao1 gestart");
   });
@@ -213,7 +213,7 @@ describe("dm start button", () => {
             {
               robot_id: "nao1",
               dm_url: "http://127.0.0.1:5301",
-              instance_id: "alex",
+              preset: "alex",
               started: false,
               message: "DM niet gestart.",
             },

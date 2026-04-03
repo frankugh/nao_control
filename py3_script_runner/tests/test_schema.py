@@ -107,24 +107,31 @@ def test_validate_script_rejects_robot_runtime_config():
         validate_script(script)
 
 
-def test_validate_script_accepts_robot_instance_id():
+def test_validate_script_accepts_robot_preset():
     script = _base_script()
-    script["robots"]["nao1"]["instance_id"] = "alex"
+    script["robots"]["nao1"]["preset"] = "alex"
     validated = validate_script(script)
-    assert validated["robots"]["nao1"]["instance_id"] == "alex"
+    assert validated["robots"]["nao1"]["preset"] == "alex"
 
 
-def test_validate_script_rejects_invalid_robot_instance_id():
+def test_validate_script_rejects_invalid_robot_preset():
     script = _base_script()
-    script["robots"]["nao1"]["instance_id"] = "   "
-    with pytest.raises(ScriptSchemaError, match="instance_id must be a non-empty string"):
+    script["robots"]["nao1"]["preset"] = "   "
+    with pytest.raises(ScriptSchemaError, match="preset must be a non-empty string"):
         validate_script(script)
 
 
-def test_validate_script_rejects_non_string_robot_instance_id():
+def test_validate_script_rejects_non_string_robot_preset():
     script = _base_script()
-    script["robots"]["nao1"]["instance_id"] = 123
-    with pytest.raises(ScriptSchemaError, match="instance_id must be a non-empty string"):
+    script["robots"]["nao1"]["preset"] = 123
+    with pytest.raises(ScriptSchemaError, match="preset must be a non-empty string"):
+        validate_script(script)
+
+
+def test_validate_script_rejects_legacy_robot_instance_id():
+    script = _base_script()
+    script["robots"]["nao1"]["instance_id"] = "alex"
+    with pytest.raises(ScriptSchemaError, match="instance_id is no longer supported"):
         validate_script(script)
 
 

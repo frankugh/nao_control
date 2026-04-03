@@ -33,8 +33,8 @@ def _dm_payload() -> Dict[str, Any]:
         "script": {
             "version": 1,
             "robots": {
-                "nao1": {"dm_url": "http://127.0.0.1:5301", "instance_id": "alex"},
-                "nao2": {"dm_url": "http://localhost:5302"},
+                "nao1": {"dm_url": "http://127.0.0.1:5301", "preset": "alex"},
+                "nao2": {"dm_url": "http://localhost:5302", "preset": "renee"},
             },
             "defaults": {"request_timeout_s": 12, "on_error": "prompt"},
             "steps": [
@@ -311,19 +311,19 @@ def test_request_abort_can_best_effort_abort_summary(monkeypatch):
     assert seen["abort_set"] is True
 
 
-def test_build_dm_launch_command_uses_dm_url_and_instance():
+def test_build_dm_launch_command_uses_dm_url_and_preset():
     spec = script_builder_app.DmLaunchSpec(
         robot_id="nao1",
         dm_url="http://127.0.0.1:5301",
         bind_host="127.0.0.1",
         port=5301,
-        instance_id="alex",
+        preset="alex",
     )
     command = script_builder_app._build_dm_launch_command(spec)
     assert command[:2] == ["cmd.exe", "/k"]
     assert "--host 127.0.0.1" in command[2]
     assert "--port 5301" in command[2]
-    assert "--instance-id alex" in command[2]
+    assert "--preset alex" in command[2]
 
 
 def test_start_dialog_managers_starts_each_unique_local_target(monkeypatch, tmp_path):
@@ -352,7 +352,7 @@ def test_start_dialog_managers_starts_each_unique_local_target(monkeypatch, tmp_
     assert popen_calls[0]["cwd"] == str(tmp_path)
     assert popen_calls[0]["env"]["VIRTUAL_ENV"] == str(tmp_path)
     assert popen_calls[0]["env"]["PATH"].split(";")[0] == str(tmp_path)
-    assert "--instance-id alex" in popen_calls[0]["cmd"][2]
+    assert "--preset alex" in popen_calls[0]["cmd"][2]
     assert "--port 5302" in popen_calls[1]["cmd"][2]
 
 

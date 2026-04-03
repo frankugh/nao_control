@@ -11,7 +11,7 @@ Set-Location $RepoRoot
 
 $PythonExe = Join-Path $RepoRoot "py3_dialog_manager\venv\Scripts\python.exe"
 $DemoGateScript = Join-Path $RepoRoot "py3_dialog_manager\scripts\run_demo_gate.py"
-$RuntimePresetDir = Join-Path $RepoRoot "py3_dialog_manager\configs\runtime"
+$AgentPresetsPath = Join-Path $RepoRoot "py3_dialog_manager\configs\agent_presets.json"
 $SummaryPresetsPath = Join-Path $RepoRoot "py3_dialog_manager\configs\summary_presets.json"
 
 $ScenarioOptions = @(
@@ -48,13 +48,17 @@ foreach ($item in $ScenarioOptions) {
     $ScenarioLookup[[string]$item.Scenario] = [string]$item.Scenario
 }
 
-$RuntimePresetNames = @()
-if (Test-Path -LiteralPath $RuntimePresetDir) {
-    $RuntimePresetNames = @(
-        Get-ChildItem -LiteralPath $RuntimePresetDir -Filter "*.json" |
-            Sort-Object Name |
-            ForEach-Object { $_.BaseName }
-    )
+$StartupPresetIds = @()
+if (Test-Path -LiteralPath $AgentPresetsPath) {
+    $AgentPresetPayload = Get-Content -LiteralPath $AgentPresetsPath -Raw | ConvertFrom-Json
+    if ($null -ne $AgentPresetPayload.presets) {
+        $StartupPresetIds = @(
+            $AgentPresetPayload.presets |
+                Where-Object { $_.startup_allowed -eq $true } |
+                ForEach-Object { [string]$_.id } |
+                Where-Object { $_ }
+        )
+    }
 }
 
 $SummaryPresetIds = @()
@@ -163,7 +167,7 @@ function Resolve-RepoPath {
     return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $trimmed))
 }
 
-function Test-RuntimePresetValue {
+function Test-PresetValue {
     param(
         [string]$Value
     )
@@ -171,37 +175,20 @@ function Test-RuntimePresetValue {
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return $false
     }
-
-    $trimmed = $Value.Trim()
-    $directCandidate = Resolve-RepoPath $trimmed
-    if ($directCandidate -and (Test-Path -LiteralPath $directCandidate)) {
-        return $true
-    }
-
-    $withExt = Join-Path $RuntimePresetDir ($trimmed + ".json")
-    if (Test-Path -LiteralPath $withExt) {
-        return $true
-    }
-
-    $named = Join-Path $RuntimePresetDir $trimmed
-    if (Test-Path -LiteralPath $named) {
-        return $true
-    }
-
-    return $false
+    return $StartupPresetIds -contains $Value.Trim()
 }
 
-function Read-RuntimePresetValue {
+function Read-PresetValue {
     param(
         [string]$DefaultValue
     )
 
     while ($true) {
-        $value = [string](Read-DefaultValue -Prompt "Runtime preset (naam of pad)" -DefaultValue $DefaultValue)
-        if (Test-RuntimePresetValue $value) {
+        $value = [string](Read-DefaultValue -Prompt "Startup preset id" -DefaultValue $DefaultValue)
+        if (Test-PresetValue $value) {
             return $value.Trim()
         }
-        Write-Host "[demo-gate-start] Runtime preset niet gevonden. Beschikbaar: $($RuntimePresetNames -join ', ')"
+        Write-Host "[demo-gate-start] Startup preset niet gevonden. Beschikbaar: $($StartupPresetIds -join ', ')"
     }
 }
 
@@ -269,8 +256,8 @@ Write-Host "[demo-gate-start] Scenario's:"
 foreach ($item in $ScenarioOptions) {
     Write-Host ("  - {0,-10} {1}" -f ([string]$item.Key), ([string]$item.Description))
 }
-if ($RuntimePresetNames.Count -gt 0) {
-    Write-Host "[demo-gate-start] Runtime presets : $($RuntimePresetNames -join ', ')"
+if ($StartupPresetIds.Count -gt 0) {
+    Write-Host "[demo-gate-start] Startup presets : $($StartupPresetIds -join ', ')"
 }
 if ($SummaryPresetIds.Count -gt 0) {
     Write-Host "[demo-gate-start] Summary presets : $($SummaryPresetIds -join ', ')"
@@ -286,7 +273,7 @@ $runDefault = Read-YesNoValue -Prompt "Run default (all scenarios, zonder servic
 
 $profile = "offline"
 $scenario = "all"
-$runtimePreset = "runtime_virtuele_robot"
+$preset = "virtuele_robot"
 $summaryPresetId = $defaultSummaryPreset
 $summaryScriptPath = $defaultSummaryScript
 $workshopScriptPath = $defaultWorkshopScript
@@ -310,8 +297,8 @@ if (-not $runDefault) {
         $profile = "offline"
     }
 
-    $defaultRuntimePreset = if ($profile -eq "live_robot") { "runtime_alex" } else { "runtime_virtuele_robot" }
-    $runtimePreset = Read-RuntimePresetValue -DefaultValue $defaultRuntimePreset
+    $defaultPreset = if ($profile -eq "live_robot") { "alex" } else { "virtuele_robot" }
+    $preset = Read-PresetValue -DefaultValue $defaultPreset
     $summaryPresetId = Read-SummaryPresetValue -DefaultValue $defaultSummaryPreset
 
     $customPaths = Read-YesNoValue -Prompt "Custom script/audio paden instellen" -DefaultValue $false
@@ -339,7 +326,7 @@ $CommandArgs = @(
     "py3_dialog_manager\scripts\run_demo_gate.py",
     "--profile", $profile,
     "--scenario", $scenario,
-    "--runtime-preset", $runtimePreset,
+    "--preset", $preset,
     "--summary-script", $summaryScriptPath,
     "--workshop-script", $workshopScriptPath,
     "--audio-fixtures-root", $audioFixturesRoot

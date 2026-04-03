@@ -21,7 +21,7 @@ class _StubSTT:
         return SimpleNamespace(text="", language="nl", confidence=1.0)
 
 
-def _make_app(monkeypatch, tmp_path: Path, *, instance_id: str = "demo_gate_test"):
+def _make_app(monkeypatch, tmp_path: Path, *, web_port: int = 5301):
     base_pipeline = SimpleNamespace(
         llm=_StubLLM(),
         output=None,
@@ -36,14 +36,88 @@ def _make_app(monkeypatch, tmp_path: Path, *, instance_id: str = "demo_gate_test
     )
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
     monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: _StubSTT())
-    cfg = {"run": {"instance_id": instance_id}}
     app, _stt, _pipeline = webapp_server.create_app(
-        cfg=cfg,
+        cfg={},
         config_path=str(tmp_path / "default.json"),
-        instance_id=instance_id,
+        web_port=web_port,
         runtime_state_dir=str(tmp_path / "state"),
     )
     return app
+
+
+def _write_demo_gate_test_config_root(tmp_path: Path) -> Path:
+    dm_root = tmp_path
+    configs_dir = dm_root / "configs"
+    configs_dir.mkdir(parents=True, exist_ok=True)
+    (configs_dir / "default.json").write_text("{}", encoding="utf-8")
+    (configs_dir / "summary_presets.json").write_text(
+        """
+        {
+          "presets": [
+            {
+              "id": "default",
+              "config": {
+                "selected_preset_id": "default",
+                "devices": {
+                  "input_audio_device": null,
+                  "output_audio_device": null
+                },
+                "models": {
+                  "stt_primary": "azure:default",
+                  "stt_fallback": "vosk:default",
+                  "llm_primary": "ollama_cloud:mistral-large-3:675b-cloud",
+                  "llm_fallback": "ollama_local:granite3.2:8b",
+                  "tts_primary": "azure:default",
+                  "tts_fallback": "piper:default"
+                }
+              }
+            }
+          ]
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+    (configs_dir / "agent_presets.json").write_text(
+        """
+        {
+          "presets": [
+            {
+              "id": "alex",
+              "label": "Alex",
+              "startup_allowed": true,
+              "config": {
+                "nao_base_url": "http://127.0.0.1:5103",
+                "behavior_manager_url": "http://127.0.0.1:5203",
+                "nao_ip": "192.168.0.10",
+                "nao_ip_enabled": true,
+                "base_enabled": true,
+                "behavior_enabled": false,
+                "base_autostart": true,
+                "behavior_autostart": false,
+                "output_target": "nao",
+                "piper_model_path": ""
+              }
+            },
+            {
+              "id": "virtuele_robot",
+              "label": "Virtuele robot",
+              "startup_allowed": true,
+              "config": {
+                "base_enabled": false,
+                "behavior_enabled": false,
+                "nao_ip_enabled": false,
+                "base_autostart": false,
+                "behavior_autostart": false,
+                "output_target": "server",
+                "piper_model_path": ""
+              }
+            }
+          ]
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+    return dm_root
 
 
 def test_replay_mic_capture_and_stream_delay(tmp_path: Path):
@@ -232,27 +306,8 @@ def test_summary_generate_timeout_prefers_cloud_budget():
     assert live._summary_generate_timeout_s(execution_mode="cloud") == 45.0
 
 
-def test_live_robot_uses_selected_runtime_preset_without_port_specific_override(tmp_path: Path, monkeypatch):
-    runtime_dir = tmp_path / "configs" / "runtime"
-    runtime_dir.mkdir(parents=True)
-    runtime_alex = runtime_dir / "runtime_alex.json"
-    runtime_alex.write_text(
-        """
-        {
-          "nao_base_url": "http://127.0.0.1:5103",
-          "behavior_manager_url": "http://127.0.0.1:5203",
-          "nao_ip": "192.168.0.10",
-          "nao_ip_enabled": true,
-          "base_enabled": true,
-          "behavior_enabled": false,
-          "base_autostart": true,
-          "behavior_autostart": false,
-          "output_target": "nao",
-          "piper_model_path": ""
-        }
-        """.strip(),
-        encoding="utf-8",
-    )
+def test_live_robot_uses_selected_startup_preset_without_port_runtime_override(tmp_path: Path, monkeypatch):
+    dm_root = _write_demo_gate_test_config_root(tmp_path)
     summary_script = tmp_path / "summary.json"
     summary_script.write_text(
         """
@@ -280,7 +335,8 @@ def test_live_robot_uses_selected_runtime_preset_without_port_specific_override(
         """.strip(),
         encoding="utf-8",
     )
-    runtime_port_override = runtime_dir / "runtime_port_5301.json"
+    runtime_port_override = dm_root / "configs" / "runtime" / "runtime_port_5301.json"
+    runtime_port_override.parent.mkdir(parents=True, exist_ok=True)
     runtime_port_override.write_text(
         """
         {
@@ -298,16 +354,34 @@ def test_live_robot_uses_selected_runtime_preset_without_port_specific_override(
         """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setattr(demo_gate, "DM_ROOT", tmp_path)
+    monkeypatch.setattr(demo_gate, "DM_ROOT", dm_root)
+    monkeypatch.setattr(demo_gate, "DEFAULT_DM_CONFIG_PATH", dm_root / "configs" / "default.json")
+    monkeypatch.setattr(demo_gate, "DEFAULT_SUMMARY_PRESETS_PATH", dm_root / "configs" / "summary_presets.json")
     monkeypatch.setitem(
-        demo_gate.DEFAULT_RUNTIME_PRESET_BY_PROFILE,
+        demo_gate.DEFAULT_STARTUP_PRESET_BY_PROFILE,
         demo_gate.PROFILE_LIVE_ROBOT,
-        runtime_alex,
+        "alex",
+    )
+    monkeypatch.setattr(
+        webapp_server,
+        "_load_startup_agent_preset_config",
+        lambda preset_id: {
+            "nao_base_url": "http://127.0.0.1:5103",
+            "behavior_manager_url": "http://127.0.0.1:5203",
+            "nao_ip": "192.168.0.10",
+            "nao_ip_enabled": True,
+            "base_enabled": True,
+            "behavior_enabled": False,
+            "base_autostart": True,
+            "behavior_autostart": False,
+            "output_target": "nao",
+            "piper_model_path": "",
+        },
     )
 
     harness = demo_gate.DemoGateHarness(
         profile=demo_gate.PROFILE_LIVE_ROBOT,
-        runtime_preset="runtime_alex",
+        preset="alex",
         summary_script_path=summary_script,
         workshop_script_path=summary_script,
     )
@@ -317,26 +391,7 @@ def test_live_robot_uses_selected_runtime_preset_without_port_specific_override(
 
 
 def test_live_robot_rejects_multi_robot_script_without_custom_orchestration(tmp_path: Path, monkeypatch):
-    runtime_dir = tmp_path / "configs" / "runtime"
-    runtime_dir.mkdir(parents=True)
-    runtime_alex = runtime_dir / "runtime_alex.json"
-    runtime_alex.write_text(
-        """
-        {
-          "nao_base_url": "http://127.0.0.1:5103",
-          "behavior_manager_url": "http://127.0.0.1:5203",
-          "nao_ip": "192.168.0.10",
-          "nao_ip_enabled": true,
-          "base_enabled": true,
-          "behavior_enabled": false,
-          "base_autostart": true,
-          "behavior_autostart": false,
-          "output_target": "nao",
-          "piper_model_path": ""
-        }
-        """.strip(),
-        encoding="utf-8",
-    )
+    dm_root = _write_demo_gate_test_config_root(tmp_path)
     summary_script = tmp_path / "summary.json"
     summary_script.write_text(
         """
@@ -364,11 +419,29 @@ def test_live_robot_rejects_multi_robot_script_without_custom_orchestration(tmp_
         """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setattr(demo_gate, "DM_ROOT", tmp_path)
+    monkeypatch.setattr(demo_gate, "DM_ROOT", dm_root)
+    monkeypatch.setattr(demo_gate, "DEFAULT_DM_CONFIG_PATH", dm_root / "configs" / "default.json")
+    monkeypatch.setattr(demo_gate, "DEFAULT_SUMMARY_PRESETS_PATH", dm_root / "configs" / "summary_presets.json")
     monkeypatch.setitem(
-        demo_gate.DEFAULT_RUNTIME_PRESET_BY_PROFILE,
+        demo_gate.DEFAULT_STARTUP_PRESET_BY_PROFILE,
         demo_gate.PROFILE_LIVE_ROBOT,
-        runtime_alex,
+        "alex",
+    )
+    monkeypatch.setattr(
+        webapp_server,
+        "_load_startup_agent_preset_config",
+        lambda preset_id: {
+            "nao_base_url": "http://127.0.0.1:5103",
+            "behavior_manager_url": "http://127.0.0.1:5203",
+            "nao_ip": "192.168.0.10",
+            "nao_ip_enabled": True,
+            "base_enabled": True,
+            "behavior_enabled": False,
+            "base_autostart": True,
+            "behavior_autostart": False,
+            "output_target": "nao",
+            "piper_model_path": "",
+        },
     )
 
     with pytest.raises(demo_gate.DemoGateError, match="single-robot scripts"):

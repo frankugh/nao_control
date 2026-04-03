@@ -11,7 +11,7 @@ if not exist "venv\Scripts\activate.bat" (
 echo [INFO] Start NAO studio...
 
 call "venv\Scripts\activate.bat"
-python webapp_server.py
+python webapp_server.py %*
 
 pause
 endlocal

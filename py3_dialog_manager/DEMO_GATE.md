@@ -67,4 +67,4 @@ Golden replay fixtures live under [demo_gate_audio](/c:/NAOqi_fundamentals/NAO_C
 - Artifacts are deleted on success unless `--keep-artifacts` is used.
 - On failure artifacts are preserved automatically.
 - The default demo-gate scripts are single-robot on purpose: `STAND_UP`, `Hallo allemaal`, `REST`, plus a separate single-robot summary script.
-- `live_robot` no longer auto-selects `runtime_port_<port>.json`; it uses the chosen runtime preset directly and fails fast on multi-robot scripts, so one hidden local port preset cannot silently override the selected config.
+- `live_robot` no longer auto-selects `runtime_port_<port>.json`; it uses the chosen startup preset directly and fails fast on multi-robot scripts, so one hidden local port runtime cannot silently override the selected machine config.

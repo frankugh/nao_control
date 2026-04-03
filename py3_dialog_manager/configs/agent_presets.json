@@ -4,6 +4,7 @@
       "id": "echo",
       "name": "Echo",
       "locked": true,
+      "startup_allowed": false,
       "config": {
         "stt_type": "vosk",
         "output_target": "none",
@@ -19,6 +20,7 @@
       "id": "local",
       "name": "Local",
       "locked": true,
+      "startup_allowed": false,
       "config": {
         "stt_type": "vosk",
         "output_target": "nao",
@@ -34,6 +36,7 @@
       "id": "cloud",
       "name": "Cloud",
       "locked": true,
+      "startup_allowed": false,
       "config": {
         "stt_type": "azure",
         "output_target": "nao",
@@ -49,6 +52,7 @@
       "id": "alex",
       "name": "Alex",
       "locked": false,
+      "startup_allowed": true,
       "config": {
         "robot_name": "Alex",
         "nao_ip": "192.168.0.101",
@@ -118,6 +122,7 @@
       "id": "renee",
       "name": "Renee",
       "locked": false,
+      "startup_allowed": true,
       "config": {
         "robot_name": "Renee",
         "nao_ip": "192.168.68.102",
@@ -184,9 +189,10 @@
       }
     },
     {
-      "id": "virtuele_robot_2",
+      "id": "virtuele_robot",
       "name": "Virtuele_robot",
       "locked": false,
+      "startup_allowed": true,
       "config": {
         "robot_name": "Virtuele robot",
         "nao_ip": "192.168.68.102",

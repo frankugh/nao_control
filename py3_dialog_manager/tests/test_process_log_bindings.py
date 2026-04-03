@@ -42,7 +42,7 @@ class _FakeProc:
         self._running = False
 
 
-def _make_app(monkeypatch, *, instance_id: str, cmdrec=None):
+def _make_app(monkeypatch, *, web_port: int, cmdrec=None):
     base_pipeline = SimpleNamespace(
         llm=StubLLMBackend(),
         output=SimpleNamespace(emit=lambda _text: None),
@@ -57,7 +57,7 @@ def _make_app(monkeypatch, *, instance_id: str, cmdrec=None):
     )
     monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
     monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
-    app, _, _ = webapp_server.create_app(cfg={}, config_path="<memory>", instance_id=instance_id)
+    app, _, _ = webapp_server.create_app(cfg={}, config_path="<memory>", web_port=web_port)
     proc_log_dir = Path(webapp_server.__file__).resolve().parent / "logs" / "process"
     return app, proc_log_dir
 
@@ -132,12 +132,12 @@ def _remove_log_artifacts(*paths: Path) -> None:
                 pass
 
 
-def test_process_start_base_writes_instance_and_port_specific_logfile(monkeypatch):
-    app, proc_log_dir = _make_app(monkeypatch, instance_id="test_log_base")
+def test_process_start_base_writes_port_scoped_logfile(monkeypatch):
+    app, proc_log_dir = _make_app(monkeypatch, web_port=5301)
     client = app.test_client()
     _patch_base_paths_exist(monkeypatch)
     _patch_process_spawning(monkeypatch)
-    target = proc_log_dir / "base_test_log_base_5101.log"
+    target = proc_log_dir / "base_port_5301_5101.log"
     _remove_log_artifacts(target)
 
     cfg_resp = client.post(
@@ -156,12 +156,12 @@ def test_process_start_base_writes_instance_and_port_specific_logfile(monkeypatc
     _remove_log_artifacts(target)
 
 
-def test_process_start_behavior_writes_instance_and_port_specific_logfile(monkeypatch):
-    app, proc_log_dir = _make_app(monkeypatch, instance_id="test_log_behavior")
+def test_process_start_behavior_writes_port_scoped_logfile(monkeypatch):
+    app, proc_log_dir = _make_app(monkeypatch, web_port=5301)
     client = app.test_client()
     _patch_behavior_paths_exist(monkeypatch)
     _patch_process_spawning(monkeypatch)
-    target = proc_log_dir / "behavior_test_log_behavior_5201.log"
+    target = proc_log_dir / "behavior_port_5301_5201.log"
     _remove_log_artifacts(target)
 
     cfg_resp = client.post(
@@ -180,15 +180,15 @@ def test_process_start_behavior_writes_instance_and_port_specific_logfile(monkey
     _remove_log_artifacts(target)
 
 
-def test_process_logs_are_separated_per_instance(monkeypatch):
-    app_alex, proc_log_dir = _make_app(monkeypatch, instance_id="test_sep_alex")
-    app_renee, _ = _make_app(monkeypatch, instance_id="test_sep_renee")
+def test_process_logs_are_separated_per_web_port(monkeypatch):
+    app_alex, proc_log_dir = _make_app(monkeypatch, web_port=5301)
+    app_renee, _ = _make_app(monkeypatch, web_port=5302)
     client_alex = app_alex.test_client()
     client_renee = app_renee.test_client()
     _patch_base_paths_exist(monkeypatch)
     _patch_process_spawning(monkeypatch)
-    alex_log = proc_log_dir / "base_test_sep_alex_5101.log"
-    renee_log = proc_log_dir / "base_test_sep_renee_5103.log"
+    alex_log = proc_log_dir / "base_port_5301_5101.log"
+    renee_log = proc_log_dir / "base_port_5302_5103.log"
     _remove_log_artifacts(alex_log, renee_log)
 
     assert client_alex.post(
@@ -217,12 +217,12 @@ def test_process_logs_are_separated_per_instance(monkeypatch):
 
 
 def test_process_logs_clear_only_clears_active_bound_logfile(monkeypatch):
-    app, proc_log_dir = _make_app(monkeypatch, instance_id="test_clear")
+    app, proc_log_dir = _make_app(monkeypatch, web_port=5301)
     client = app.test_client()
     _patch_base_paths_exist(monkeypatch)
     _patch_process_spawning(monkeypatch)
-    active_log = proc_log_dir / "base_test_clear_5101.log"
-    old_log = proc_log_dir / "base_test_clear_5000.log"
+    active_log = proc_log_dir / "base_port_5301_5101.log"
+    old_log = proc_log_dir / "base_port_5301_5000.log"
     _remove_log_artifacts(active_log, old_log)
 
     assert client.post(
@@ -253,12 +253,12 @@ def test_process_logs_clear_only_clears_active_bound_logfile(monkeypatch):
 
 
 def test_process_start_after_port_change_switches_active_logfile(monkeypatch):
-    app, proc_log_dir = _make_app(monkeypatch, instance_id="test_rebind")
+    app, proc_log_dir = _make_app(monkeypatch, web_port=5301)
     client = app.test_client()
     _patch_base_paths_exist(monkeypatch)
     _patch_process_spawning(monkeypatch)
-    first_log = proc_log_dir / "base_test_rebind_5101.log"
-    second_log = proc_log_dir / "base_test_rebind_5105.log"
+    first_log = proc_log_dir / "base_port_5301_5101.log"
+    second_log = proc_log_dir / "base_port_5301_5105.log"
     _remove_log_artifacts(first_log, second_log)
 
     assert client.post(
@@ -314,9 +314,9 @@ def test_dm_state_lines_use_active_base_log_binding(monkeypatch):
         def is_guarded(self, _label):
             return False
 
-    app, proc_log_dir = _make_app(monkeypatch, instance_id="test_state", cmdrec=_FakeCmdRec())
+    app, proc_log_dir = _make_app(monkeypatch, web_port=5301, cmdrec=_FakeCmdRec())
     client = app.test_client()
-    target = proc_log_dir / "base_test_state_5101.log"
+    target = proc_log_dir / "base_port_5301_5101.log"
     _remove_log_artifacts(target)
 
     assert client.post(

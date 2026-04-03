@@ -118,6 +118,45 @@ _DEFAULT_WAKE_WORDS = ["NAO", "Alex"]
 _LISTEN_MODE_VALUES = {"ptt", "continuous"}
 _CONFIRM_POLICY_VALUES = {"when_guarded", "always", "never"}
 _UI_ACTIVE_TAB_VALUES = {"prompt", "runtime", "commands", "camera", "review", "retrain", "logs"}
+
+
+def _runtime_scope_key_for_port(web_port: Any) -> str:
+    try:
+        return f"port_{int(web_port)}"
+    except Exception:
+        return "port_8080"
+
+
+def _agent_presets_file_path() -> str:
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(repo_root, "py3_dialog_manager", "configs", "agent_presets.json")
+
+
+def _load_startup_agent_preset_config(preset_id: str) -> JsonLike:
+    target_id = str(preset_id or "").strip()
+    if not target_id:
+        raise ValueError("preset ontbreekt")
+    path = _agent_presets_file_path()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except Exception as exc:
+        raise FileNotFoundError(f"agent_presets.json niet leesbaar: {exc}") from exc
+    presets = raw.get("presets") if isinstance(raw, dict) else raw
+    if not isinstance(presets, list):
+        raise ValueError("agent_presets.json bevat geen geldige presets lijst")
+    for preset in presets:
+        if not isinstance(preset, dict):
+            continue
+        if str(preset.get("id") or "").strip() != target_id:
+            continue
+        if not bool(preset.get("startup_allowed", False)):
+            raise ValueError(f"preset '{target_id}' mag niet gebruikt worden als startup preset")
+        config = preset.get("config")
+        if not isinstance(config, dict):
+            raise ValueError(f"preset '{target_id}' heeft geen geldige config")
+        return copy.deepcopy(config)
+    raise ValueError(f"startup preset '{target_id}' niet gevonden")
 _UI_COLOR_SCHEME_VALUES = {
     "default",
     "brown",
@@ -1148,7 +1187,7 @@ def create_app(
     *,
     cfg: JsonLike,
     config_path: str,
-    instance_id: Optional[str] = None,
+    web_port: Optional[int] = None,
     runtime_state_dir: Optional[str] = None,
 ) -> Tuple[Flask, Any, InputLLMOutputPipeline]:
     app = Flask(__name__, static_folder="web", static_url_path="")
@@ -1156,9 +1195,9 @@ def create_app(
     base_cfg = copy.deepcopy(cfg)
     run_cfg = base_cfg.setdefault("run", {})
     run_cfg["web_ui_enabled"] = True
-    resolved_instance_id = str(instance_id or run_cfg.get("instance_id") or "").strip()
-    if not resolved_instance_id:
-        resolved_instance_id = "default"
+    resolved_web_port = int(web_port if web_port is not None else run_cfg.get("web_port") or 8080)
+    run_cfg["web_port"] = resolved_web_port
+    runtime_scope_key = _runtime_scope_key_for_port(resolved_web_port)
     base_config_path = config_path
     base_pipeline = build_pipeline_from_config(cfg, config_path=config_path)
     base_stt = make_stt_backend_from_config(cfg)
@@ -1177,12 +1216,12 @@ def create_app(
         runtime_state_base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "runtime")
     runtime_state_enabled = config_path != "<memory>"
     runtime_state_path = (
-        os.path.join(runtime_state_base_dir, f"runtime_{_runtime_state_key(resolved_instance_id)}.json")
+        os.path.join(runtime_state_base_dir, f"runtime_{runtime_scope_key}.json")
         if runtime_state_enabled
         else None
     )
     summary_state_root = (
-        os.path.join(runtime_state_base_dir, f"summary_{_runtime_state_key(resolved_instance_id)}")
+        os.path.join(runtime_state_base_dir, f"summary_{runtime_scope_key}")
         if runtime_state_enabled
         else None
     )
@@ -1240,6 +1279,8 @@ def create_app(
 
     _sanitize_runtime_cfg_inplace(runtime_cfg_global)
     _load_runtime_cfg_state()
+    if runtime_state_enabled and runtime_state_path and not os.path.isfile(runtime_state_path):
+        _save_runtime_cfg_state()
     al_dir = os.path.join(repo_root, "py3_command_recognition_train", "data", "al")
     al_lock = threading.RLock()
     retrain_lock = threading.Lock()
@@ -1260,7 +1301,7 @@ def create_app(
             "exit_code": None,
             "log_path": None,
             "log_port": None,
-            "log_instance_id": resolved_instance_id,
+            "log_web_port": resolved_web_port,
             "buffer_log_path": None,
         }
 
@@ -1277,7 +1318,7 @@ def create_app(
     dm_events: List[Dict[str, Any]] = []
     dm_event_tail_limit = 4000
     dm_event_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "dm_events")
-    dm_event_path = os.path.join(dm_event_dir, f"dm_events_{_runtime_state_key(resolved_instance_id)}.jsonl")
+    dm_event_path = os.path.join(dm_event_dir, f"dm_events_{runtime_scope_key}.jsonl")
     dm_event_backup_suffix = ".1"
     dm_event_max_bytes = 5 * 1024 * 1024
     dm_event_file_lock = threading.Lock()
@@ -1978,7 +2019,7 @@ def create_app(
             category_norm = "dialog"
         payload = {
             "ts": _dm_now_iso(),
-            "instance_id": resolved_instance_id,
+            "port": resolved_web_port,
             "sid": sid,
             "level": level_norm,
             "category": category_norm,
@@ -3555,21 +3596,21 @@ def create_app(
             return _url_port(cfg_local.get("behavior_manager_url"), default_port=_proc_log_default_port(name))
         return _url_port(cfg_local.get("nao_base_url"), default_port=_proc_log_default_port(name))
 
-    def _proc_log_path_for(name: str, *, port: Optional[int] = None, instance_id: Optional[str] = None) -> str:
+    def _proc_log_path_for(name: str, *, port: Optional[int] = None, web_port: Optional[int] = None) -> str:
         safe_name = str(name or "").strip().lower() or "process"
-        safe_instance = _runtime_state_key(str(instance_id or resolved_instance_id or "default"))
+        scope_key = _runtime_scope_key_for_port(web_port if web_port is not None else resolved_web_port)
         try:
             safe_port = int(port if port is not None else _proc_log_default_port(safe_name))
         except Exception:
             safe_port = _proc_log_default_port(safe_name)
-        return os.path.join(proc_log_dir, f"{safe_name}_{safe_instance}_{safe_port}.log")
+        return os.path.join(proc_log_dir, f"{safe_name}_{scope_key}_{safe_port}.log")
 
     def _proc_log_resolved_info(name: str) -> Dict[str, Any]:
         with proc_lock:
             entry = proc_state.setdefault(name, _new_proc_state_entry())
             log_path = str(entry.get("log_path") or "").strip()
             log_port = entry.get("log_port")
-            log_instance_id = str(entry.get("log_instance_id") or resolved_instance_id or "default")
+            log_web_port = int(entry.get("log_web_port") or resolved_web_port)
         if log_path:
             try:
                 port_i = int(log_port if log_port is not None else _proc_log_default_port(name))
@@ -3578,14 +3619,14 @@ def create_app(
             return {
                 "path": log_path,
                 "port": port_i,
-                "instance_id": log_instance_id,
+                "web_port": log_web_port,
                 "bound": True,
             }
         fallback_port = _proc_log_port_from_runtime_cfg(name)
         return {
-            "path": _proc_log_path_for(name, port=fallback_port, instance_id=resolved_instance_id),
+            "path": _proc_log_path_for(name, port=fallback_port, web_port=resolved_web_port),
             "port": fallback_port,
-            "instance_id": resolved_instance_id,
+            "web_port": resolved_web_port,
             "bound": False,
         }
 
@@ -3660,19 +3701,19 @@ def create_app(
         proc_logs[name] = _load_proc_log_tail_path(target, max_log_lines)
         entry["buffer_log_path"] = target or None
 
-    def _bind_proc_log(name: str, *, port: int, instance_id: Optional[str] = None) -> str:
+    def _bind_proc_log(name: str, *, port: int, web_port: Optional[int] = None) -> str:
         resolved_port = _proc_log_default_port(name)
         try:
             resolved_port = int(port)
         except Exception:
             pass
-        resolved_instance = str(instance_id or resolved_instance_id or "default")
-        path = _proc_log_path_for(name, port=resolved_port, instance_id=resolved_instance)
+        resolved_log_web_port = int(web_port if web_port is not None else resolved_web_port)
+        path = _proc_log_path_for(name, port=resolved_port, web_port=resolved_log_web_port)
         with proc_lock:
             entry = proc_state.setdefault(name, _new_proc_state_entry())
             entry["log_path"] = path
             entry["log_port"] = resolved_port
-            entry["log_instance_id"] = resolved_instance
+            entry["log_web_port"] = resolved_log_web_port
             _sync_proc_log_buffer_locked(name, path)
         return path
 
@@ -3733,7 +3774,7 @@ def create_app(
                 resolved_log_port = int(log_port)
         except Exception:
             resolved_log_port = _proc_log_port_from_runtime_cfg(name)
-        _bind_proc_log(name, port=resolved_log_port, instance_id=resolved_instance_id)
+        _bind_proc_log(name, port=resolved_log_port, web_port=resolved_web_port)
         try:
             env = os.environ.copy()
             env.pop("WERKZEUG_SERVER_FD", None)
@@ -6828,6 +6869,7 @@ def create_app(
                 "id": new_id,
                 "name": name,
                 "locked": False,
+                "startup_allowed": bool(payload.get("startup_allowed", False)),
                 "config": config,
             }
             presets.append(preset)
@@ -6841,6 +6883,7 @@ def create_app(
             return jsonify({"ok": False, "error": "default preset kan niet worden overschreven"}), 400
 
         existing["name"] = name or existing.get("name") or preset_id
+        existing["startup_allowed"] = bool(payload.get("startup_allowed", existing.get("startup_allowed", False)))
         existing["config"] = config
         _save_agent_presets(presets)
         return jsonify({"ok": True, "preset": existing, "presets": presets})
@@ -6931,7 +6974,7 @@ def create_app(
                 "ok": True,
                 "config": cfg_out,
                 "system_prompt": _system_prompt_for_sid(sid),
-                "instance_id": resolved_instance_id,
+                "port": resolved_web_port,
             }
         )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
@@ -6949,7 +6992,7 @@ def create_app(
                 "runtime_config": runtime_cfg,
                 "effective_config": merged,
                 "output_enabled": output_enabled,
-                "instance_id": resolved_instance_id,
+                "port": resolved_web_port,
             }
         )
         resp.set_cookie("sid", sid, max_age=60 * 60 * 24 * 7, samesite="Lax")
@@ -6959,7 +7002,7 @@ def create_app(
     def api_runtime_defaults():
         cfg_out = _extract_runtime_config(base_cfg)
         merged = _apply_runtime_overrides(base_cfg, cfg_out)
-        return jsonify({"ok": True, "config": cfg_out, "effective_config": merged, "instance_id": resolved_instance_id})
+        return jsonify({"ok": True, "config": cfg_out, "effective_config": merged, "port": resolved_web_port})
 
     @app.post("/api/runtime_config")
     def api_runtime_config_set():
@@ -6975,7 +7018,7 @@ def create_app(
                     "ok": True,
                     "config": cfg_out,
                     "system_prompt": _system_prompt_for_sid(sid),
-                    "instance_id": resolved_instance_id,
+                    "port": resolved_web_port,
                     "client_ignored": True,
                 }
             )
@@ -7011,7 +7054,7 @@ def create_app(
                     "ok": True,
                     "config": cfg_out,
                     "system_prompt": _system_prompt_for_sid(sid),
-                    "instance_id": resolved_instance_id,
+                    "port": resolved_web_port,
                 }
             )
             resp.headers["X-Request-Id"] = request_id
@@ -7090,7 +7133,7 @@ def create_app(
                 "system_prompt": _system_prompt_for_sid(sid),
                 "effective_config": merged,
                 "output_enabled": bool(runtime_cfg.get("base_enabled", True)),
-                "instance_id": resolved_instance_id,
+                "port": resolved_web_port,
             }
         )
         resp.headers["X-Request-Id"] = request_id
@@ -7204,7 +7247,7 @@ def create_app(
                 "lease_id": lease_id,
                 "ttl_s": ttl_s,
                 "lease_expires_at": _dm_ts_iso(expires_at),
-                "instance_id": resolved_instance_id,
+                "port": resolved_web_port,
             }
         )
         resp.headers["X-Request-Id"] = request_id
@@ -7295,7 +7338,7 @@ def create_app(
                 "lease_id": lease_id,
                 "ttl_s": ttl_s,
                 "lease_expires_at": _dm_ts_iso(current.get("expires_at")),
-                "instance_id": resolved_instance_id,
+                "port": resolved_web_port,
             }
         )
         resp.headers["X-Request-Id"] = request_id
@@ -7359,7 +7402,7 @@ def create_app(
                 "owner": released.get("owner"),
                 "reason": released.get("reason"),
                 "lease_id": released.get("lease_id"),
-                "instance_id": resolved_instance_id,
+                "port": resolved_web_port,
                 "timer_reset": True,
             }
         )
@@ -7922,6 +7965,7 @@ def create_app(
                 "id": "echo",
                 "name": "Echo",
                 "locked": True,
+                "startup_allowed": False,
                 "config": {
                     "stt_type": "vosk",
                     "output_target": "none",
@@ -7941,6 +7985,7 @@ def create_app(
                 "id": "local",
                 "name": "Local",
                 "locked": True,
+                "startup_allowed": False,
                 "config": {
                     "stt_type": "vosk",
                     "output_target": "nao",
@@ -7960,6 +8005,7 @@ def create_app(
                 "id": "cloud",
                 "name": "Cloud",
                 "locked": True,
+                "startup_allowed": False,
                 "config": {
                     "stt_type": "azure",
                     "output_target": "nao",
@@ -8004,6 +8050,9 @@ def create_app(
             else:
                 if existing.get("locked") is not True:
                     existing["locked"] = True
+                    changed = True
+                if "startup_allowed" not in existing:
+                    existing["startup_allowed"] = bool(default.get("startup_allowed", False))
                     changed = True
                 if not existing.get("name"):
                     existing["name"] = default["name"]
@@ -10180,7 +10229,7 @@ def create_app(
         model_suggestions = _summary_model_suggestions()
         return {
             "ok": True,
-            "instance_id": resolved_instance_id,
+            "port": resolved_web_port,
             "default_config": _default_summary_config(),
             "input_devices": _device_rows(input_info.get("devices") or [], chat_input, include_nao_ssh=True),
             "output_devices": _device_rows(output_info.get("devices") or [], chat_output),
@@ -10437,7 +10486,7 @@ def create_app(
 
         return {
             "ok": True,
-            "instance_id": resolved_instance_id,
+            "port": resolved_web_port,
             "default_config": _default_summary_config(),
             "input_devices": _device_rows(
                 input_info.get("devices") or [],
@@ -10464,7 +10513,7 @@ def create_app(
         }
 
     def _summary_generate_reply(pipeline: InputLLMOutputPipeline, runtime_cfg_local: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
-        result = _TrackedLlmBackend(f"summary:{resolved_instance_id}", runtime_cfg_local, pipeline.llm).generate(messages)
+        result = _TrackedLlmBackend(f"summary:{runtime_scope_key}", runtime_cfg_local, pipeline.llm).generate(messages)
         return str(getattr(result, "reply", "") or "").strip()
 
     def _summary_is_local_ollama_host(raw_host: Optional[str]) -> bool:
@@ -10528,7 +10577,7 @@ def create_app(
             spoken_text = str(normalizer(spoken_text) or "")
         if not spoken_text:
             raise RuntimeError("empty spoken text")
-        _emit_output_with_connectivity_tracking(f"summary:{resolved_instance_id}", runtime_cfg_local, pipeline.output, spoken_text)
+        _emit_output_with_connectivity_tracking(f"summary:{runtime_scope_key}", runtime_cfg_local, pipeline.output, spoken_text)
         detail = re.sub(r"^\[output\]\s*", "", _output_backend_last_error(pipeline.output))
         if detail:
             raise RuntimeError(detail)
@@ -10538,13 +10587,13 @@ def create_app(
         return _stop_output_best_effort(
             runtime_cfg_local,
             source="summary_ui",
-            sid=f"summary:{resolved_instance_id}",
+            sid=f"summary:{runtime_scope_key}",
             reason="summary_output_stop",
         )
 
     def _summary_log_event(level: str, event: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
         _log_dm_event(
-            sid=f"summary:{resolved_instance_id}",
+            sid=f"summary:{runtime_scope_key}",
             level=level,
             category="state",
             event=event,
@@ -10554,7 +10603,7 @@ def create_app(
         )
 
     summary_service = SummaryService(
-        instance_id=resolved_instance_id,
+        web_port=resolved_web_port,
         state_root=summary_state_root,
         default_config=_default_summary_config(),
         normalize_config=_normalize_summary_config,
@@ -10564,7 +10613,7 @@ def create_app(
         build_stt_backend=make_stt_backend_from_config,
         build_pipeline=lambda cfg_obj: build_pipeline_from_config(cfg_obj, config_path=base_config_path),
         transcribe_audio=lambda audio, backend, runtime_cfg_local: _transcribe_with_connectivity_tracking(
-            f"summary:{resolved_instance_id}",
+            f"summary:{runtime_scope_key}",
             audio,
             stt_backend=backend,
             runtime_cfg_local=runtime_cfg_local,
@@ -10631,7 +10680,7 @@ def create_app(
 
     @app.get("/api/summary/presets")
     def api_summary_presets_get():
-        resp = jsonify({"ok": True, "presets": _load_summary_presets(), "instance_id": resolved_instance_id})
+        resp = jsonify({"ok": True, "presets": _load_summary_presets(), "port": resolved_web_port})
         resp.set_cookie("sid", _get_sid(), max_age=60 * 60 * 24 * 7, samesite="Lax")
         return resp
 
@@ -11225,31 +11274,26 @@ def create_app(
 
 
 def main() -> None:
-    def _resolve_web_port(instance_id: Optional[str], explicit_port: Optional[int]) -> int:
-        if explicit_port is not None:
-            return int(explicit_port)
-        defaults = {
-            "alex": 5301,
-            "renee": 5302,
-        }
-        key = str(instance_id or "").strip().casefold()
-        return int(defaults.get(key, 8080))
-
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", help="Pad naar configs/<file>.json")
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=None)
-    ap.add_argument(
-        "--instance-id",
-        help="Unieke runtime instance id (alex->5301, renee->5302, anders default: port_<port>).",
-    )
+    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--preset", default=None, help="Startup agent preset id.")
     args = ap.parse_args()
 
-    web_port = _resolve_web_port(args.instance_id, args.port)
+    web_port = int(args.port or 8080)
     config_path = args.config or DEFAULT_CONFIG_PATH
     cfg = _load_json(config_path)
-    instance_id = str(args.instance_id or f"port_{web_port}")
-    app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path), instance_id=instance_id)
+    if args.preset:
+        preset_cfg = _load_startup_agent_preset_config(args.preset)
+        cfg = _apply_runtime_overrides(cfg, preset_cfg)
+        runtime_state_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "runtime", f"runtime_{_runtime_scope_key_for_port(web_port)}.json")
+        try:
+            if os.path.isfile(runtime_state_path):
+                os.remove(runtime_state_path)
+        except OSError:
+            pass
+    app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path), web_port=web_port)
     def _sig_handler(signum, frame):
         try:
             shutdown = getattr(app, "_shutdown_rest", None)

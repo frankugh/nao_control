@@ -96,7 +96,7 @@ Let op: voor echte open/save dialogs gebruikt de UI de Chromium File System Acce
 
 - `version` must be `1`
 - `robots` maps `robot_id -> { dm_url }`
-  - optional: `instance_id` for local DM autostart from the Script Builder webapp
+  - optional: `preset` for local DM autostart from the Script Builder webapp
 - `defaults`:
   - `request_timeout_s` (number > 0)
   - `readiness_poll_interval_s` (number > 0, default `3`)
@@ -127,7 +127,7 @@ See `scripts/example_workshop.json` for a complete DM example, `scripts/example_
 
 ### Local DM autostart from Script Builder
 
-The `Start DM's` button in the webapp reads `robots.<id>.dm_url` and optional `robots.<id>.instance_id` from the current script.
+The `Start DM's` button in the webapp reads `robots.<id>.dm_url` and required `robots.<id>.preset` from the current script when it should start a local DM.
 
 Example:
 
@@ -136,7 +136,7 @@ Example:
   "robots": {
     "nao1": {
       "dm_url": "http://127.0.0.1:5301",
-      "instance_id": "alex"
+      "preset": "alex"
     }
   }
 }

@@ -546,7 +546,7 @@ import {
         return {
           robot_id: String(robotId || "?"),
           dm_url: isObject(robotCfg) ? String(robotCfg.dm_url || "").trim() : "",
-          instance_id: isObject(robotCfg) ? String(robotCfg.instance_id || "").trim() : "",
+          preset: isObject(robotCfg) ? String(robotCfg.preset || "").trim() : "",
         };
       })
       .filter((target) => target.dm_url || target.robot_id);
@@ -584,8 +584,8 @@ import {
     if (entry && entry.dm_url) {
       parts.push(String(entry.dm_url));
     }
-    if (entry && entry.instance_id) {
-      parts.push("instance_id=" + String(entry.instance_id));
+    if (entry && entry.preset) {
+      parts.push("preset=" + String(entry.preset));
     }
     return parts.join(" | ");
   }
@@ -778,7 +778,7 @@ import {
         .filter(Boolean);
     } else {
       const targets = collectScriptDmTargets(script);
-      const fallbackTargets = targets.length > 0 ? targets : [{ robot_id: "robot", dm_url: "", instance_id: "" }];
+      const fallbackTargets = targets.length > 0 ? targets : [{ robot_id: "robot", dm_url: "", preset: "" }];
       robots = fallbackTargets
         .map((target) => {
           signatureParts.push([String(target.robot_id || "?"), String(target.dm_url || ""), normalizedMessage].join("|"));
@@ -844,7 +844,7 @@ import {
     return {
       robot_id: String((entry && entry.robot_id) || "?"),
       dm_url: String((entry && entry.dm_url) || "").trim(),
-      instance_id: String((entry && entry.instance_id) || "").trim(),
+      preset: String((entry && entry.preset) || "").trim(),
       nao_enabled: naoEnabled,
       virtual_robot: virtualRobot,
       ok: !!(entry && entry.ok),
@@ -923,8 +923,8 @@ import {
       if (entry.dm_url) {
         metaParts.push(entry.dm_url);
       }
-      if (entry.instance_id) {
-        metaParts.push("instance_id=" + entry.instance_id);
+      if (entry.preset) {
+        metaParts.push("preset=" + entry.preset);
       }
       if (metaParts.length > 0) {
         const meta = document.createElement("div");
@@ -1336,13 +1336,13 @@ import {
       const started = !!(item && item.started);
       const robotId = item && item.robot_id ? String(item.robot_id) : "?";
       const dmUrl = item && item.dm_url ? String(item.dm_url) : "";
-      const instanceId = item && item.instance_id ? String(item.instance_id) : "";
+      const preset = item && item.preset ? String(item.preset) : "";
       const parts = [];
       if (dmUrl) {
         parts.push(dmUrl);
       }
-      if (instanceId) {
-        parts.push("instance_id=" + instanceId);
+      if (preset) {
+        parts.push("preset=" + preset);
       }
       return {
         tone: started ? "ok" : "error",

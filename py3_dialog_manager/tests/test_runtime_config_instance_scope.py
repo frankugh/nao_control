@@ -23,7 +23,7 @@ def _make_app(
     *,
     cfg=None,
     config_path="<memory>",
-    instance_id=None,
+    web_port=None,
     runtime_state_dir=None,
 ):
     base_pipeline = SimpleNamespace(
@@ -43,7 +43,7 @@ def _make_app(
     app, _, _ = webapp_server.create_app(
         cfg=cfg or {},
         config_path=config_path,
-        instance_id=instance_id,
+        web_port=web_port,
         runtime_state_dir=runtime_state_dir,
     )
     return app
@@ -85,17 +85,17 @@ def test_runtime_config_write_ignored_for_client_mode(monkeypatch):
     assert cfg["wake_timeout_s"] == 21
 
 
-def test_runtime_config_persists_per_instance_id(monkeypatch, tmp_path: Path):
+def test_runtime_config_persists_per_web_port(monkeypatch, tmp_path: Path):
     cfg = {"output": {"type": "none"}}
     cfg_path = str(tmp_path / "cfg.json")
     state_dir = str(tmp_path / "runtime_state")
-    instance_id = "demo_5301"
+    web_port = 5301
 
     app1 = _make_app(
         monkeypatch,
         cfg=cfg,
         config_path=cfg_path,
-        instance_id=instance_id,
+        web_port=web_port,
         runtime_state_dir=state_dir,
     )
     c1 = app1.test_client()
@@ -106,7 +106,7 @@ def test_runtime_config_persists_per_instance_id(monkeypatch, tmp_path: Path):
         monkeypatch,
         cfg=cfg,
         config_path=cfg_path,
-        instance_id=instance_id,
+        web_port=web_port,
         runtime_state_dir=state_dir,
     )
     c2 = app2.test_client()

@@ -115,7 +115,7 @@ def _watch_payload():
     return {
         "script": {
             "version": 1,
-            "robots": {"nao1": {"dm_url": "http://127.0.0.1:5301", "instance_id": "alex"}},
+            "robots": {"nao1": {"dm_url": "http://127.0.0.1:5301", "preset": "alex"}},
             "defaults": {"request_timeout_s": 12, "on_error": "prompt"},
             "steps": [
                 {
@@ -166,7 +166,7 @@ def test_poll_auto_rest_watch_reports_robot_state(monkeypatch):
     assert payload["robots"][0]["awake"]["is_awake"] is True
     assert payload["robots"][0]["posture"]["posture"] == "Standing"
     assert payload["robots"][0]["auto_rest"]["seconds_until_rest"] == 17
-    assert payload["robots"][0]["instance_id"] == "alex"
+    assert payload["robots"][0]["preset"] == "alex"
     assert seen["base_url"] == "http://127.0.0.1:5301"
 
 
@@ -324,8 +324,8 @@ def test_iter_script_dm_targets_skips_robots_without_dm_url():
     targets = script_runner_app._iter_script_dm_targets(
         {
             "robots": {
-                "nao1": {"instance_id": "alex"},
-                "nao2": {"dm_url": "http://127.0.0.1:5302", "instance_id": "renee"},
+                "nao1": {"preset": "alex"},
+                "nao2": {"dm_url": "http://127.0.0.1:5302", "preset": "renee"},
             }
         }
     )
@@ -333,6 +333,6 @@ def test_iter_script_dm_targets_skips_robots_without_dm_url():
         {
             "robot_id": "nao2",
             "dm_url": "http://127.0.0.1:5302",
-            "instance_id": "renee",
+            "preset": "renee",
         }
     ]

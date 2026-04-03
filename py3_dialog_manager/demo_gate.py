@@ -50,10 +50,10 @@ SCENARIO_OPERATOR_NAME = {
     SCENARIO_FULL_REHEARSAL: "rehearsal",
 }
 
-DEFAULT_RUNTIME_PRESET_BY_PROFILE = {
-    PROFILE_OFFLINE: DM_ROOT / "configs" / "runtime" / "runtime_virtuele_robot.json",
-    PROFILE_LIVE_SERVICES: DM_ROOT / "configs" / "runtime" / "runtime_virtuele_robot.json",
-    PROFILE_LIVE_ROBOT: DM_ROOT / "configs" / "runtime" / "runtime_alex.json",
+DEFAULT_STARTUP_PRESET_BY_PROFILE = {
+    PROFILE_OFFLINE: "virtuele_robot",
+    PROFILE_LIVE_SERVICES: "virtuele_robot",
+    PROFILE_LIVE_ROBOT: "alex",
 }
 
 DEFAULT_SUMMARY_SCRIPT = REPO_ROOT / "py3_script_runner" / "scripts" / "demo_gate_summary_single_robot.json"
@@ -141,13 +141,31 @@ def _url_port(raw_url: str) -> str:
     return "default"
 
 
-def _instance_id_for_url(raw_url: str) -> str:
-    return f"demo_gate_{_url_port(raw_url)}"
+def _url_port_int(raw_url: str) -> int:
+    port = _url_port(raw_url)
+    try:
+        return int(port)
+    except (TypeError, ValueError):
+        return 8080
 
 
-def _cfg_instance_id(cfg: Dict[str, Any]) -> str:
+def _scope_key_for_port(port: Any) -> str:
+    try:
+        return f"port_{int(port)}"
+    except (TypeError, ValueError):
+        return "port_8080"
+
+
+def _scope_key_for_url(raw_url: str) -> str:
+    return _scope_key_for_port(_url_port_int(raw_url))
+
+
+def _cfg_scope_key(cfg: Dict[str, Any]) -> str:
     run_cfg = cfg.get("run") if isinstance(cfg.get("run"), dict) else {}
-    return str(run_cfg.get("instance_id") or "").strip() or "default"
+    web_port = run_cfg.get("web_port")
+    if web_port is None:
+        web_port = cfg.get("web_port")
+    return _scope_key_for_port(web_port)
 
 
 def _is_live_robot_profile(profile: str) -> bool:
@@ -295,7 +313,7 @@ class ReplayMic:
 
 
 class ReplayMicRegistry:
-    """Registry keyed by DM instance id and capture mode."""
+    """Registry keyed by DM web port scope and capture mode."""
 
     def __init__(self, fixtures_root: Path) -> None:
         self.fixtures_root = Path(fixtures_root)
@@ -319,8 +337,8 @@ class ReplayMicRegistry:
             self._fixtures[key] = data
         return data
 
-    def mic_for(self, instance_id: str, *, mode: str) -> ReplayMic:
-        key = (str(instance_id or "").strip() or "default", str(mode or "ptt").strip().lower() or "ptt")
+    def mic_for(self, scope_key: str, *, mode: str) -> ReplayMic:
+        key = (str(scope_key or "").strip() or "port_8080", str(mode or "ptt").strip().lower() or "ptt")
         with self._lock:
             mic = self._mics.get(key)
             if mic is None:
@@ -329,35 +347,35 @@ class ReplayMicRegistry:
             return mic
 
     def resolve_mic(self, cfg: Dict[str, Any], *, mode: str) -> Optional[ReplayMic]:
-        instance_id = _cfg_instance_id(cfg)
+        scope_key = _cfg_scope_key(cfg)
         input_cfg = cfg.get("input") if isinstance(cfg.get("input"), dict) else {}
         mic_cfg = input_cfg.get("mic") if isinstance(input_cfg.get("mic"), dict) else {}
         params_cfg = mic_cfg.get("params") if isinstance(mic_cfg.get("params"), dict) else {}
         input_device = str(params_cfg.get("input_device") or "").strip()
         if input_device.startswith("demo_gate:"):
-            instance_id = input_device.split(":", 1)[1].strip() or instance_id
-        key = (instance_id, str(mode or "ptt").strip().lower() or "ptt")
+            scope_key = input_device.split(":", 1)[1].strip() or scope_key
+        key = (scope_key, str(mode or "ptt").strip().lower() or "ptt")
         with self._lock:
             return self._mics.get(key)
 
     def queue_fixture(
         self,
-        instance_id: str,
+        scope_key: str,
         *,
         mode: str,
         fixture_name: str,
         delay_before_s: float = 0.0,
     ) -> None:
-        self.mic_for(instance_id, mode=mode).queue_fixture(
+        self.mic_for(scope_key, mode=mode).queue_fixture(
             name=fixture_name,
             wav_bytes=self._load_fixture_bytes(fixture_name),
             delay_before_s=float(delay_before_s),
         )
 
-    def clear_instance(self, instance_id: str) -> None:
-        instance_text = str(instance_id or "").strip() or "default"
+    def clear_scope(self, scope_key: str) -> None:
+        scope_text = str(scope_key or "").strip() or "port_8080"
         with self._lock:
-            mics = [mic for (key, _mode), mic in self._mics.items() if key == instance_text]
+            mics = [mic for (key, _mode), mic in self._mics.items() if key == scope_text]
         for mic in mics:
             mic.clear()
 
@@ -778,7 +796,8 @@ class RunnerEventRecorder:
 @dataclass
 class AppInstance:
     base_url: str
-    instance_id: str
+    web_port: int
+    scope_key: str
     sid: str
     app: Any
     client: InProcessDMClient
@@ -1005,7 +1024,7 @@ class DemoGateHarness:
         self,
         *,
         profile: str,
-        runtime_preset: Optional[str] = None,
+        preset: Optional[str] = None,
         summary_preset_id: Optional[str] = None,
         summary_script_path: Path = DEFAULT_SUMMARY_SCRIPT,
         workshop_script_path: Path = DEFAULT_WORKSHOP_SCRIPT,
@@ -1016,7 +1035,7 @@ class DemoGateHarness:
         self.profile = str(profile or "").strip().lower()
         if self.profile not in PROFILES:
             raise ValueError(f"Unsupported profile: {profile!r}")
-        self.runtime_preset = runtime_preset
+        self.preset = str(preset or "").strip() or None
         self.summary_preset_id = str(summary_preset_id or "").strip() or None
         self.summary_script_path = Path(summary_script_path)
         self.workshop_script_path = Path(workshop_script_path)
@@ -1044,33 +1063,29 @@ class DemoGateHarness:
     def _prepare_runner_script(self, script: Dict[str, Any]) -> Dict[str, Any]:
         return copy.deepcopy(script)
 
-    def _resolve_runtime_preset_path(self) -> Path:
-        if self.runtime_preset:
-            candidate = Path(self.runtime_preset)
-            if candidate.exists():
-                return candidate
-            runtime_dir = DM_ROOT / "configs" / "runtime"
-            with_ext = runtime_dir / f"{self.runtime_preset}.json"
-            if with_ext.exists():
-                return with_ext
-            named = runtime_dir / str(self.runtime_preset)
-            if named.exists():
-                return named
-            raise FileNotFoundError(f"Runtime preset not found: {self.runtime_preset}")
-        return DEFAULT_RUNTIME_PRESET_BY_PROFILE[self.profile]
+    def _resolve_preset_id(self) -> str:
+        if self.preset:
+            return self.preset
+        return DEFAULT_STARTUP_PRESET_BY_PROFILE[self.profile]
 
-    def _resolve_runtime_preset_path_for_url(self, dm_url: str) -> Path:
-        if self.runtime_preset:
-            return self._resolve_runtime_preset_path()
+    def _resolve_preset_id_for_url(self, dm_url: str) -> str:
+        if self.preset:
+            return self._resolve_preset_id()
         if self.profile == PROFILE_LIVE_ROBOT and len(self._script_urls()) > 1:
             raise DemoGateError(
-                "live_robot ondersteunt in demo-gate alleen single-robot scripts zonder expliciete runtime-override. "
+                "live_robot ondersteunt in demo-gate alleen single-robot scripts zonder expliciete preset-override. "
                 "Gebruik een single-robot script of start robots buiten demo-gate om met hun eigen DM-configs."
             )
-        return DEFAULT_RUNTIME_PRESET_BY_PROFILE[self.profile]
+        return DEFAULT_STARTUP_PRESET_BY_PROFILE[self.profile]
+
+    def _load_startup_preset_config(self, preset_id: str) -> Dict[str, Any]:
+        try:
+            return copy.deepcopy(webapp_server._load_startup_agent_preset_config(preset_id))
+        except Exception as exc:
+            raise DemoGateError(f"Startup preset niet bruikbaar: {preset_id}: {exc}") from exc
 
     def _build_runtime_config_for_url(self, dm_url: str) -> Dict[str, Any]:
-        runtime_cfg = copy.deepcopy(_load_json(self._resolve_runtime_preset_path_for_url(dm_url)))
+        runtime_cfg = self._load_startup_preset_config(self._resolve_preset_id_for_url(dm_url))
         runtime_cfg.update(
             {
                 "listen_mode": "continuous",
@@ -1223,33 +1238,34 @@ class DemoGateHarness:
         self._patch_factories()
         try:
             for dm_url in self._script_urls():
-                instance_id = _instance_id_for_url(dm_url)
+                web_port = _url_port_int(dm_url)
+                scope_key = _scope_key_for_port(web_port)
                 cfg = copy.deepcopy(self.base_cfg)
-                cfg.setdefault("run", {})["instance_id"] = instance_id
                 app, _base_stt, _base_pipeline = webapp_server.create_app(
                     cfg=cfg,
                     config_path=str(DEFAULT_DM_CONFIG_PATH),
-                    instance_id=instance_id,
+                    web_port=web_port,
                     runtime_state_dir=str(self.runtime_state_dir),
                 )
-                sid = f"demo_gate_{instance_id}"
+                sid = f"demo_gate_{scope_key}"
                 client = InProcessDMClient(app, dm_url, sid=sid)
                 self.instances[_norm_url(dm_url)] = AppInstance(
                     base_url=_norm_url(dm_url),
-                    instance_id=instance_id,
+                    web_port=web_port,
+                    scope_key=scope_key,
                     sid=sid,
                     app=app,
                     client=client,
                 )
-                self.replay_registry.mic_for(instance_id, mode="continuous")
-                self.replay_registry.mic_for(instance_id, mode="ptt")
+                self.replay_registry.mic_for(scope_key, mode="continuous")
+                self.replay_registry.mic_for(scope_key, mode="ptt")
             for instance in self.instances.values():
                 runtime_config = self._build_runtime_config_for_url(instance.base_url)
-                runtime_config["input_device"] = f"demo_gate:{instance.instance_id}"
+                runtime_config["input_device"] = f"demo_gate:{instance.scope_key}"
                 summary_config = self._build_summary_config(runtime_config)
                 devices_cfg = summary_config.setdefault("devices", {})
                 if isinstance(devices_cfg, dict):
-                    devices_cfg["input_audio_device"] = f"demo_gate:{instance.instance_id}"
+                    devices_cfg["input_audio_device"] = f"demo_gate:{instance.scope_key}"
                 instance.runtime_config = copy.deepcopy(runtime_config)
                 instance.summary_config = copy.deepcopy(summary_config)
                 instance.client.runtime_config_set(runtime_config)
@@ -1436,7 +1452,7 @@ class DemoGateHarness:
 
     def queue_fixture(self, instance: AppInstance, fixture_name: str, *, delay_before_s: float = 0.0) -> None:
         self.replay_registry.queue_fixture(
-            instance.instance_id,
+            instance.scope_key,
             mode="continuous",
             fixture_name=fixture_name,
             delay_before_s=delay_before_s,
@@ -1529,7 +1545,7 @@ class DemoGateHarness:
         client.continuous_stop()
         client.reset()
         client.dm_events_clear()
-        self.replay_registry.clear_instance(self.primary.instance_id)
+        self.replay_registry.clear_scope(self.primary.scope_key)
         return client
 
     def _prepare_summary_client(self, instance: Optional[AppInstance] = None) -> InProcessDMClient:
@@ -1542,7 +1558,7 @@ class DemoGateHarness:
         client.summary_abort()
         client.summary_clear()
         client.dm_events_clear()
-        self.replay_registry.clear_instance(target_instance.instance_id)
+        self.replay_registry.clear_scope(target_instance.scope_key)
         return client
 
     def _summary_generate_timeout_s(
@@ -2011,7 +2027,7 @@ class DemoGateHarness:
         self.reporter.workshop_waiting_for_summary()
         summary_instance = self._summary_instance_for_event(event, fallback=self.summary_target)
         summary_client = summary_instance.client
-        self.replay_registry.clear_instance(summary_instance.instance_id)
+        self.replay_registry.clear_scope(summary_instance.scope_key)
         self._wait_for_summary_status(summary_client, "capturing", timeout_s=15.0)
         self.reporter.summary_capturing()
         self._drive_summary_edit_flow(client=summary_client, instance=summary_instance)
@@ -2166,7 +2182,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", default="offline", help="offline|live_services|live_robot|all")
     parser.add_argument("--scenario", default="all", help="happy_path_dialog|summary_edit_flow|service_loss_recovery|full_demo_rehearsal|all")
     parser.add_argument("--nao-ip", dest="nao_ip", default=None, help="Override NAO IP for live_robot.")
-    parser.add_argument("--runtime-preset", default=None, help="Runtime preset path or preset name.")
+    parser.add_argument("--preset", default=None, help="Startup agent preset id.")
     parser.add_argument("--summary-preset-id", default=None, help="Summary preset id from summary_presets.json.")
     parser.add_argument("--summary-script", default=str(DEFAULT_SUMMARY_SCRIPT), help="Path to the summary script JSON.")
     parser.add_argument("--workshop-script", default=str(DEFAULT_WORKSHOP_SCRIPT), help="Path to the workshop script JSON.")
@@ -2202,7 +2218,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         for scenario in profile_scenarios:
             harness = DemoGateHarness(
                 profile=profile,
-                runtime_preset=args.runtime_preset,
+                preset=args.preset,
                 summary_preset_id=args.summary_preset_id,
                 summary_script_path=summary_script,
                 workshop_script_path=workshop_script,

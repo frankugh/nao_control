@@ -60,7 +60,7 @@ class DmLaunchSpec:
     dm_url: str
     bind_host: str
     port: int
-    instance_id: str
+    preset: str
 
 
 def _local_dm_bind_host(raw_host: str) -> Optional[str]:
@@ -92,7 +92,7 @@ def _dm_launch_result(
     *,
     robot_id: str,
     dm_url: str,
-    instance_id: str,
+    preset: str,
     started: bool,
     message: str,
     port: Optional[int] = None,
@@ -100,7 +100,7 @@ def _dm_launch_result(
     result: Dict[str, Any] = {
         "robot_id": str(robot_id or ""),
         "dm_url": str(dm_url or ""),
-        "instance_id": str(instance_id or ""),
+        "preset": str(preset or ""),
         "started": bool(started),
         "message": str(message or ""),
     }
@@ -113,7 +113,7 @@ def _dm_launch_result(
 
 def _parse_dm_launch_spec(robot_id: str, robot_cfg: Dict[str, Any]) -> tuple[Optional[DmLaunchSpec], Optional[str]]:
     dm_url = str(robot_cfg.get("dm_url") or "").strip()
-    instance_id = str(robot_cfg.get("instance_id") or "").strip()
+    preset = str(robot_cfg.get("preset") or "").strip()
     try:
         parsed = urlsplit(dm_url)
         host = parsed.hostname
@@ -132,14 +132,14 @@ def _parse_dm_launch_spec(robot_id: str, robot_cfg: Dict[str, Any]) -> tuple[Opt
         dm_url=dm_url,
         bind_host=bind_host,
         port=int(port),
-        instance_id=instance_id,
+        preset=preset,
     ), None
 
 
 def _build_dm_launch_command(spec: DmLaunchSpec) -> List[str]:
     python_cmd = [str(DM_PYTHON), str(DM_WEBAPP), "--host", spec.bind_host, "--port", str(spec.port)]
-    if spec.instance_id:
-        python_cmd.extend(["--instance-id", spec.instance_id])
+    if spec.preset:
+        python_cmd.extend(["--preset", spec.preset])
     return ["cmd.exe", "/k", subprocess.list2cmdline(python_cmd)]
 
 
@@ -183,7 +183,7 @@ def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
         return _dm_launch_result(
             robot_id=spec.robot_id,
             dm_url=spec.dm_url,
-            instance_id=spec.instance_id,
+            preset=spec.preset,
             started=False,
             message=f"DM starten mislukt: {exc}",
             port=spec.port,
@@ -191,7 +191,7 @@ def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
     return _dm_launch_result(
         robot_id=spec.robot_id,
         dm_url=spec.dm_url,
-        instance_id=spec.instance_id,
+        preset=spec.preset,
         started=True,
         message="DM gestart in een nieuw cmd-venster.",
         port=spec.port,
@@ -223,9 +223,19 @@ def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]
             results[index] = _dm_launch_result(
                 robot_id=str(robot_id or ""),
                 dm_url=str(robot_cfg.get("dm_url") or ""),
-                instance_id=str(robot_cfg.get("instance_id") or "").strip(),
+                preset=str(robot_cfg.get("preset") or "").strip(),
                 started=False,
                 message=error,
+            )
+            continue
+        if not spec.preset:
+            results[index] = _dm_launch_result(
+                robot_id=spec.robot_id,
+                dm_url=spec.dm_url,
+                preset="",
+                started=False,
+                message=f"robots.{spec.robot_id}.preset ontbreekt; lokale DM autostart vereist een preset.",
+                port=spec.port,
             )
             continue
         specs_by_index[index] = spec
@@ -241,7 +251,7 @@ def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]
             results[pos] = _dm_launch_result(
                 robot_id=spec.robot_id,
                 dm_url=spec.dm_url,
-                instance_id=spec.instance_id,
+                preset=spec.preset,
                 started=False,
                 message=f"Dubbele lokale DM target in script: {target_label}.",
                 port=spec.port,
@@ -254,7 +264,7 @@ def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]
             results[index] = _dm_launch_result(
                 robot_id=spec.robot_id,
                 dm_url=spec.dm_url,
-                instance_id=spec.instance_id,
+                preset=spec.preset,
                 started=False,
                 message=f"Er draait al iets op {spec.dm_url}.",
                 port=spec.port,
@@ -456,7 +466,7 @@ def _iter_script_dm_targets(script: Dict[str, Any]) -> List[Dict[str, str]]:
             {
                 "robot_id": str(robot_id or ""),
                 "dm_url": dm_url,
-                "instance_id": str(robot_cfg.get("instance_id") or "").strip(),
+                "preset": str(robot_cfg.get("preset") or "").strip(),
             }
         )
     return targets
@@ -548,7 +558,7 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
                 {
                     "robot_id": target["robot_id"],
                     "dm_url": dm_url,
-                    "instance_id": target["instance_id"],
+                    "preset": target["preset"],
                     "nao_enabled": nao_enabled,
                     "virtual_robot": virtual_robot,
                     "ok": reachable,
@@ -574,7 +584,7 @@ def poll_auto_rest_watch(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
                 {
                     "robot_id": target["robot_id"],
                     "dm_url": dm_url,
-                    "instance_id": target["instance_id"],
+                    "preset": target["preset"],
                     "ok": False,
                     "reachable": False,
                     "awake": {},

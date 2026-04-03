@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 from pathlib import Path
@@ -73,9 +72,8 @@ class PlannedLLMBackend:
         return LLMResult(reply=str(reply), messages=list(messages))
 
 
-def _summary_state_root(tmp_path: Path, instance_id: str) -> Path:
-    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", instance_id) or "default"
-    return tmp_path / "state" / f"summary_{safe}"
+def _summary_state_root(tmp_path: Path, web_port: int) -> Path:
+    return tmp_path / "state" / f"summary_port_{int(web_port)}"
 
 
 def _summary_config() -> dict:
@@ -119,7 +117,7 @@ def _make_app(
     stt_backend=None,
     llm_backend=None,
     output_backend=None,
-    instance_id: str = "demo",
+    web_port: int = 8080,
     cfg=None,
     built_pipeline_cfgs=None,
     repo_root_override: Path | None = None,
@@ -159,7 +157,7 @@ def _make_app(
     app, _, _ = webapp_server.create_app(
         cfg=cfg or {"output": {"target": "server"}},
         config_path=str(tmp_path / "cfg.json"),
-        instance_id=instance_id,
+        web_port=web_port,
         runtime_state_dir=str(tmp_path / "state"),
     )
     return app
@@ -198,8 +196,8 @@ def _wait_for_summary_status(client, status: str, *, timeout_s: float = 1.5):
     )
 
 
-def test_summary_config_persists_per_instance(monkeypatch, tmp_path: Path):
-    app = _make_app(monkeypatch, tmp_path, instance_id="demo_5301")
+def test_summary_config_persists_per_web_port(monkeypatch, tmp_path: Path):
+    app = _make_app(monkeypatch, tmp_path, web_port=5301)
     client = app.test_client()
     cfg = _summary_config()
     cfg["models"]["tts_primary"] = "piper:custom_model.onnx"
@@ -213,12 +211,12 @@ def test_summary_config_persists_per_instance(monkeypatch, tmp_path: Path):
     payload = resp.get_json()
     assert payload["config"]["models"]["tts_primary"] == "piper:custom_model.onnx"
     assert payload["config"]["prompts"]["summary_instruction"] == "Vat dit rustig samen."
-    config_path = _summary_state_root(tmp_path, "demo_5301") / "summary_runtime.config.json"
+    config_path = _summary_state_root(tmp_path, 5301) / "summary_runtime.config.json"
     assert config_path.exists()
     stored = json.loads(config_path.read_text(encoding="utf-8"))
     assert stored["models"]["tts_primary"] == "piper:custom_model.onnx"
 
-    app2 = _make_app(monkeypatch, tmp_path, instance_id="demo_5301")
+    app2 = _make_app(monkeypatch, tmp_path, web_port=5301)
     client2 = app2.test_client()
     cfg_resp = client2.get("/api/summary/config")
     assert cfg_resp.status_code == 200
@@ -228,7 +226,7 @@ def test_summary_config_persists_per_instance(monkeypatch, tmp_path: Path):
 
 
 def test_summary_legacy_config_migrates_on_load(monkeypatch, tmp_path: Path):
-    root = _summary_state_root(tmp_path, "demo")
+    root = _summary_state_root(tmp_path, 8080)
     root.mkdir(parents=True, exist_ok=True)
     (root / "config.json").write_text(
         json.dumps(
@@ -315,7 +313,7 @@ def test_summary_start_creates_persistent_active_session_and_relaxed_capture_def
     assert int(cont.get("stop_silence_ms", 0)) >= int(webapp_server._SUMMARY_CAPTURE_MIN_STOP_SILENCE_MS)
     assert int(cont.get("pre_roll_ms", 0)) >= int(webapp_server._SUMMARY_CAPTURE_MIN_PRE_ROLL_MS)
 
-    active_path = _summary_state_root(tmp_path, "demo") / "active_session.json"
+    active_path = _summary_state_root(tmp_path, 8080) / "active_session.json"
     assert active_path.exists()
     active = json.loads(active_path.read_text(encoding="utf-8"))
     assert active["status"] == "capturing"
@@ -851,9 +849,9 @@ def test_summary_stop_output_interrupts_inflight_publish(monkeypatch, tmp_path: 
     assert output.emitted == ["ok"]
 
 
-def test_summary_presets_are_shared_but_selected_preset_is_instance_specific(monkeypatch, tmp_path: Path):
+def test_summary_presets_are_shared_but_selected_preset_is_port_specific(monkeypatch, tmp_path: Path):
     repo_root = tmp_path / "repo_root"
-    app = _make_app(monkeypatch, tmp_path, instance_id="demo_a", repo_root_override=repo_root)
+    app = _make_app(monkeypatch, tmp_path, web_port=5301, repo_root_override=repo_root)
     client = app.test_client()
     cfg = _summary_config()
     cfg["prompts"]["summary_instruction"] = "Preset A"
@@ -866,7 +864,7 @@ def test_summary_presets_are_shared_but_selected_preset_is_instance_specific(mon
     cfg["selected_preset_id"] = preset["id"]
     assert client.post("/api/summary/config", json={"config": cfg}).status_code == 200
 
-    app_b = _make_app(monkeypatch, tmp_path, instance_id="demo_b", repo_root_override=repo_root)
+    app_b = _make_app(monkeypatch, tmp_path, web_port=5302, repo_root_override=repo_root)
     client_b = app_b.test_client()
     presets_resp = client_b.get("/api/summary/presets")
     assert presets_resp.status_code == 200
@@ -895,7 +893,7 @@ def test_summary_abort_persists_terminal_state(monkeypatch, tmp_path: Path):
     assert abort_resp.get_json()["session"]["last_error"] is None
     assert abort_resp.get_json()["session"]["last_error_stage"] is None
 
-    active = json.loads((_summary_state_root(tmp_path, "demo") / "active_session.json").read_text(encoding="utf-8"))
+    active = json.loads((_summary_state_root(tmp_path, 8080) / "active_session.json").read_text(encoding="utf-8"))
     assert active["status"] == "aborted"
     assert active["last_error"] is None
     assert active["last_error_stage"] is None
@@ -954,7 +952,7 @@ def test_summary_clear_removes_terminal_recent_session(monkeypatch, tmp_path: Pa
     clear_resp = client.post("/api/summary/clear")
     assert clear_resp.status_code == 200
     assert clear_resp.get_json()["session"] is None
-    active_path = _summary_state_root(tmp_path, "demo") / "active_session.json"
+    active_path = _summary_state_root(tmp_path, 8080) / "active_session.json"
     assert not active_path.exists()
 
 
@@ -2095,7 +2093,7 @@ def test_summary_abort_clears_spool_directory(monkeypatch, tmp_path: Path):
         time.sleep(0.02)
     assert session is not None
     session_id = str(session["session_id"])
-    spool_dir = _summary_state_root(tmp_path, "demo") / "stt_spool" / session_id
+    spool_dir = _summary_state_root(tmp_path, 8080) / "stt_spool" / session_id
     assert spool_dir.is_dir()
     assert any(spool_dir.iterdir())
 
@@ -2123,7 +2121,7 @@ def test_summary_clear_removes_terminal_spool_directory(monkeypatch, tmp_path: P
     session_id = start_resp.get_json()["session"]["session_id"]
     assert client.post("/api/summary/abort").status_code == 200
 
-    spool_dir = _summary_state_root(tmp_path, "demo") / "stt_spool" / str(session_id)
+    spool_dir = _summary_state_root(tmp_path, 8080) / "stt_spool" / str(session_id)
     spool_dir.mkdir(parents=True, exist_ok=True)
     (spool_dir / "00000001.json").write_text("{}", encoding="utf-8")
     assert spool_dir.is_dir()
@@ -2135,7 +2133,7 @@ def test_summary_clear_removes_terminal_spool_directory(monkeypatch, tmp_path: P
 
 
 def test_summary_restart_loads_recent_session_without_resuming_capture(monkeypatch, tmp_path: Path):
-    root = _summary_state_root(tmp_path, "demo")
+    root = _summary_state_root(tmp_path, 8080)
     root.mkdir(parents=True, exist_ok=True)
     active_path = root / "active_session.json"
     active_path.write_text(

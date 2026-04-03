@@ -83,7 +83,7 @@ class SummaryService:
     def __init__(
         self,
         *,
-        instance_id: str,
+        web_port: int,
         state_root: Optional[str],
         default_config: JsonDict,
         normalize_config: Callable[[Any], JsonDict],
@@ -108,7 +108,7 @@ class SummaryService:
         stt_recovery_probe_delay_s: float = 1.0,
         generate_user_template: str = "Transcript:\n{transcript}",
     ) -> None:
-        self.instance_id = str(instance_id or "default").strip() or "default"
+        self.web_port = int(web_port or 8080)
         self.state_root = str(state_root) if state_root else None
         self._normalize_config = normalize_config
         self._build_app_config = build_app_config
@@ -153,7 +153,7 @@ class SummaryService:
 
     def get_config_payload(self) -> JsonDict:
         with self._lock:
-            return {"ok": True, "instance_id": self.instance_id, "config": _deepcopy_json(self._config)}
+            return {"ok": True, "port": self.web_port, "config": _deepcopy_json(self._config)}
 
     def update_config(self, raw_config: Any) -> Tuple[JsonDict, int]:
         with self._lock:
@@ -203,7 +203,7 @@ class SummaryService:
             )
             return {
                 "ok": True,
-                "instance_id": self.instance_id,
+                "port": self.web_port,
                 "config": _deepcopy_json(self._config),
                 "applies_to_next_session": True,
                 "applies_to_active_session": applies_to_active_session,
@@ -775,7 +775,7 @@ class SummaryService:
     ) -> JsonDict:
         payload: JsonDict = {
             "ok": error is None,
-            "instance_id": self.instance_id,
+            "port": self.web_port,
             "config": _deepcopy_json(self._config),
             "session": self._session_public(session if session is not None else self._session),
             "connectivity_issues": self._connectivity_snapshot(),
@@ -1582,7 +1582,7 @@ class SummaryService:
                 return {
                     "ok": False,
                     "error": "summary_session_already_active",
-                    "instance_id": self.instance_id,
+                    "port": self.web_port,
                     "session": self._session_public(current),
                     "config": _deepcopy_json(self._config),
                     "connectivity_issues": self._connectivity_snapshot(),
