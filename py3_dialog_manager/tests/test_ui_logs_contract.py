@@ -245,8 +245,30 @@ def test_chat_stop_buttons_split_behavior_stop_and_stop_all(monkeypatch):
     stop_behavior_body = _extract_function_body(html, "stopCurrentBehavior")
     stop_all_body = _extract_function_body(html, "stopCurrentAction")
 
-    assert "await requestCommandStop();" in stop_behavior_body
-    assert "await requestNaoAudioStop();" not in stop_behavior_body
+    assert "await requestSpecificBehaviorStop(behaviorTarget)" in stop_behavior_body
+    assert "await requestCommandStop()" in stop_behavior_body
     assert "setStatus(`Stop-commando verstuurd voor ${label}.`);" in stop_behavior_body
-    assert "await requestNaoAudioStop();" in stop_all_body
+    assert "await requestCommandStop();" in stop_all_body
+    assert "await requestNaoAudioStop();" not in stop_all_body
     assert "setStatus('Alles gestopt.');" in stop_all_body
+    assert "function beginOptimisticStopAction(label, opts = {})" in html
+    assert "function hasActiveStopAction()" in html
+    assert "btnStopAll.disabled = sendStopInFlight;" in html
+    assert "if (!hasActiveStopAction()) return;" not in stop_all_body
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_shows_stop_actions_optimistically_for_stoppable_commands_and_behaviors(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    command_body = _extract_function_body(html, "runSelectedCommand")
+    behavior_body = _extract_function_body(html, "runSelectedBehavior")
+
+    assert "beginOptimisticStopAction(normalizedLabel)" in command_body
+    assert "normalizedLabel === 'DANCE' || normalizedLabel === 'WALK_WITH_ME'" in command_body
+    assert "beginOptimisticStopAction(stopLabel, { behaviorTarget: behavior })" in behavior_body
+    assert "syncStopAvailability(j);" in behavior_body

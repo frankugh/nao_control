@@ -1064,19 +1064,29 @@ def stop_behavior():
 
         if not isinstance(bname, unicode_type):
             if isinstance(bname, str):
-                bname = bname.decode("utf-8")
+                bname_u = bname.decode("utf-8")
             else:
-                bname = unicode_type(bname)
+                bname_u = unicode_type(bname)
+        else:
+            bname_u = bname
+        bname_qi = bname_u.encode("utf-8")
 
-        if not call_proxy_read("ALBehaviorManager", "isBehaviorInstalled", bname):
-            return make_response(status="error", error="Behavior not installed: " + bname)
+        if not call_proxy_read("ALBehaviorManager", "isBehaviorInstalled", bname_qi):
+            return make_response(
+                status="error",
+                error="Behavior not installed: " + bname_u,
+                data={"behavior": bname_u, "installed": False},
+            )
 
         behavior_read = get_read_proxy("ALBehaviorManager")
-        if hasattr(behavior_read, "isBehaviorRunning") and not behavior_read.isBehaviorRunning(bname):
-            return make_response(status="warning", data="Behavior not running: " + bname)
+        if hasattr(behavior_read, "isBehaviorRunning") and not behavior_read.isBehaviorRunning(bname_qi):
+            return make_response(
+                status="warning",
+                data={"behavior": bname_u, "running": False},
+            )
 
-        call_proxy_write("ALBehaviorManager", "stopBehavior", bname)
-        return make_response(data="Stopped behavior: " + bname)
+        call_proxy_write("ALBehaviorManager", "stopBehavior", bname_qi)
+        return make_response(data={"behavior": bname_u, "stopped": True})
     except Exception as e:
         return make_response(status="error", error=repr(e))
 

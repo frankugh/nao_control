@@ -2152,6 +2152,8 @@ def create_app(
                 "command_stop_available": False,
                 "command_stop_label": None,
                 "command_stop_scope": None,
+                "command_stop_seq": 0,
+                "command_stop_active_seq": None,
                 "motion_last_seq": None,
             },
         )
@@ -2171,6 +2173,10 @@ def create_app(
             state["command_stop_label"] = None
         if "command_stop_scope" not in state:
             state["command_stop_scope"] = None
+        if "command_stop_seq" not in state:
+            state["command_stop_seq"] = 0
+        if "command_stop_active_seq" not in state:
+            state["command_stop_active_seq"] = None
         if "motion_last_seq" not in state:
             state["motion_last_seq"] = None
         return state
@@ -2196,11 +2202,32 @@ def create_app(
         scope_norm = str(scope or "").strip().lower()
         state["command_stop_scope"] = scope_norm if scope_norm in _CUSTOM_LIFE_LOCK_MODES else None
 
-    def _clear_command_stop_available(sid: str) -> None:
+    def _begin_command_stop_action(sid: str, label: Optional[str], *, scope: Optional[str] = None) -> int:
         state = _get_runtime_state(sid)
+        next_seq = int(state.get("command_stop_seq") or 0) + 1
+        state["command_stop_seq"] = next_seq
+        state["command_stop_active_seq"] = next_seq
+        _set_command_stop_available(sid, label, scope=scope)
+        return next_seq
+
+    def _command_stop_action_is_current(sid: str, seq: Optional[int]) -> bool:
+        if seq is None:
+            return False
+        state = _get_runtime_state(sid)
+        try:
+            current_seq = int(state.get("command_stop_active_seq"))
+        except Exception:
+            current_seq = None
+        return current_seq == int(seq)
+
+    def _clear_command_stop_available(sid: str, *, seq: Optional[int] = None) -> None:
+        state = _get_runtime_state(sid)
+        if seq is not None and not _command_stop_action_is_current(sid, seq):
+            return
         state["command_stop_available"] = False
         state["command_stop_label"] = None
         state["command_stop_scope"] = None
+        state["command_stop_active_seq"] = None
 
     def _command_stop_payload(sid: str) -> Dict[str, Any]:
         state = _get_runtime_state(sid)
@@ -2254,6 +2281,21 @@ def create_app(
         if behavior_norm in ("greetings", "greetings/doboxsit", "greetings/dohighfive"):
             return _CUSTOM_LIFE_LOCK_UNTIL_NEXT_USER_TURN
         return None
+
+    def _command_stop_label_for_behavior_name(behavior: str) -> Optional[str]:
+        behavior_norm = str(behavior or "").strip().lower()
+        if not behavior_norm:
+            return None
+        if "walkwithme" in behavior_norm:
+            return "WALK_WITH_ME"
+        if behavior_norm.startswith("dances/"):
+            return "DANCE"
+        if behavior_norm in ("greetings", "greetings/doboxsit"):
+            return "BOX"
+        if behavior_norm == "greetings/dohighfive":
+            return "HIGH_FIVE"
+        leaf = behavior_norm.rsplit("/", 1)[-1].strip()
+        return leaf.upper().replace(" ", "_") if leaf else None
 
     def _walk_behavior_active_for_sid(sid: str) -> bool:
         runtime_state = _get_runtime_state(sid)
@@ -3505,29 +3547,64 @@ def create_app(
 
         _append_user(history, text)
         lock_mode = _custom_life_lock_mode_for_command(cmd)
+        action_seq = None
         if lock_mode:
             _acquire_custom_life_lock(sid, runtime_cfg, lock_mode, source=source, request_id=request_id, turn_id=turn_id)
-        if behavior_executor or _normalize_command_label(cmd.label) == "REST":
-            _set_behavior_executor_custom_life_management(behavior_executor, False)
-            _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
+        if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+            action_seq = _begin_command_stop_action(sid, cmd.label, scope=lock_mode)
+            _set_cmd_state(
+                sid,
+                state,
+                mode="PERFORMING",
+                active_behavior=cmd.label,
+                reason="command_started",
+                command_label=cmd.label,
+                text=text,
+                confidence=cmd.confidence,
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
+            )
+        try:
+            if behavior_executor or _normalize_command_label(cmd.label) == "REST":
+                _set_behavior_executor_custom_life_management(behavior_executor, False)
+                _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
+        except Exception:
+            if action_seq is not None:
+                _clear_command_stop_available(sid, seq=action_seq)
+                _set_cmd_state(
+                    sid,
+                    state,
+                    mode="DIALOG",
+                    active_behavior=None,
+                    reason="command_start_failed",
+                    command_label=cmd.label,
+                    text=text,
+                    confidence=cmd.confidence,
+                    source=source,
+                    request_id=request_id,
+                    turn_id=turn_id,
+                )
+            if lock_mode:
+                _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id, turn_id=turn_id)
+            raise
         _apply_auto_rest_command_outcome(cmd.label)
         _touch_activity()
-        _set_cmd_state(
-            sid,
-            state,
-            mode="PERFORMING",
-            active_behavior=cmd.label,
-            reason="command_executed",
-            command_label=cmd.label,
-            text=text,
-            confidence=cmd.confidence,
-            source=source,
-            request_id=request_id,
-            turn_id=turn_id,
-        )
-        if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
-            _set_command_stop_available(sid, cmd.label, scope=lock_mode)
-        else:
+        if action_seq is None or _command_stop_action_is_current(sid, action_seq):
+            _set_cmd_state(
+                sid,
+                state,
+                mode="PERFORMING",
+                active_behavior=cmd.label,
+                reason="command_executed",
+                command_label=cmd.label,
+                text=text,
+                confidence=cmd.confidence,
+                source=source,
+                request_id=request_id,
+                turn_id=turn_id,
+            )
+        if lock_mode not in _CUSTOM_LIFE_LOCK_MODES:
             _clear_command_stop_available(sid)
         _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
         _append_assistant(history, f"OK. Uitgevoerd: {cmd.label}")
@@ -6244,18 +6321,52 @@ def create_app(
                 confidence=pending.get("confidence") or cmd.confidence,
             )
             lock_mode = _custom_life_lock_mode_for_command(cmd)
+            action_seq = None
             if lock_mode:
                 _acquire_custom_life_lock(sid, runtime_cfg, lock_mode, source=source, request_id=confirm_request_id)
-            if behavior_executor or _normalize_command_label(cmd.label) == "REST":
-                _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
-                if _normalize_command_label(cmd.label) == "STOP":
-                    _execute_standup_after_stop_if_needed(
+            if lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+                action_seq = _begin_command_stop_action(sid, cmd.label, scope=lock_mode)
+                _set_cmd_state(
+                    sid,
+                    _get_cmdrec_state(sid),
+                    mode="PERFORMING",
+                    active_behavior=cmd.label,
+                    reason="confirm_command_started",
+                    command_label=cmd.label,
+                    text=pending.get("input_text"),
+                    confidence=pending.get("confidence") or cmd.confidence,
+                    source=source,
+                    request_id=confirm_request_id,
+                )
+            try:
+                if behavior_executor or _normalize_command_label(cmd.label) == "REST":
+                    _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
+                    if _normalize_command_label(cmd.label) == "STOP":
+                        _execute_standup_after_stop_if_needed(
+                            sid,
+                            behavior_executor,
+                            runtime_cfg_local=runtime_cfg,
+                            source="system_auto",
+                            request_id=confirm_request_id,
+                        )
+            except Exception:
+                if action_seq is not None:
+                    _clear_command_stop_available(sid, seq=action_seq)
+                    _set_cmd_state(
                         sid,
-                        behavior_executor,
-                        runtime_cfg_local=runtime_cfg,
-                        source="system_auto",
+                        _get_cmdrec_state(sid),
+                        mode="DIALOG",
+                        active_behavior=None,
+                        reason="confirm_command_start_failed",
+                        command_label=cmd.label,
+                        text=pending.get("input_text"),
+                        confidence=pending.get("confidence") or cmd.confidence,
+                        source=source,
                         request_id=confirm_request_id,
                     )
+                if lock_mode:
+                    _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=confirm_request_id)
+                raise
             _apply_auto_rest_command_outcome(cmd.label)
             if _normalize_command_label(cmd.label) == "STOP":
                 _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=confirm_request_id)
@@ -6267,9 +6378,7 @@ def create_app(
                     sid=sid,
                     reason="confirm_stop",
                 )
-            elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
-                _set_command_stop_available(sid, cmd.label, scope=lock_mode)
-            else:
+            elif lock_mode not in _CUSTOM_LIFE_LOCK_MODES:
                 _clear_command_stop_available(sid)
             _set_last_action(sid, _format_action_summary("Uitgevoerd", cmd.label, cmd.resolved))
             _append_assistant(history, f"✅ Uitgevoerd: {cmd.label}")
@@ -8956,11 +9065,42 @@ def create_app(
             data={"command": cmd.label, "resolved": cmd.resolved or {}, "origin": "manual_execute"},
         )
         lock_mode = _custom_life_lock_mode_for_command(cmd)
+        action_seq = None
         if lock_mode:
             _acquire_custom_life_lock(sid, runtime_cfg, lock_mode, source=source, request_id=request_id)
+        if normalized_label != "STOP" and lock_mode in _CUSTOM_LIFE_LOCK_MODES:
+            action_seq = _begin_command_stop_action(sid, cmd.label, scope=lock_mode)
+            _set_cmd_state(
+                sid,
+                state,
+                mode="PERFORMING",
+                active_behavior=cmd.label,
+                reason="command_started",
+                command_label=cmd.label,
+                text=cmd.raw_text,
+                confidence=cmd.confidence,
+                source=source,
+                request_id=request_id,
+            )
         try:
             _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
         except Exception as exc:
+            if action_seq is not None:
+                _clear_command_stop_available(sid, seq=action_seq)
+                _set_cmd_state(
+                    sid,
+                    state,
+                    mode="DIALOG",
+                    active_behavior=None,
+                    reason="command_start_failed",
+                    command_label=cmd.label,
+                    text=cmd.raw_text,
+                    confidence=cmd.confidence,
+                    source=source,
+                    request_id=request_id,
+                )
+            if lock_mode:
+                _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
             _log_dm_event(
                 sid=sid,
                 level="error",
@@ -9002,11 +9142,9 @@ def create_app(
                 source=source,
                 request_id=request_id,
             )
-        elif lock_mode in _CUSTOM_LIFE_LOCK_MODES:
-            _set_command_stop_available(sid, cmd.label, scope=lock_mode)
-        else:
+        elif lock_mode not in _CUSTOM_LIFE_LOCK_MODES:
             _clear_command_stop_available(sid)
-        if normalized_label != "STOP":
+        if normalized_label != "STOP" and (action_seq is None or _command_stop_action_is_current(sid, action_seq)):
             _set_cmd_state(
                 sid,
                 state,
@@ -9071,14 +9209,42 @@ def create_app(
         behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
         base_enabled = bool(runtime_cfg.get("base_enabled", True))
         lock_mode = _custom_life_lock_mode_for_behavior_name(behavior)
+        stop_label = _command_stop_label_for_behavior_name(behavior)
         state = _get_runtime_state(sid)
         lock_active = _custom_life_lock_is_active(state)
+        action_seq = None
+        if lock_mode in _CUSTOM_LIFE_LOCK_MODES and stop_label:
+            action_seq = _begin_command_stop_action(sid, stop_label, scope=lock_mode)
+            _set_cmd_state(
+                sid,
+                _get_cmdrec_state(sid),
+                mode="PERFORMING",
+                active_behavior=stop_label,
+                reason="behavior_start_requested",
+                command_label=stop_label,
+                text=behavior,
+                source=source,
+                request_id=request_id,
+            )
         candidates: List[Tuple[str, str]] = []
         if behavior_enabled and behavior_url:
             candidates.append((behavior_url, "behavior"))
         if base_enabled and base_url:
             candidates.append((base_url, "base"))
         if not candidates:
+            if action_seq is not None:
+                _clear_command_stop_available(sid, seq=action_seq)
+                _set_cmd_state(
+                    sid,
+                    _get_cmdrec_state(sid),
+                    mode="DIALOG",
+                    active_behavior=None,
+                    reason="behavior_start_failed",
+                    command_label=stop_label,
+                    text=behavior,
+                    source=source,
+                    request_id=request_id,
+                )
             return {"ok": False, "error": "NAO endpoint ontbreekt."}, 400
 
         last_error = None
@@ -9179,7 +9345,22 @@ def create_app(
                 request_id=request_id,
                 data={"ok": True, "behavior": behavior, "mode": mode},
             )
-            return {"ok": True}, 200
+            out = {"ok": True}
+            _attach_command_stop_payload(sid, out)
+            return out, 200
+        if action_seq is not None:
+            _clear_command_stop_available(sid, seq=action_seq)
+            _set_cmd_state(
+                sid,
+                _get_cmdrec_state(sid),
+                mode="DIALOG",
+                active_behavior=None,
+                reason="behavior_start_failed",
+                command_label=stop_label,
+                text=behavior,
+                source=source,
+                request_id=request_id,
+            )
         _log_dm_event(
             sid=sid,
             level="error",
@@ -9190,7 +9371,9 @@ def create_app(
             request_id=request_id,
             data={"ok": False, "behavior": behavior, "error": last_error or "behavior failed"},
         )
-        return {"ok": False, "error": last_error or "behavior failed"}, 400
+        out = {"ok": False, "error": last_error or "behavior failed"}
+        _attach_command_stop_payload(sid, out)
+        return out, 400
 
     def _nao_behavior_stop_impl(
         sid: str,
@@ -9259,6 +9442,18 @@ def create_app(
                 except Exception:
                     pass
             _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
+            _clear_command_stop_available(sid)
+            _set_cmd_state(
+                sid,
+                _get_cmdrec_state(sid),
+                mode="DIALOG",
+                active_behavior=None,
+                reason="behavior_stop_executed",
+                command_label=_command_stop_label_for_behavior_name(behavior),
+                text=behavior,
+                source=source,
+                request_id=request_id,
+            )
             _touch_activity()
             _log_dm_event(
                 sid=sid,
@@ -9270,7 +9465,9 @@ def create_app(
                 request_id=request_id,
                 data={"ok": True, "behavior": behavior, "mode": mode},
             )
-            return {"ok": True}, 200
+            out = {"ok": True}
+            _attach_command_stop_payload(sid, out)
+            return out, 200
         _log_dm_event(
             sid=sid,
             level="error",
@@ -9281,7 +9478,9 @@ def create_app(
             request_id=request_id,
             data={"ok": False, "behavior": behavior, "error": last_error or "behavior failed"},
         )
-        return {"ok": False, "error": last_error or "behavior failed"}, 400
+        out = {"ok": False, "error": last_error or "behavior failed"}
+        _attach_command_stop_payload(sid, out)
+        return out, 400
 
     @app.post("/api/command_execute")
     def api_command_execute():

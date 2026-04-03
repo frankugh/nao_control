@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import requests
@@ -25,6 +26,23 @@ class StubExecutor:
 
     def execute(self, cmd) -> None:
         self.calls.append(str(getattr(cmd, "label", "")))
+
+
+class BlockingExecutor:
+    def __init__(self, *, blocking_label: str) -> None:
+        self.blocking_label = str(blocking_label or "").upper()
+        self.calls: list[str] = []
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def execute(self, cmd) -> None:
+        label = str(getattr(cmd, "label", "") or "")
+        self.calls.append(label)
+        if label.upper() != self.blocking_label:
+            return
+        self.started.set()
+        if not self.release.wait(timeout=5):
+            raise AssertionError("blocking executor release wait timed out")
 
 
 class StubCmdrec:
@@ -190,6 +208,56 @@ def test_command_execute_stop_stops_audio_and_clears_stop_state(monkeypatch):
     assert stop_data["command_stop_label"] is None
     assert executor.calls[-2:] == ["STOP", "STAND_UP"]
     assert calls[-1][0] == "http://base:5000/stop_audio"
+
+
+def test_manual_stop_during_blocking_walk_does_not_restore_stop_state(monkeypatch):
+    executor = BlockingExecutor(blocking_label="WALK_WITH_ME")
+    app = _make_app(monkeypatch, executor=executor)
+    client_start = app.test_client(use_cookies=False)
+    client_stop = app.test_client(use_cookies=False)
+    headers = {"Cookie": "sid=stop-race"}
+    result_holder: dict[str, object] = {}
+
+    def _start_request() -> None:
+        result_holder["response"] = client_start.post(
+            "/api/command_execute",
+            json={"label": "WALK_WITH_ME"},
+            headers=headers,
+        )
+
+    worker = threading.Thread(target=_start_request)
+    worker.start()
+    assert executor.started.wait(timeout=2), "blocking WALK_WITH_ME did not start"
+
+    mid_state = client_stop.get("/api/state", headers=headers)
+    assert mid_state.status_code == 200
+    mid_data = mid_state.get_json()
+    assert mid_data["command_stop_available"] is True
+    assert mid_data["command_stop_label"] == "WALK_WITH_ME"
+
+    stop_resp = client_stop.post("/api/command_execute", json={"label": "STOP"}, headers=headers)
+    assert stop_resp.status_code == 200
+    stop_data = stop_resp.get_json()
+    assert stop_data["ok"] is True
+    assert stop_data["command_stop_available"] is False
+    assert stop_data["command_stop_label"] is None
+
+    executor.release.set()
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "blocking WALK_WITH_ME request did not finish"
+
+    start_resp = result_holder["response"]
+    assert start_resp.status_code == 200
+    start_data = start_resp.get_json()
+    assert start_data["ok"] is True
+    assert start_data["command_stop_available"] is False
+    assert start_data["command_stop_label"] is None
+
+    end_state = client_stop.get("/api/state", headers=headers)
+    assert end_state.status_code == 200
+    end_data = end_state.get_json()
+    assert end_data["command_stop_available"] is False
+    assert end_data["command_stop_label"] is None
 
 
 def test_nao_wake_up_timeout_returns_pending(monkeypatch):

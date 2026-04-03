@@ -1821,6 +1821,10 @@
       const SEND_STATE_POLL_MS = 700;
       let commandStopAvailable = false;
       let commandStopLabel = null;
+      let optimisticStopLabel = null;
+      let optimisticBehaviorStopTarget = null;
+      let nextStopActionToken = 1;
+      let activeStopActionToken = 0;
       let clientInputMode = 'client';
       let clientOutputMode = 'text';
       let clientSpeechUtterance = null;
@@ -1949,21 +1953,25 @@
       }
 
       function formatStopCommandButtonText() {
-        const label = formatCommandLabelUi(commandStopLabel) || String(commandStopLabel || '').trim();
+        const labelRaw = commandStopLabel || optimisticStopLabel;
+        const label = formatCommandLabelUi(labelRaw) || String(labelRaw || '').trim();
         return label ? `Stop ${label}` : 'Stop';
+      }
+
+      function hasActiveStopAction() {
+        return !!commandStopAvailable || !!optimisticStopLabel;
       }
 
       function updateStopButtons() {
         if (btnStopCommand) {
-          const hasCommandStop = !!commandStopAvailable;
+          const hasCommandStop = hasActiveStopAction();
           btnStopCommand.hidden = !hasCommandStop;
           btnStopCommand.textContent = formatStopCommandButtonText();
           btnStopCommand.disabled = sendStopInFlight || !hasCommandStop;
         }
         if (btnStopAll) {
-          const stopAllAvailable = !!commandStopAvailable || !!sendBusyPhase || !!activeActionController || !!sendSpeakingTimer || !!clientSpeechUtterance;
           btnStopAll.textContent = sendStopInFlight ? 'Stop all...' : 'Stop all';
-          btnStopAll.disabled = sendStopInFlight || !stopAllAvailable;
+          btnStopAll.disabled = sendStopInFlight;
         }
       }
 
@@ -2008,10 +2016,36 @@
         }
       }
 
+      function beginOptimisticStopAction(label, opts = {}) {
+        const value = String(label || '').trim();
+        if (!value) return 0;
+        optimisticStopLabel = value;
+        optimisticBehaviorStopTarget = opts && opts.behaviorTarget ? String(opts.behaviorTarget).trim() : null;
+        activeStopActionToken = nextStopActionToken++;
+        updateSendButton();
+        return activeStopActionToken;
+      }
+
+      function clearOptimisticStopAction(token = null) {
+        if (token && activeStopActionToken && activeStopActionToken !== token) return;
+        optimisticStopLabel = null;
+        optimisticBehaviorStopTarget = null;
+        if (!token || activeStopActionToken === token) {
+          activeStopActionToken = 0;
+        }
+        updateSendButton();
+      }
+
       function syncStopAvailability(payload) {
         const wasStopAvailable = !!commandStopAvailable;
         commandStopAvailable = !!(payload && payload.command_stop_available);
         commandStopLabel = commandStopAvailable ? (payload.command_stop_label || null) : null;
+        if (commandStopAvailable) {
+          optimisticStopLabel = null;
+          optimisticBehaviorStopTarget = null;
+        } else {
+          clearOptimisticStopAction();
+        }
         if (wasStopAvailable && !commandStopAvailable) {
           if (sendBusyPhase === 'command') {
             setSendBusyPhase('');
@@ -2095,12 +2129,6 @@
         }
       }
 
-      async function requestNaoAudioStop() {
-        try {
-          await fetch('/api/nao_stop_audio', { method: 'POST' });
-        } catch (_) {}
-      }
-
       async function requestCommandStop() {
         try {
           const r = await fetch('/api/command_execute', {
@@ -2116,14 +2144,34 @@
         }
       }
 
+      async function requestSpecificBehaviorStop(behavior) {
+        const target = String(behavior || '').trim();
+        if (!target) return false;
+        try {
+          const r = await fetch('/api/nao_behavior_stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ behavior: target })
+          });
+          const j = await r.json();
+          syncStopAvailability(j);
+          return !!j.ok;
+        } catch (_) {
+          return false;
+        }
+      }
+
       async function stopCurrentBehavior() {
-        if (sendStopInFlight || !commandStopAvailable) return;
-        const label = formatCommandLabelUi(commandStopLabel) || String(commandStopLabel || '').trim() || 'actieve gedrag';
+        if (sendStopInFlight || !hasActiveStopAction()) return;
+        const labelRaw = commandStopLabel || optimisticStopLabel;
+        const label = formatCommandLabelUi(labelRaw) || String(labelRaw || '').trim() || 'actieve gedrag';
         sendStopInFlight = true;
         updateSendButton();
         try {
-          const commandStopOk = await requestCommandStop();
-          if (commandStopOk) {
+          const behaviorTarget = String(optimisticBehaviorStopTarget || '').trim();
+          const stopOk = behaviorTarget ? await requestSpecificBehaviorStop(behaviorTarget) : await requestCommandStop();
+          if (stopOk) {
+            clearOptimisticStopAction();
             setStatus(`Stop-commando verstuurd voor ${label}.`);
             setRecState('idle');
           } else {
@@ -2140,32 +2188,15 @@
         sendStopInFlight = true;
         updateSendButton();
         try {
-          const shouldSendStopCmd = !!commandStopAvailable || sendBusyPhase === 'command';
-          let commandStopOk = true;
-          const controller = activeActionController;
-          if (controller) {
-            try { controller.abort(); } catch (_) {}
-          }
-          clearSpeakingWindow();
-          activeActionController = null;
-          if (shouldSendStopCmd) {
-            commandStopOk = await requestCommandStop();
-            if (!commandStopOk) {
-              setStatus('Stop-commando kon niet bevestigd worden, audio stop wordt alsnog geprobeerd.');
-            }
-          }
-          await requestNaoAudioStop();
+          const commandStopOk = await requestCommandStop();
           if (commandStopOk) {
-            commandStopAvailable = false;
-            commandStopLabel = null;
+            clearOptimisticStopAction();
             setStatus('Alles gestopt.');
+          } else {
+            setStatus('Stop-commando kon niet bevestigd worden.');
           }
           setRecState('idle');
-          if (!commandStopOk) {
-            setStatus('Stop deels uitgevoerd (audio stop wel verstuurd).');
-          }
         } finally {
-          sendBusyPhase = '';
           sendStopInFlight = false;
           updateSendButton();
         }
@@ -3812,6 +3843,10 @@
         setSendBusyPhase('command');
         setRecState('uitvoeren', 'thinking');
         const controller = createActionController();
+        const normalizedLabel = String(label || '').trim().toUpperCase();
+        const stopToken = (normalizedLabel === 'DANCE' || normalizedLabel === 'WALK_WITH_ME')
+          ? beginOptimisticStopAction(normalizedLabel)
+          : 0;
         try {
           let resolved = null;
           if (label.toUpperCase() === 'DANCE' && danceList && danceList.value) {
@@ -3830,12 +3865,17 @@
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'command failed');
           syncStopAvailability(j);
-          cmdStatus.textContent = 'ok';
+          if (stopToken && activeStopActionToken !== stopToken && !commandStopAvailable) {
+            cmdStatus.textContent = 'gestopt';
+          } else {
+            cmdStatus.textContent = 'ok';
+          }
           if (cmdNaoHealthAvailable && activeTab === 'commands') {
             setCmdNaoStatus(`NAO status verversen na ${label}...`);
             scheduleCmdNaoRefresh(commandNaoRefreshDelayMs(label), false);
           }
         } catch (e) {
+          clearOptimisticStopAction(stopToken);
           if (isAbortError(e)) {
             cmdStatus.textContent = 'gestopt';
           } else {
@@ -3857,6 +3897,19 @@
           return;
         }
         behaviorStatus.textContent = start ? 'starten...' : 'stoppen...';
+        const behaviorNorm = String(behavior || '').trim().toLowerCase();
+        const stopLabel = behaviorNorm.includes('walkwithme')
+          ? 'WALK_WITH_ME'
+          : behaviorNorm.startsWith('dances/')
+            ? 'DANCE'
+            : behaviorNorm === 'greetings' || behaviorNorm === 'greetings/doboxsit'
+              ? 'BOX'
+              : behaviorNorm === 'greetings/dohighfive'
+                ? 'HIGH_FIVE'
+                : '';
+        const stopToken = start && stopLabel
+          ? beginOptimisticStopAction(stopLabel, { behaviorTarget: behavior })
+          : 0;
         try {
           const r = await fetch(start ? '/api/nao_behavior_start' : '/api/nao_behavior_stop', {
             method: 'POST',
@@ -3865,8 +3918,13 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'behavior failed');
+          syncStopAvailability(j);
+          if (!start) {
+            clearOptimisticStopAction();
+          }
           behaviorStatus.textContent = 'ok';
         } catch (e) {
+          clearOptimisticStopAction(stopToken);
           const msg = e && e.message ? e.message : String(e);
           behaviorStatus.textContent = `mislukt: ${msg}`;
         }
@@ -4009,11 +4067,25 @@
         }
         localPendingTurn = {
           userText: normalized,
+          userCommitted: false,
           assistantPending: true,
           startedAt: Date.now(),
           emitMode: String(emitMode || 'pipeline'),
           requestIdLocal: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
         };
+      }
+
+      function historyHasCommittedLocalPendingUser(history) {
+        if (!localPendingTurn || !Array.isArray(history) || !history.length) return false;
+        const pendingUserText = String(localPendingTurn.userText || '').trim();
+        if (!pendingUserText) return false;
+        for (let idx = history.length - 1; idx >= 0; idx--) {
+          const user = history[idx];
+          if ((user?.role || '') !== 'user') continue;
+          if (String(user?.content || '').trim() !== pendingUserText) continue;
+          return true;
+        }
+        return false;
       }
 
       function historyHasCommittedLocalPendingTurn(history) {
@@ -4033,6 +4105,9 @@
       }
 
       function syncPendingTurnFromHistory(history) {
+        if (historyHasCommittedLocalPendingUser(history)) {
+          localPendingTurn.userCommitted = true;
+        }
         if (!historyHasCommittedLocalPendingTurn(history)) return false;
         const previousPending = localPendingTurn;
         clearLocalPendingTurn();
@@ -4047,32 +4122,34 @@
         if (!chatEl || !localPendingTurn) return;
         const tsLabel = _formatLocalTimestamp(localPendingTurn.startedAt);
 
-        const userMsg = document.createElement('div');
-        userMsg.className = 'msg user';
-        userMsg.dataset.text = localPendingTurn.userText || '';
-        userMsg.dataset.localPending = localPendingTurn.requestIdLocal || '1';
+        if (!localPendingTurn.userCommitted) {
+          const userMsg = document.createElement('div');
+          userMsg.className = 'msg user';
+          userMsg.dataset.text = localPendingTurn.userText || '';
+          userMsg.dataset.localPending = localPendingTurn.requestIdLocal || '1';
 
-        const userWrap = document.createElement('div');
-        userWrap.className = 'bubblewrap';
+          const userWrap = document.createElement('div');
+          userWrap.className = 'bubblewrap';
 
-        const userRole = document.createElement('div');
-        userRole.className = 'role';
-        userRole.textContent = 'You';
-        if (tsLabel) {
-          const userTs = document.createElement('span');
-          userTs.className = 'timestamp';
-          userTs.textContent = tsLabel;
-          userRole.appendChild(userTs);
+          const userRole = document.createElement('div');
+          userRole.className = 'role';
+          userRole.textContent = 'You';
+          if (tsLabel) {
+            const userTs = document.createElement('span');
+            userTs.className = 'timestamp';
+            userTs.textContent = tsLabel;
+            userRole.appendChild(userTs);
+          }
+
+          const userBubble = document.createElement('div');
+          userBubble.className = 'bubble';
+          userBubble.textContent = localPendingTurn.userText || '';
+
+          userWrap.appendChild(userRole);
+          userWrap.appendChild(userBubble);
+          userMsg.appendChild(userWrap);
+          chatEl.appendChild(userMsg);
         }
-
-        const userBubble = document.createElement('div');
-        userBubble.className = 'bubble';
-        userBubble.textContent = localPendingTurn.userText || '';
-
-        userWrap.appendChild(userRole);
-        userWrap.appendChild(userBubble);
-        userMsg.appendChild(userWrap);
-        chatEl.appendChild(userMsg);
 
         if (!localPendingTurn.assistantPending) return;
 
@@ -7424,7 +7501,7 @@
           closeImagePreview();
           return;
         }
-        if (e.key === 'Escape' && (sendBusyPhase || activeActionController)) {
+        if (e.key === 'Escape' && hasActiveStopAction()) {
           // Don't block browser-level Escape behavior (fullscreen, etc.).
           stopCurrentAction().catch(() => {});
         }

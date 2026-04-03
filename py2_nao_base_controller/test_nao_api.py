@@ -173,6 +173,40 @@ class TestDoBehaviorRoute(unittest.TestCase):
         self.assertEqual(data["status"], "error")
         self.assertIn("Missing 'behavior'", data.get("error", ""))
 
+    @patch("nao_api.get_read_proxy")
+    @patch("nao_api.call_proxy_write")
+    @patch("nao_api.call_proxy_read")
+    def test_stop_behavior_unicode_name_encoded_for_naoqi(self, mock_call_proxy_read, mock_call_proxy_write, mock_get_read_proxy):
+        mock_call_proxy_read.return_value = True
+        behavior_read = MagicMock()
+        behavior_read.isBehaviorRunning.return_value = True
+        mock_get_read_proxy.return_value = behavior_read
+
+        app = nao_api.app
+        client = app.test_client()
+
+        behavior_name = u"animations/Stand/Gestures/You_1"
+        resp = client.post(
+            "/stop_behavior",
+            data=json.dumps({"behavior": behavior_name}),
+            content_type="application/json"
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.data.decode("utf-8"))
+        self.assertEqual(data["status"], "ok")
+
+        arg_installed = mock_call_proxy_read.call_args[0][2]
+        arg_running = behavior_read.isBehaviorRunning.call_args[0][0]
+        arg_stop = mock_call_proxy_write.call_args[0][2]
+        self.assertIsInstance(arg_installed, (str, bytes))
+        self.assertIsInstance(arg_running, (str, bytes))
+        self.assertIsInstance(arg_stop, (str, bytes))
+        self.assertEqual(arg_installed.decode("utf-8"), behavior_name)
+        self.assertEqual(arg_running.decode("utf-8"), behavior_name)
+        self.assertEqual(arg_stop.decode("utf-8"), behavior_name)
+        self.assertEqual(data["data"]["behavior"], behavior_name)
+
 
 class TestProxyReconnectHardening(unittest.TestCase):
 

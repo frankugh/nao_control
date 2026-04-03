@@ -257,11 +257,17 @@ def test_manual_walk_behavior_unlocks_on_behavior_stop(monkeypatch):
 
     start_resp = client.post("/api/nao_behavior_start", json={"behavior": "walkwithme/walkwithme"})
     assert start_resp.status_code == 200
-    assert start_resp.get_json()["ok"] is True
+    start_data = start_resp.get_json()
+    assert start_data["ok"] is True
+    assert start_data["command_stop_available"] is True
+    assert start_data["command_stop_label"] == "WALK_WITH_ME"
 
     stop_resp = client.post("/api/nao_behavior_stop", json={"behavior": "walkwithme/walkwithme"})
     assert stop_resp.status_code == 200
-    assert stop_resp.get_json()["ok"] is True
+    stop_data = stop_resp.get_json()
+    assert stop_data["ok"] is True
+    assert stop_data["command_stop_available"] is False
+    assert stop_data["command_stop_label"] is None
     assert calls == [
         "http://behavior.local/nao/custom_life_pause",
         "http://behavior.local/nao/do_behavior",
