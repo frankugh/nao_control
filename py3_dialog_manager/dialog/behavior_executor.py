@@ -21,6 +21,7 @@ class BehaviorExecutor(ICommandExecutor):
         custom_life_settings: Optional[dict] = None,
         manage_custom_life: bool = True,
         on_finish: Optional[Callable[[CommandDecision], None]] = None,
+        logger: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.api_router = api_router
         if self.api_router is None:
@@ -37,6 +38,16 @@ class BehaviorExecutor(ICommandExecutor):
             dict(custom_life_settings) if isinstance(custom_life_settings, dict) else None
         )
         self._manage_custom_life = bool(manage_custom_life)
+        self._logger = logger
+
+    def set_logger(self, logger: Optional[Callable[[str], None]]) -> None:
+        self._logger = logger
+
+    def _emit_log(self, message: str) -> None:
+        if self._logger is not None:
+            self._logger(str(message or ""))
+            return
+        print(message)
 
     def _log_exec(
         self,
@@ -53,7 +64,7 @@ class BehaviorExecutor(ICommandExecutor):
             msg += f" behavior={behavior}"
         if error:
             msg += f" error={error}"
-        print(msg)
+        self._emit_log(msg)
 
     def set_custom_life_management_enabled(self, enabled: bool) -> None:
         self._manage_custom_life = bool(enabled)
@@ -71,7 +82,7 @@ class BehaviorExecutor(ICommandExecutor):
                 resp = requests.post(f"{self.base_url}/custom_life_pause", json=payload, timeout=self.timeout_s)
             data = resp.json() if resp.ok else {}
         except Exception as exc:
-            print(f"[NAO] pause custom life failed: {exc}")
+            self._emit_log(f"[NAO] pause custom life failed: {exc}")
             return None
         state = None
         if isinstance(data, dict):
@@ -97,7 +108,7 @@ class BehaviorExecutor(ICommandExecutor):
             else:
                 requests.post(f"{self.base_url}{path}", json=payload, timeout=self.timeout_s)
         except Exception as exc:
-            print(f"[NAO] restore custom life failed: {exc}")
+            self._emit_log(f"[NAO] restore custom life failed: {exc}")
 
     def set_on_finish(self, on_finish: Optional[Callable[[CommandDecision], None]]) -> None:
         self._on_finish = on_finish
@@ -108,7 +119,7 @@ class BehaviorExecutor(ICommandExecutor):
         try:
             self._on_finish(cmd)
         except Exception as exc:
-            print(f"[NAO] on_finish callback failed: {exc}")
+            self._emit_log(f"[NAO] on_finish callback failed: {exc}")
 
     @staticmethod
     def _response_status(data: object) -> str:
@@ -249,7 +260,7 @@ class BehaviorExecutor(ICommandExecutor):
                 requests.post(f"{self.base_url}/stop_move", json=payload, timeout=timeout_s)
                 requests.post(f"{self.base_url}/stop_all_behaviors", json=payload, timeout=timeout_s)
         except requests.RequestException as exc:
-            print(f"[NAO] stop request failed: {exc}")
+            self._emit_log(f"[NAO] stop request failed: {exc}")
 
     def _rest(self, *, timeout_s: float) -> None:
         payload = {}
@@ -277,7 +288,7 @@ class BehaviorExecutor(ICommandExecutor):
                 resp = requests.get(f"{self.base_url}/posture", timeout=self.timeout_s)
             data = resp.json() if resp.ok else {}
         except Exception as exc:
-            print(f"[NAO] posture request failed: {exc}")
+            self._emit_log(f"[NAO] posture request failed: {exc}")
             return None
 
         payload = data.get("data") or {}
@@ -324,23 +335,42 @@ class BehaviorExecutor(ICommandExecutor):
 
 
 class PrintBehaviorExecutor(ICommandExecutor):
-    def __init__(self, *, dry_run: bool = True) -> None:
+    def __init__(self, *, dry_run: bool = True, logger: Optional[Callable[[str], None]] = None) -> None:
         self._dry_run = bool(dry_run)
+        self._logger = logger
+
+    def set_logger(self, logger: Optional[Callable[[str], None]]) -> None:
+        self._logger = logger
 
     def execute(self, cmd: CommandDecision) -> None:
         resolved = cmd.resolved or {}
         prefix = "EXECUTE (dry-run)" if self._dry_run else "EXECUTE"
-        print(f"{prefix}: {cmd.label} resolved={resolved}")
+        message = f"{prefix}: {cmd.label} resolved={resolved}"
+        if self._logger is not None:
+            self._logger(message)
+            return
+        print(message)
 
 
 class ConsoleAndBehaviorExecutor(ICommandExecutor):
-    def __init__(self, executor: ICommandExecutor | None) -> None:
-        self._printer = PrintBehaviorExecutor(dry_run=(executor is None))
+    def __init__(self, executor: ICommandExecutor | None, *, logger: Optional[Callable[[str], None]] = None) -> None:
+        self._printer = PrintBehaviorExecutor(dry_run=(executor is None), logger=logger)
         self._executor = executor
         self._on_finish: Optional[Callable[[CommandDecision], None]] = None
+        self._logger = logger
+        setter = getattr(self._executor, "set_logger", None)
+        if callable(setter):
+            setter(logger)
 
     def set_on_finish(self, on_finish: Optional[Callable[[CommandDecision], None]]) -> None:
         self._on_finish = on_finish
+
+    def set_logger(self, logger: Optional[Callable[[str], None]]) -> None:
+        self._logger = logger
+        self._printer.set_logger(logger)
+        setter = getattr(self._executor, "set_logger", None)
+        if callable(setter):
+            setter(logger)
 
     def set_custom_life_management_enabled(self, enabled: bool) -> None:
         if self._executor is None:
@@ -362,6 +392,9 @@ class ConsoleAndBehaviorExecutor(ICommandExecutor):
                 try:
                     self._on_finish(cmd)
                 except Exception as exc:
-                    print(f"[NAO] on_finish callback failed: {exc}")
+                    if self._logger is not None:
+                        self._logger(f"[NAO] on_finish callback failed: {exc}")
+                    else:
+                        print(f"[NAO] on_finish callback failed: {exc}")
         if exec_error is not None:
             raise exec_error

@@ -9765,7 +9765,7 @@ def create_app(
 
     def _summary_build_app_config(summary_cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         cfg_obj = _normalize_summary_config(summary_cfg)
-        runtime_cfg = copy.deepcopy(runtime_cfg_default)
+        runtime_cfg = _runtime_cfg_snapshot()
         _sanitize_runtime_cfg_inplace(runtime_cfg)
 
         devices_cfg = cfg_obj.get("devices") if isinstance(cfg_obj.get("devices"), dict) else {}
@@ -9774,9 +9774,19 @@ def create_app(
         advanced_cfg = cfg_obj.get("advanced") if isinstance(cfg_obj.get("advanced"), dict) else {}
 
         runtime_cfg["input_device"] = _summary_clean_audio_device(devices_cfg.get("input_audio_device"))
-        runtime_cfg["output_device"] = _summary_clean_audio_device(devices_cfg.get("output_audio_device"))
-        output_device_value = runtime_cfg.get("output_device")
-        use_nao_speaker = output_device_value == _SUMMARY_OUTPUT_DEVICE_NAO
+        inherited_output_target = str(runtime_cfg.get("output_target") or "server").strip().lower()
+        inherited_output_device = _summary_clean_audio_device(runtime_cfg.get("output_device"))
+        configured_output_device = _summary_clean_audio_device(devices_cfg.get("output_audio_device"))
+        if configured_output_device is None:
+            output_target_value = inherited_output_target
+            output_device_value = inherited_output_device
+        elif configured_output_device == _SUMMARY_OUTPUT_DEVICE_NAO:
+            output_target_value = "nao"
+            output_device_value = None
+        else:
+            output_target_value = "server"
+            output_device_value = configured_output_device
+        runtime_cfg["output_device"] = output_device_value
 
         stt_provider, stt_model = _summary_split_model_ref(models_cfg.get("stt_primary"), default_provider="vosk")
         if stt_provider not in {"azure", "vosk", "whisper"}:
@@ -9808,14 +9818,14 @@ def create_app(
             runtime_cfg["tts_engine"] = "piper"
             runtime_cfg["piper_model_path"] = None if tts_model in {"", "default"} else tts_model
             runtime_cfg["azure_tts_voice"] = None
-            runtime_cfg["output_target"] = "nao" if use_nao_speaker else "server"
-            runtime_cfg["output_device"] = None if use_nao_speaker else output_device_value
+            runtime_cfg["output_target"] = output_target_value
+            runtime_cfg["output_device"] = output_device_value
         elif tts_provider == "azure":
             runtime_cfg["tts_engine"] = "azure"
             runtime_cfg["azure_tts_voice"] = None if tts_model in {"", "default"} else tts_model
             runtime_cfg["piper_model_path"] = None
-            runtime_cfg["output_target"] = "nao" if use_nao_speaker else "server"
-            runtime_cfg["output_device"] = None if use_nao_speaker else output_device_value
+            runtime_cfg["output_target"] = output_target_value
+            runtime_cfg["output_device"] = output_device_value
         elif tts_provider == "none":
             runtime_cfg["tts_engine"] = "none"
             runtime_cfg["output_target"] = "none"

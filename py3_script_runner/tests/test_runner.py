@@ -222,6 +222,49 @@ def test_run_fails_when_auto_rest_suspend_lease_cannot_be_renewed(tmp_path):
         runner.run()
 
 
+def test_auto_rest_suspend_ttl_can_be_configured_from_script_defaults(tmp_path):
+    acquire_ttls: List[float] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def auto_rest_suspend_acquire(self, *, lease_id, owner, reason, ttl_s, timeout_s=None):
+            acquire_ttls.append(float(ttl_s))
+            return {"ok": True}
+
+        def auto_rest_suspend_renew(self, *, lease_id, owner, ttl_s, timeout_s=None):
+            return {"ok": True}
+
+        def auto_rest_suspend_release(self, *, lease_id, timeout_s=None):
+            return {"ok": True}
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True, "supports": {"say": True}}
+
+        def runtime_effective(self, timeout_s=None):
+            return {"ok": True, "runtime_config": {"base_enabled": False, "behavior_enabled": False, "nao_ip_enabled": False}}
+
+        def runtime_health(self, payload, timeout_s=None):
+            return {"ok": True, "base": {"ping": True, "nao_ping": True}, "behavior": {"ping": True, "nao_ping": True}, "nao": {"ping": True}}
+
+    script = _script_template()
+    script["robots"] = {"nao1": {"dm_url": "http://dm-nao1:5301"}}
+    script["defaults"]["auto_rest_suspend_ttl_s"] = 123.0
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _p: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+    )
+
+    runner.preflight()
+
+    assert runner.auto_rest_suspend_ttl_s == 123.0
+    assert acquire_ttls == [123.0]
+
+
 def test_preflight_waits_until_all_robots_ready(tmp_path):
     sleep_calls: List[float] = []
     health_calls: Dict[str, int] = {}
@@ -620,6 +663,55 @@ def test_manual_step_without_stdin_raises_clear_error(tmp_path):
         assert False, "expected RuntimeError"
     except RuntimeError as exc:
         assert "manual step requires interactive stdin" in str(exc)
+
+
+def test_runner_can_suppress_stdout_but_keep_log_file_and_events(tmp_path, capsys):
+    events: List[Dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str, timeout_s: float) -> None:
+            self.base_url = base_url
+
+        def capabilities(self, timeout_s=None):
+            return {"ok": True}
+
+        def runtime_effective(self, timeout_s=None):
+            return {"ok": True, "runtime_config": {}}
+
+        def script_say(self, text: str, timeout_s=None):
+            return {"ok": True}
+
+        def script_do(self, payload: Dict[str, Any], timeout_s=None):
+            return {"ok": True}
+
+    script = _script_template()
+    script["steps"] = [
+        {
+            "id": "s1",
+            "robot_id": "nao1",
+            "start": {"mode": "manual", "delay_s": 0},
+            "request_timeout_s": 12,
+            "on_error": "prompt",
+            "action": {"type": "say", "text": "hello"},
+        }
+    ]
+
+    runner = ScriptRunner(
+        script,
+        client_factory=lambda url, timeout_s: FakeClient(url, timeout_s),  # type: ignore[arg-type]
+        input_func=lambda _prompt: "",
+        sleep_func=lambda _s: None,
+        log_dir=tmp_path,
+        event_sink=lambda event: events.append(dict(event)),
+        log_to_stdout=False,
+    )
+    result = runner.run()
+
+    captured = capsys.readouterr()
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert captured.out == ""
+    assert "[1/1] s1: executing" in log_text
+    assert any(str(event.get("type") or "") == "log" for event in events)
 
 
 def test_after_prev_delay_is_applied(tmp_path):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import requests
 
-from dialog.behavior_executor import BehaviorExecutor, ConsoleAndBehaviorExecutor
+from dialog.behavior_executor import BehaviorExecutor, ConsoleAndBehaviorExecutor, PrintBehaviorExecutor
 from dialog.interfaces import CommandDecision
 
 
@@ -105,3 +105,27 @@ def test_console_wrapper_calls_finish_even_when_executor_fails():
     with pytest.raises(RuntimeError, match="boom"):
         wrapper.execute(cmd)
     assert finished == ["DANCE"]
+
+
+def test_print_behavior_executor_can_log_without_stdout(capsys):
+    technical_lines = []
+    executor = PrintBehaviorExecutor(logger=technical_lines.append)
+    cmd = CommandDecision(label="STAND_UP", confidence=1.0, raw_text="sta op", resolved={})
+
+    executor.execute(cmd)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert technical_lines == ["EXECUTE (dry-run): STAND_UP resolved={}"]
+
+
+def test_console_wrapper_can_log_without_stdout(capsys):
+    technical_lines = []
+    wrapper = ConsoleAndBehaviorExecutor(None, logger=technical_lines.append)
+    cmd = CommandDecision(label="REST", confidence=1.0, raw_text="motoren uit", resolved={})
+
+    wrapper.execute(cmd)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert technical_lines == ["EXECUTE (dry-run): REST resolved={}"]

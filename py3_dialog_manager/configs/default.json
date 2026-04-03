@@ -75,7 +75,7 @@
     "params": {
       "target": "nao",
       "tts_engine": "piper",
-      "timeout": 45.0
+      "timeout": 120.0
     }
   },
   "run": {

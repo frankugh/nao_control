@@ -64,6 +64,7 @@ class ScriptRunner:
         tts_preload_root: Optional[Path] = None,
         tts_preload_step_audio: Optional[Dict[str, Dict[str, Any]]] = None,
         tts_preload_robot_modes: Optional[Dict[str, str]] = None,
+        log_to_stdout: bool = True,
     ) -> None:
         self.script = script
         self.client_factory = client_factory or (lambda url, timeout_s: DMClient(url, timeout_s=timeout_s))
@@ -79,6 +80,7 @@ class ScriptRunner:
             for robot_id, mode in dict(tts_preload_robot_modes or {}).items()
             if str(robot_id or "").strip()
         }
+        self.log_to_stdout = bool(log_to_stdout)
         self.defaults = dict(script.get("defaults") or {})
         self.on_error_prompt_policy = self._normalize_policy(
             on_error_prompt_policy,
@@ -125,7 +127,10 @@ class ScriptRunner:
         self.robot_cfgs: Dict[str, Dict[str, Any]] = {}
         self.auto_rest_suspend_owner = "script_runner"
         self.auto_rest_suspend_reason = "script_run"
-        self.auto_rest_suspend_ttl_s = 30.0
+        self.auto_rest_suspend_ttl_s = self._parse_positive_float(
+            self.defaults.get("auto_rest_suspend_ttl_s", 300.0),
+            default=300.0,
+        )
         self.auto_rest_suspend_renew_interval_s = 5.0
         self._auto_rest_lease_lock = threading.RLock()
         self._auto_rest_lease_stop = threading.Event()
@@ -401,7 +406,8 @@ class ScriptRunner:
     def _log(self, message: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {message}"
-        print(line)
+        if self.log_to_stdout:
+            print(line)
         if not self._log_handle.closed:
             self._log_handle.write(line + "\n")
             self._log_handle.flush()

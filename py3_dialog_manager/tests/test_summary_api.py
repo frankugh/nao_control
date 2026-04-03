@@ -121,6 +121,7 @@ def _make_app(
     output_backend=None,
     instance_id: str = "demo",
     cfg=None,
+    built_pipeline_cfgs=None,
     repo_root_override: Path | None = None,
 ):
     if repo_root_override is not None:
@@ -144,7 +145,12 @@ def _make_app(
         _cmdrec=None,
         _debug_cmdrec=False,
     )
-    monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
+    def _build_pipeline(cfg_obj, *_a, **_k):
+        if built_pipeline_cfgs is not None:
+            built_pipeline_cfgs.append(json.loads(json.dumps(cfg_obj)))
+        return base_pipeline
+
+    monkeypatch.setattr(webapp_server, "build_pipeline_from_config", _build_pipeline)
     monkeypatch.setattr(
         webapp_server,
         "make_stt_backend_from_config",
@@ -509,6 +515,101 @@ def test_summary_publish_success_and_save_archive(monkeypatch, tmp_path: Path):
     txt_resp = client.get(saved_meta["download_url"])
     assert txt_resp.status_code == 200
     assert txt_resp.get_data(as_text=True).strip() == "ok"
+
+
+def test_summary_publish_inherits_chat_output_when_device_is_null(monkeypatch, tmp_path: Path):
+    built_cfgs = []
+    app = _make_app(
+        monkeypatch,
+        tmp_path,
+        stt_backend=StubSTTBackend(["tekst"]),
+        cfg={
+            "output": {
+                "type": "router",
+                "target": "nao",
+                "engine": "piper",
+                "device": None,
+                "params": {},
+            }
+        },
+        built_pipeline_cfgs=built_cfgs,
+    )
+    client = app.test_client()
+    summary_cfg = _summary_config()
+    summary_cfg["devices"]["output_audio_device"] = None
+    assert client.post("/api/summary/config", json={"config": summary_cfg}).status_code == 200
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    assert client.post("/api/summary/start").status_code == 200
+    time.sleep(0.05)
+    assert client.post("/api/summary/stop").status_code == 200
+    assert client.post("/api/summary/generate").status_code == 200
+    _wait_for_summary_status(client, "summary_review")
+    publish_resp = client.post("/api/summary/publish")
+    assert publish_resp.status_code == 502
+
+    output_cfg = built_cfgs[-1]["output"]
+    assert output_cfg["params"]["target"] == "nao"
+    assert output_cfg["params"]["output_device"] is None
+
+
+def test_summary_publish_explicit_output_device_overrides_chat_output(monkeypatch, tmp_path: Path):
+    built_cfgs = []
+    app = _make_app(
+        monkeypatch,
+        tmp_path,
+        stt_backend=StubSTTBackend(["tekst"]),
+        cfg={
+            "output": {
+                "type": "router",
+                "target": "nao",
+                "engine": "piper",
+                "device": None,
+                "params": {},
+            }
+        },
+        built_pipeline_cfgs=built_cfgs,
+    )
+    client = app.test_client()
+    summary_cfg = _summary_config()
+    summary_cfg["devices"]["output_audio_device"] = 11
+    assert client.post("/api/summary/config", json={"config": summary_cfg}).status_code == 200
+
+    class FakeMic:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture_utterance(self, timeout_s=10.0):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(pcm=b"wav", sample_rate=16000, channels=1, sample_width=2)
+            time.sleep(0.01)
+            raise TimeoutError("no speech")
+
+    monkeypatch.setattr(webapp_server, "_make_mic_from_config", lambda *_a, **_k: FakeMic())
+
+    assert client.post("/api/summary/start").status_code == 200
+    time.sleep(0.05)
+    assert client.post("/api/summary/stop").status_code == 200
+    assert client.post("/api/summary/generate").status_code == 200
+    _wait_for_summary_status(client, "summary_review")
+    assert client.post("/api/summary/publish").status_code == 200
+
+    output_cfg = built_cfgs[-1]["output"]
+    assert output_cfg["params"]["target"] == "server"
+    assert output_cfg["params"]["output_device"] == 11
 
 
 def test_summary_publish_failure_reverts_to_summary_review(monkeypatch, tmp_path: Path):

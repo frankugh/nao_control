@@ -90,6 +90,32 @@ def test_nao_router_keeps_fallback_for_non_side_effect(monkeypatch):
     assert calls == ["http://primary/set_eye_color", "http://fallback/set_eye_color"]
 
 
+def test_nao_router_logs_retry_for_same_endpoint(monkeypatch, capsys):
+    router = NaoApiRouter(
+        primary_base_url="http://same",
+        fallback_base_url="http://same",
+        health_checks=[],
+        timeout_s=1.0,
+        status_to_console=True,
+    )
+    calls: list[str] = []
+
+    def fake_request(base_url, method, path, *, timeout, **kwargs):
+        calls.append(base_url + path)
+        if len(calls) == 1:
+            raise requests.ConnectionError("down")
+        return _resp(200)
+
+    monkeypatch.setattr(router, "_request", fake_request)
+    r = router.post("/set_eye_color", json={"color": "#00ff00", "duration": 0.2})
+
+    captured = capsys.readouterr()
+    assert r.status_code == 200
+    assert calls == ["http://same/set_eye_color", "http://same/set_eye_color"]
+    assert "retrying same endpoint" in captured.out
+    assert "using fallback" not in captured.out
+
+
 class _FakeApiRouter:
     def __init__(self, stream_response: requests.Response | Exception):
         self.stream_response = stream_response

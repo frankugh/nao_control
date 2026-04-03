@@ -43,6 +43,14 @@ class NaoApiRouter:
         if self.status_to_console:
             print(msg)
 
+    def _same_endpoint_retry(self) -> bool:
+        return self.primary_base_url == self.fallback_base_url
+
+    def _fallback_message(self, template_fallback: str, template_same_endpoint: str) -> str:
+        if self._same_endpoint_retry():
+            return template_same_endpoint
+        return template_fallback
+
     def _primary_root(self) -> str:
         if self.primary_base_url.endswith("/nao"):
             return self.primary_base_url[:-4]
@@ -109,7 +117,13 @@ class NaoApiRouter:
             try:
                 resp = self._request(self.primary_base_url, method, path, timeout=timeout, **kwargs)
                 if resp.status_code >= 500:
-                    self._status("[NAO] primary returned %s; using fallback" % resp.status_code)
+                    self._status(
+                        self._fallback_message(
+                            "[NAO] primary returned %s; using fallback",
+                            "[NAO] primary returned %s; retrying same endpoint",
+                        )
+                        % resp.status_code
+                    )
                     self._primary_ok = False
                     self._last_check = time.monotonic()
                     if no_fallback:
@@ -117,7 +131,13 @@ class NaoApiRouter:
                 else:
                     return resp
             except requests.RequestException as exc:
-                self._status("[NAO] primary request failed; using fallback: %s" % exc)
+                self._status(
+                    self._fallback_message(
+                        "[NAO] primary request failed; using fallback: %s",
+                        "[NAO] primary request failed; retrying same endpoint: %s",
+                    )
+                    % exc
+                )
                 self._primary_ok = False
                 self._last_check = time.monotonic()
                 if no_fallback:
