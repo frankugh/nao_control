@@ -72,3 +72,7 @@ py3_dialog_manager/configs/runtime/*/active_session.json
 
 # === Script runner TTS preload cache ===
 runtime_data/preloaded_tts/
+
+# === Quickstart local state ===
+quickstarts/dm/preset_ports.local.json
+quickstarts/install/install_paths.local.json
