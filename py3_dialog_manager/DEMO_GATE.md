@@ -40,13 +40,13 @@
 ## Commands
 
 ```powershell
-start_demo_gate.bat
+quickstarts\test_scripts\start_demo_gate.bat
 py3_dialog_manager\venv\Scripts\python.exe py3_dialog_manager\scripts\run_demo_gate.py --profile offline --scenario all
 py3_dialog_manager\venv\Scripts\python.exe py3_dialog_manager\scripts\run_demo_gate.py --profile live_services --scenario all
 py3_dialog_manager\venv\Scripts\python.exe py3_dialog_manager\scripts\run_demo_gate.py --profile live_robot --scenario full_demo_rehearsal --nao-ip 192.168.0.101
 ```
 
-`start_demo_gate.bat` opent een korte wizard. De eerste vraag is `Run default (Y/n)`.
+`quickstarts\test_scripts\start_demo_gate.bat` opent een korte wizard. De eerste vraag is `Run default (Y/n)`.
 
 - `Y` start direct `offline + all`, dus alle scenario's zonder services en zonder echte robot.
 - `n` vraagt daarna om scenario, live services, echte robot en optionele overrides.

@@ -272,3 +272,23 @@ def test_chat_ui_shows_stop_actions_optimistically_for_stoppable_commands_and_be
     assert "normalizedLabel === 'DANCE' || normalizedLabel === 'WALK_WITH_ME'" in command_body
     assert "beginOptimisticStopAction(stopLabel, { behaviorTarget: behavior })" in behavior_body
     assert "syncStopAvailability(j);" in behavior_body
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_uses_server_runtime_config_without_localstorage_runtime_merge(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    apply_body = _extract_function_body(html, "applyRuntimeConfig")
+
+    assert "nao_runtime_config_v1" not in html
+    assert "function loadLocalConfig()" not in html
+    assert "function saveLocalConfig(cfg)" not in html
+    assert "saveLocalConfig(configToSend);" not in apply_body
+    assert "const local = loadLocalConfig();" not in html
+    assert "await applyRuntimeConfig(cfg, true);" not in html
+    assert "localStorage.setItem(CFG_SUBTAB_KEY, which);" in html
+    assert "nao_client_audio_prefs_v1" in html

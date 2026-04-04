@@ -1672,7 +1672,6 @@
       const healthBase = document.getElementById('healthBase');
       const healthBehavior = document.getElementById('healthBehavior');
       const healthNao = document.getElementById('healthNao');
-      const LOCAL_CFG_KEY = 'nao_runtime_config_v1';
       const LAYOUT_SPLIT_KEY = 'nao_layout_split_left_pct_v1';
       let currentRobotName = '';
       let runtimeCmdrecValue = null;
@@ -2286,8 +2285,6 @@
       function queueUiPrefsSync() {
         const prefs = currentUiPrefs();
         pendingUiPrefs = prefs;
-        const localCfg = loadLocalConfig() || {};
-        saveLocalConfig({ ...localCfg, ...prefs });
         if (!isServerUi()) {
           return;
         }
@@ -3102,8 +3099,6 @@
             locomotion_frequency: getLocomotionFrequencyFromUi(),
             locomotion_arms_enabled: getLocomotionArmsEnabledFromUi(),
           };
-          const localCfg = loadLocalConfig() || {};
-          saveLocalConfig({ ...localCfg, ...config });
           try {
             const r = await fetch('/api/runtime_config', {
               method: 'POST',
@@ -5551,21 +5546,6 @@
         } catch (_) {}
       }
 
-      function loadLocalConfig() {
-        try {
-          const raw = localStorage.getItem(LOCAL_CFG_KEY);
-          return raw ? JSON.parse(raw) : null;
-        } catch (_) {
-          return null;
-        }
-      }
-
-      function saveLocalConfig(cfg) {
-        try {
-          localStorage.setItem(LOCAL_CFG_KEY, JSON.stringify(cfg));
-        } catch (_) {}
-      }
-
         function readIntOrNull(value) {
           const v = parseInt(String(value || '').trim(), 10);
           return Number.isNaN(v) ? null : v;
@@ -6900,7 +6880,6 @@
           configToSend.nao_base_url = lastAppliedBaseUrl;
           configToSend.behavior_manager_url = lastAppliedBehaviorUrl;
         }
-        saveLocalConfig(configToSend);
         const r = await fetch('/api/runtime_config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -8374,25 +8353,7 @@
         .then(r => r.json())
         .then(async (j) => {
           if (!j.ok) return;
-          let cfg = j.config || {};
-          const local = loadLocalConfig();
-          if (local) {
-            const merged = { ...cfg, ...local };
-            const urlKeys = ['nao_ip', 'nao_base_url', 'behavior_manager_url'];
-            urlKeys.forEach((key) => {
-              if (local[key] === '' || local[key] == null) {
-                merged[key] = cfg[key];
-              }
-            });
-            // Keep robot identity server-owned to avoid stale browser cache
-            // accidentally overriding the active robot instance.
-            merged.robot_name = cfg.robot_name;
-            merged.ui_color_scheme = cfg.ui_color_scheme;
-            merged.locomotion_frequency = cfg.locomotion_frequency;
-            merged.locomotion_arms_enabled = cfg.locomotion_arms_enabled;
-            cfg = merged;
-            await applyRuntimeConfig(cfg, true);
-          }
+          const cfg = j.config || {};
           applyConfigToForm(cfg, j.effective_config || null);
           refreshInputDevices(true).catch(() => {});
           refreshOutputDevices(true).catch(() => {});

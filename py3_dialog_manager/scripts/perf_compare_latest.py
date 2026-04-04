@@ -26,6 +26,15 @@ _METRIC_TEST_SELECTORS = {
     "pipeline_run_once_command_no_executor": "tests/test_perf_pipeline_core.py::test_pipeline_run_once_command_without_executor_latency_budget",
 }
 
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolve_repo_path(path: str) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return (_PACKAGE_ROOT / candidate).resolve()
+
 
 def _load_entries(path: Path) -> List[Dict[str, Any]]:
     if not path.exists():
@@ -260,7 +269,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    path = Path(args.path)
+    path = _resolve_repo_path(args.path)
     entries = _load_entries(path)
     if not entries:
         print("[perf-compare] No metrics found:", path)
@@ -279,7 +288,7 @@ def main() -> int:
 
     baseline_run = str(args.baseline_run_id or "").strip()
     if not baseline_run:
-        baseline_run = _read_baseline_file(Path(args.baseline_file)) or ""
+        baseline_run = _read_baseline_file(_resolve_repo_path(args.baseline_file)) or ""
     if not baseline_run:
         print("[perf-compare] No baseline configured.")
         print("[perf-compare] set via --baseline-run-id or baseline file:", args.baseline_file)
@@ -379,7 +388,7 @@ def main() -> int:
                 rerun_warmup=int(args.rerun_warmup),
                 rerun_iterations=int(args.rerun_iterations),
                 python_exe=str(args.python_exe),
-                workdir=Path(args.workdir),
+                workdir=_resolve_repo_path(args.workdir),
                 metrics_path=path,
             )
             if not rerun_values:

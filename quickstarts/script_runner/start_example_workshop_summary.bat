@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0\..\.."
 
 set "PYTHON_EXE=py3_script_runner\venv\Scripts\python.exe"
 set "SCRIPT_PATH=py3_script_runner\scripts\example_workshop_summary.json"

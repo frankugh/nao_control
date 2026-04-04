@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ScriptPath = $MyInvocation.MyCommand.Path
-$RepoRoot = Split-Path -Parent $ScriptPath
+$RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptPath))
 Set-Location $RepoRoot
 
 $PythonExe = Join-Path $RepoRoot "py3_dialog_manager\venv\Scripts\python.exe"

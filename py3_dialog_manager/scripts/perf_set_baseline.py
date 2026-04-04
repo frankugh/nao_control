@@ -6,6 +6,16 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolve_repo_path(path: str) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return (_PACKAGE_ROOT / candidate).resolve()
+
+
 def _load_entries(path: Path) -> List[Dict[str, Any]]:
     if not path.exists():
         return []
@@ -63,7 +73,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    metrics_path = Path(args.path)
+    metrics_path = _resolve_repo_path(args.path)
     entries = _load_entries(metrics_path)
     if not entries:
         print("[perf-baseline] No metrics found:", metrics_path)
@@ -86,7 +96,7 @@ def main() -> int:
         print("[perf-baseline] Requested run_id not present:", chosen)
         return 1
 
-    baseline_path = Path(args.baseline_file)
+    baseline_path = _resolve_repo_path(args.baseline_file)
     try:
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(chosen + "\n", encoding="utf-8")

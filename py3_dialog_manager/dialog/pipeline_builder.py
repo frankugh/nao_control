@@ -463,6 +463,15 @@ def _default_log_path(config_path: str, log_dir: str) -> str:
     return os.path.join(log_dir, filename)
 
 
+def _resolve_log_dir(config_path: str, log_dir: str) -> str:
+    value = str(log_dir or "logs").strip() or "logs"
+    if os.path.isabs(value):
+        return os.path.abspath(value)
+    if config_path and config_path != "<memory>":
+        return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(config_path)), "..", value))
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), value))
+
+
 def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") -> InputLLMOutputPipeline:
     cfg = _expand_env(cfg)
 
@@ -471,7 +480,7 @@ def build_pipeline_from_config(cfg: JsonLike, *, config_path: str = "<memory>") 
 
     # logging defaults: AAN
     log_messages = bool(run_cfg.get("log_messages", True))
-    log_dir = run_cfg.get("log_dir", "logs")
+    log_dir = _resolve_log_dir(config_path, run_cfg.get("log_dir", "logs"))
     log_messages_path = run_cfg.get("log_messages_path", None)
 
     if log_messages:

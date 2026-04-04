@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from dialog.interfaces import LLMResult
@@ -169,3 +171,24 @@ def test_runtime_config_rejects_urls_that_point_to_webapp_itself(monkeypatch):
     behavior_data = behavior_resp.get_json()
     assert behavior_data["ok"] is False
     assert behavior_data["field"] == "behavior_manager_url"
+
+
+def test_startup_preset_runtime_fields_survive_apply_extract_roundtrip():
+    default_cfg = json.loads(
+        (Path(__file__).resolve().parents[1] / "configs" / "default.json").read_text(encoding="utf-8")
+    )
+    preset_cfg = webapp_server._load_startup_agent_preset_config("virtuele_robot")
+
+    merged_cfg = webapp_server._apply_runtime_overrides(default_cfg, preset_cfg)
+    runtime_cfg = webapp_server._extract_runtime_config(merged_cfg)
+
+    assert runtime_cfg["robot_name"] == "Virtuele robot"
+    assert runtime_cfg["nao_ip_enabled"] is False
+    assert runtime_cfg["nao_base_url"] == "http://127.0.0.1:5000"
+    assert runtime_cfg["behavior_manager_url"] == "http://127.0.0.1:5001"
+    assert runtime_cfg["base_enabled"] is False
+    assert runtime_cfg["behavior_enabled"] is False
+    assert runtime_cfg["base_autostart"] is False
+    assert runtime_cfg["behavior_autostart"] is False
+    assert runtime_cfg["output_target"] == "server"
+    assert runtime_cfg["tts_engine"] == "azure"

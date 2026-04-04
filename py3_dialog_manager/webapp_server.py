@@ -750,7 +750,11 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     primary = nao_conn.get("primary", {}) or {}
     fallback = nao_conn.get("fallback", {}) or {}
     primary_url = (primary.get("base_url") or "").rstrip("/")
-    if primary_url.endswith("/nao"):
+    explicit_behavior_manager_url = (cfg_src.get("behavior_manager_url") or "").rstrip("/")
+    explicit_nao_base_url = (cfg_src.get("nao_base_url") or "").rstrip("/")
+    if explicit_behavior_manager_url:
+        behavior_manager_url = explicit_behavior_manager_url
+    elif primary_url.endswith("/nao"):
         behavior_manager_url = primary_url[:-4]
     else:
         behavior_manager_url = primary_url
@@ -798,7 +802,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     return {
         "confirm_policy": _clean_confirm_policy(cfg_src.get("confirm_policy")),
         "robot_name": _clean_robot_name(cfg_src.get("robot_name") or cfg_src.get("agent_name") or ""),
-        "nao_base_url": (fallback.get("base_url") or "").rstrip("/"),
+        "nao_base_url": explicit_nao_base_url or (fallback.get("base_url") or "").rstrip("/"),
         "behavior_manager_url": behavior_manager_url,
         "nao_ip": nao_ip or "",
         "nao_ip_enabled": bool(cfg_src.get("nao_ip_enabled")) if "nao_ip_enabled" in cfg_src else bool(nao_ip),
@@ -882,6 +886,14 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     behavior_enabled = bool(runtime_cfg.get("behavior_enabled", True))
     nao_ip_value = (runtime_cfg.get("nao_ip") or "").strip()
     nao_ip_enabled = bool(runtime_cfg.get("nao_ip_enabled", False))
+    cfg_out["nao_base_url"] = nao_base_url
+    cfg_out["behavior_manager_url"] = behavior_url
+    cfg_out["nao_ip"] = nao_ip_value
+    cfg_out["nao_ip_enabled"] = nao_ip_enabled
+    cfg_out["base_enabled"] = base_enabled
+    cfg_out["behavior_enabled"] = behavior_enabled
+    cfg_out["base_autostart"] = bool(runtime_cfg.get("base_autostart", False))
+    cfg_out["behavior_autostart"] = bool(runtime_cfg.get("behavior_autostart", False))
     cfg_out["robot_name"] = _clean_robot_name(runtime_cfg.get("robot_name") or cfg_out.get("robot_name") or "")
     cfg_out["ui_color_scheme"] = _clean_ui_color_scheme(runtime_cfg.get("ui_color_scheme", cfg_out.get("ui_color_scheme", "default")))
     cfg_out["confirm_policy"] = _clean_confirm_policy(runtime_cfg.get("confirm_policy", cfg_out.get("confirm_policy", "when_guarded")))
@@ -1149,6 +1161,14 @@ def _summary_capture_mic_config(cfg: JsonLike) -> JsonLike:
 def _load_json(path: str) -> JsonLike:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _resolve_config_path(path: str) -> str:
+    config_path = str(path or DEFAULT_CONFIG_PATH).strip() or DEFAULT_CONFIG_PATH
+    if os.path.isabs(config_path):
+        return os.path.abspath(config_path)
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.abspath(os.path.join(module_dir, config_path))
 
 
 def _wav_bytes_to_int16_mono(wav_bytes: bytes) -> Tuple[np.ndarray, int]:
@@ -11472,6 +11492,34 @@ def create_app(
     return app, base_stt, base_pipeline
 
 
+def _assert_web_port_available(host: str, port: int) -> None:
+    bind_host = str(host or "").strip() or "0.0.0.0"
+    bind_port = int(port or 8080)
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((bind_host, bind_port))
+    except OSError as exc:
+        raise SystemExit(f"Poort {bind_port} is al in gebruik op {bind_host}: {exc}")
+    finally:
+        try:
+            probe.close()
+        except Exception:
+            pass
+
+
+def _reset_runtime_state_for_startup_preset(web_port: int) -> Optional[str]:
+    runtime_state_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "configs",
+        "runtime",
+        f"runtime_{_runtime_scope_key_for_port(web_port)}.json",
+    )
+    if not os.path.isfile(runtime_state_path):
+        return runtime_state_path
+    os.remove(runtime_state_path)
+    return runtime_state_path
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", help="Pad naar configs/<file>.json")
@@ -11481,18 +11529,15 @@ def main() -> None:
     args = ap.parse_args()
 
     web_port = int(args.port or 8080)
-    config_path = args.config or DEFAULT_CONFIG_PATH
+    _assert_web_port_available(args.host, web_port)
+    config_path = _resolve_config_path(args.config or DEFAULT_CONFIG_PATH)
     cfg = _load_json(config_path)
     if args.preset:
         preset_cfg = _load_startup_agent_preset_config(args.preset)
         cfg = _apply_runtime_overrides(cfg, preset_cfg)
-        runtime_state_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "runtime", f"runtime_{_runtime_scope_key_for_port(web_port)}.json")
-        try:
-            if os.path.isfile(runtime_state_path):
-                os.remove(runtime_state_path)
-        except OSError:
-            pass
-    app, _, _ = create_app(cfg=cfg, config_path=os.path.abspath(config_path), web_port=web_port)
+        runtime_state_path = _reset_runtime_state_for_startup_preset(web_port)
+        print(f"[DM] Startup preset '{args.preset}' geladen; runtime state gereset: {runtime_state_path}")
+    app, _, _ = create_app(cfg=cfg, config_path=config_path, web_port=web_port)
     def _sig_handler(signum, frame):
         try:
             shutdown = getattr(app, "_shutdown_rest", None)
