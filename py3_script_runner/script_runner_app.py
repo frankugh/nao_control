@@ -170,6 +170,16 @@ def _local_target_is_occupied(spec: DmLaunchSpec) -> bool:
         return False
 
 
+def _occupied_local_target_message(spec: DmLaunchSpec) -> str:
+    try:
+        state = DMClient(spec.dm_url, timeout_s=0.5).nao_command_state(timeout_s=0.5)
+    except Exception:
+        return f"Er draait al iets op {spec.dm_url}."
+    if isinstance(state, dict):
+        return f"Er draait al een NAO Studio op {spec.dm_url}."
+    return f"Er draait al iets op {spec.dm_url}."
+
+
 def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
     cmd = _build_dm_launch_command(spec)
     try:
@@ -228,16 +238,6 @@ def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]
                 message=error,
             )
             continue
-        if not spec.preset:
-            results[index] = _dm_launch_result(
-                robot_id=spec.robot_id,
-                dm_url=spec.dm_url,
-                preset="",
-                started=False,
-                message=f"robots.{spec.robot_id}.preset ontbreekt; lokale DM autostart vereist een preset.",
-                port=spec.port,
-            )
-            continue
         specs_by_index[index] = spec
         target_map.setdefault(spec.port, []).append(index)
 
@@ -266,7 +266,7 @@ def start_dialog_managers(payload: Dict[str, Any]) -> tuple[int, Dict[str, Any]]
                 dm_url=spec.dm_url,
                 preset=spec.preset,
                 started=False,
-                message=f"Er draait al iets op {spec.dm_url}.",
+                message=_occupied_local_target_message(spec),
                 port=spec.port,
             )
             continue

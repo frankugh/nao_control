@@ -74,5 +74,5 @@ py3_dialog_manager/configs/runtime/*/active_session.json
 runtime_data/preloaded_tts/
 
 # === Quickstart local state ===
-quickstarts/dm/preset_ports.local.json
+quickstarts/nao_studio/preset_ports.local.json
 quickstarts/install/install_paths.local.json

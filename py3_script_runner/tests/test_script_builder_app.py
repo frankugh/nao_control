@@ -326,6 +326,52 @@ def test_build_dm_launch_command_uses_dm_url_and_preset():
     assert "--preset alex" in command[2]
 
 
+def test_build_dm_launch_command_omits_preset_when_not_configured():
+    spec = script_builder_app.DmLaunchSpec(
+        robot_id="nao1",
+        dm_url="http://127.0.0.1:5301",
+        bind_host="127.0.0.1",
+        port=5301,
+        preset="",
+    )
+    command = script_builder_app._build_dm_launch_command(spec)
+    assert command[:2] == ["cmd.exe", "/k"]
+    assert "--host 127.0.0.1" in command[2]
+    assert "--port 5301" in command[2]
+    assert "--preset" not in command[2]
+
+
+def test_start_dialog_managers_allows_local_start_without_preset(monkeypatch, tmp_path):
+    dm_python = tmp_path / "python.exe"
+    dm_python.write_text("", encoding="utf-8")
+    dm_webapp = tmp_path / "webapp_server.py"
+    dm_webapp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script_builder_app, "DM_DIR", tmp_path)
+    monkeypatch.setattr(script_builder_app, "DM_PYTHON", dm_python)
+    monkeypatch.setattr(script_builder_app, "DM_WEBAPP", dm_webapp)
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, cwd, creationflags, env):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags, "env": env})
+
+    monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: False)
+    payload = _dm_payload()
+    payload["script"]["robots"]["nao1"].pop("preset", None)
+
+    code, response = script_builder_app.start_dialog_managers(payload)
+
+    assert code == HTTPStatus.OK
+    assert response["started_count"] == 2
+    assert response["error_count"] == 0
+    assert len(popen_calls) == 2
+    assert "--port 5301" in popen_calls[0]["cmd"][2]
+    assert "--preset" not in popen_calls[0]["cmd"][2]
+    assert "--preset renee" in popen_calls[1]["cmd"][2]
+
+
 def test_start_dialog_managers_starts_each_unique_local_target(monkeypatch, tmp_path):
     dm_python = tmp_path / "python.exe"
     dm_python.write_text("", encoding="utf-8")
@@ -434,6 +480,15 @@ def test_start_dialog_managers_skips_targets_that_are_already_occupied(monkeypat
     monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: spec.port == 5301)
 
+    class FakeDMClient:
+        def __init__(self, base_url, timeout_s=0):  # noqa: ARG002
+            self.base_url = base_url
+
+        def nao_command_state(self, timeout_s=None):  # noqa: ARG002
+            return {"ok": True, "status": "idle"}
+
+    monkeypatch.setattr(script_builder_app, "DMClient", FakeDMClient)
+
     code, response = script_builder_app.start_dialog_managers(_dm_payload())
 
     assert code == HTTPStatus.OK
@@ -442,7 +497,44 @@ def test_start_dialog_managers_skips_targets_that_are_already_occupied(monkeypat
     assert len(popen_calls) == 1
     robot1 = next(item for item in response["results"] if item["robot_id"] == "nao1")
     assert robot1["started"] is False
-    assert "Er draait al iets op" in robot1["error"]
+    assert robot1["error"] == "Er draait al een NAO Studio op http://127.0.0.1:5301."
+
+
+def test_start_dialog_managers_uses_generic_occupied_message_for_non_dm_listener(monkeypatch, tmp_path):
+    dm_python = tmp_path / "python.exe"
+    dm_python.write_text("", encoding="utf-8")
+    dm_webapp = tmp_path / "webapp_server.py"
+    dm_webapp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script_builder_app, "DM_DIR", tmp_path)
+    monkeypatch.setattr(script_builder_app, "DM_PYTHON", dm_python)
+    monkeypatch.setattr(script_builder_app, "DM_WEBAPP", dm_webapp)
+
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, cwd, creationflags, env):
+            popen_calls.append({"cmd": cmd, "cwd": cwd, "creationflags": creationflags, "env": env})
+
+    class FakeDMClient:
+        def __init__(self, base_url, timeout_s=0):  # noqa: ARG002
+            self.base_url = base_url
+
+        def nao_command_state(self, timeout_s=None):  # noqa: ARG002
+            raise OSError("connection refused")
+
+    monkeypatch.setattr(script_builder_app.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(script_builder_app, "_local_target_is_occupied", lambda spec: spec.port == 5301)
+    monkeypatch.setattr(script_builder_app, "DMClient", FakeDMClient)
+
+    code, response = script_builder_app.start_dialog_managers(_dm_payload())
+
+    assert code == HTTPStatus.OK
+    assert response["started_count"] == 1
+    assert response["error_count"] == 1
+    assert len(popen_calls) == 1
+    robot1 = next(item for item in response["results"] if item["robot_id"] == "nao1")
+    assert robot1["started"] is False
+    assert robot1["error"] == "Er draait al iets op http://127.0.0.1:5301."
 
 
 def test_fetch_cmdrec_labels_uses_local_bundle_fallback_when_dm_is_unavailable(monkeypatch, tmp_path):

@@ -101,4 +101,4 @@ def test_gitignore_ignores_installer_local_state() -> None:
     gitignore = _read(".gitignore")
 
     assert "quickstarts/install/install_paths.local.json" in gitignore
-    assert "quickstarts/dm/preset_ports.local.json" in gitignore
+    assert "quickstarts/nao_studio/preset_ports.local.json" in gitignore

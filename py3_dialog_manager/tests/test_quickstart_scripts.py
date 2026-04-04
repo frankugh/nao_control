@@ -11,9 +11,9 @@ def _read(relative_path: str) -> str:
 
 
 def test_fixed_dm_quickstarts_use_preset_port_and_open_browser():
-    alex = _read("quickstarts/dm/start_dm_alex.bat")
-    renee = _read("quickstarts/dm/start_dm_renee.bat")
-    virtual_robot = _read("quickstarts/dm/start_dm_virtuele_robot.bat")
+    alex = _read("quickstarts/nao_studio/start_dm_alex.bat")
+    renee = _read("quickstarts/nao_studio/start_dm_renee.bat")
+    virtual_robot = _read("quickstarts/nao_studio/start_dm_virtuele_robot.bat")
 
     assert "--port 5301 --preset alex" in alex
     assert "Start-Process 'http://127.0.0.1:5301/'" in alex
@@ -27,8 +27,8 @@ def test_fixed_dm_quickstarts_use_preset_port_and_open_browser():
 
 
 def test_dm_builder_supports_default_preset_listing_and_explicit_no_preset():
-    wrapper = _read("quickstarts/dm/start_dm_builder.bat")
-    script = _read("quickstarts/dm/start_dm_builder.ps1")
+    wrapper = _read("quickstarts/nao_studio/start_dm_builder.bat")
+    script = _read("quickstarts/nao_studio/start_dm_builder.ps1")
 
     assert 'set "SCRIPT_PATH=%~dp0start_dm_builder.ps1"' in wrapper
     assert '$DefaultPreset = "virtuele_robot"' in script
@@ -48,7 +48,6 @@ def test_dm_builder_supports_default_preset_listing_and_explicit_no_preset():
 
 def test_script_runner_and_test_service_quickstarts_point_to_expected_entrypoints():
     script_builder = _read("quickstarts/script_runner/start_script_builder.bat")
-    example_summary = _read("quickstarts/script_runner/start_example_workshop_summary.bat")
     demo_gate_bat = _read("quickstarts/test_scripts/start_demo_gate.bat")
     demo_gate = _read("quickstarts/test_scripts/start_demo_gate.ps1")
     perf_runner = _read("quickstarts/test_scripts/run_perf_tests.bat")
@@ -57,8 +56,6 @@ def test_script_runner_and_test_service_quickstarts_point_to_expected_entrypoint
     behavior_manager = _read("quickstarts/services/start_behavior_manager.bat")
 
     assert "py3_script_runner\\venv\\Scripts\\python.exe py3_script_runner\\script_runner_app.py %*" in script_builder
-    assert '"%PYTHON_EXE%" -m py3_script_runner.cli --script "%SCRIPT_PATH%" %*' in example_summary
-    assert "py3_script_runner\\scripts\\example_workshop_summary.json" in example_summary
     assert 'set "SCRIPT_PATH=%~dp0start_demo_gate.ps1"' in demo_gate_bat
     assert 'Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptPath))' in demo_gate
     assert 'set "BASELINE_FILE=py3_dialog_manager\\logs\\perf\\baseline_run_id.txt"' in perf_runner
