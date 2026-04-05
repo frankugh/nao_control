@@ -292,3 +292,97 @@ def test_chat_ui_uses_server_runtime_config_without_localstorage_runtime_merge(m
     assert "await applyRuntimeConfig(cfg, true);" not in html
     assert "localStorage.setItem(CFG_SUBTAB_KEY, which);" in html
     assert "nao_client_audio_prefs_v1" in html
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_exposes_settings_modal_for_ui_preferences(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    actions_body = _extract_function_body(html, "updateSettingsModalActions")
+    open_body = _extract_function_body(html, "openSettingsModal")
+    identity_body = _extract_function_body(html, "updateAppIdentity")
+    visibility_body = _extract_function_body(html, "applyUiSettingsVisibility")
+
+    assert 'id="btnOpenSettings"' in html
+    assert 'id="navToActiveLearning" class="small" href="/active_learning" hidden>Actief leren</a>' in html
+    assert html.index('id="navToMain"') < html.index('id="btnOpenSettings"')
+    assert 'id="btnOpenSettings" type="button" class="app-nav-action" aria-label="Instellingen" title="Instellingen" hidden' in html
+    assert 'id="settingsModal"' in html
+    assert 'data-settings-section="ui"' in html
+    assert 'id="uiSettingsRobotName"' in html
+    assert 'id="uiSettingsColorScheme"' in html
+    assert 'id="uiSettingsShowLogsTab"' in html
+    assert 'id="uiSettingsShowActiveLearningNav"' in html
+    assert 'id="tabLogs" class="tab" type="button" hidden>Logs</button>' in html
+    assert 'title="Wordt gebruikt in badges en de paginatitel. Wijzigt pas na opslaan."' in html
+    assert 'title="Previewt direct in deze UI. Annuleren herstelt het vorige schema."' in html
+    assert "btnOpenSettings.hidden = !isServerUi();" in actions_body
+    assert "if (!settingsModal || !isServerUi()) return;" in open_body
+    assert "const baseTitle = isActiveLearningMode() ? 'Actief leren' : 'NAO Studio';" in identity_body
+    assert "navToActiveLearning.hidden = isActiveLearningMode() || !uiSettingsState.ui_show_active_learning_nav;" in visibility_body
+    assert "tabLogs.hidden = isActiveLearningMode() || !uiSettingsState.ui_show_logs_tab;" in visibility_body
+    assert 'Centrale plek voor UI- en runtime-instellingen. Deze eerste versie bevat alleen UI.' not in html
+    assert 'Persoonlijke UI-instellingen voor deze instance. Kleur previewt direct; opslaan maakt de wijziging definitief.' not in html
+    assert 'Alleen-lezen in clientmodus.' not in html
+    assert 'Wordt gebruikt in badges en de paginatitel. Wijzigt pas na opslaan.</div>' not in html
+    assert 'Previewt direct in deze UI. Annuleren herstelt het vorige schema.</div>' not in html
+    assert 'id="cfgRobotName"' not in html
+    assert 'id="cfgColorScheme"' not in html
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_settings_modal_previews_and_restores_color_scheme_locally(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    sync_body = _extract_function_body(html, "syncUiSettingsDraftFromForm")
+    close_body = _extract_function_body(html, "closeSettingsModal")
+
+    assert "applyColorScheme(normalizedDraft.ui_color_scheme);" in sync_body
+    assert "const restorePreview = opts.restorePreview !== false;" in close_body
+    assert "applyColorScheme(uiSettingsState.ui_color_scheme);" in close_body
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_settings_modal_saves_partial_runtime_config_and_uses_state_in_runtime_form(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    save_body = _extract_function_body(html, "saveUiSettings")
+    config_body = _extract_function_body(html, "getConfigFromForm")
+
+    assert "robot_name: normalizedDraft.robot_name" in save_body
+    assert "ui_color_scheme: normalizedDraft.ui_color_scheme" in save_body
+    assert "ui_show_logs_tab: normalizedDraft.ui_show_logs_tab" in save_body
+    assert "ui_show_active_learning_nav: normalizedDraft.ui_show_active_learning_nav" in save_body
+    assert "body: JSON.stringify({ config: payload })" in save_body
+    assert "robot_name: uiSettingsState.robot_name" in config_body
+    assert "ui_color_scheme: uiSettingsState.ui_color_scheme" in config_body
+    assert "ui_show_logs_tab: uiSettingsState.ui_show_logs_tab" in config_body
+    assert "ui_show_active_learning_nav: uiSettingsState.ui_show_active_learning_nav" in config_body
+    assert "addApplyButtonForInput(cfgRobotName" not in html
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_settings_modal_has_dark_theme_overrides(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert 'body[data-color-scheme="night_blue"] .settings-sidebar' in html
+    assert 'body[data-color-scheme="night_brown"] .settings-nav-item.active' in html
+    assert 'body[data-color-scheme="night_teal"] .settings-card' in html
+    assert 'body[data-color-scheme="night_blue"] .settings-close' in html

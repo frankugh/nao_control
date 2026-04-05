@@ -36,6 +36,7 @@ import {
   const btnLoad = document.getElementById("btnLoad");
   const btnSave = document.getElementById("btnSave");
   const btnSaveAs = document.getElementById("btnSaveAs");
+  const quickOpenSelect = document.getElementById("quickOpenSelect");
   const btnCopyTemplate = document.getElementById("btnCopyTemplate");
   const btnInsertTemplate = document.getElementById("btnInsertTemplate");
   const btnDmStart = document.getElementById("btnDmStart");
@@ -86,8 +87,6 @@ import {
   const actionDialogBody = document.getElementById("actionDialogBody");
   const actionDialogActions = document.getElementById("actionDialogActions");
   const actionDialogClose = document.getElementById("actionDialogClose");
-  const quickOpenButtons = Array.from(document.querySelectorAll(".btnQuickOpen"));
-
   let templatesData = null;
   let catalog = [];
   let defaultScript = null;
@@ -1541,7 +1540,7 @@ import {
   function openSummaryUrl(url) {
     const targetUrl = String(url || "").trim();
     if (!targetUrl) {
-      setStatus("Summary URL ontbreekt.", "error");
+      setStatus("Samenvat-URL ontbreekt.", "error");
       return false;
     }
     const win = window.open(targetUrl, "_blank", "noopener");
@@ -1561,7 +1560,7 @@ import {
     if (waiting) {
       return "Dit script wacht tot de samenvatting is afgerond.";
     }
-    return "De samenvatting blijft actief in DM. Open de summarypagina om verder te gaan of annuleer de sessie.";
+    return "De samenvatting blijft actief in NAO Studio. Open de samenvatpagina om verder te gaan of annuleer de sessie.";
   }
 
   async function sendSummaryAbort() {
@@ -1645,7 +1644,7 @@ import {
 
     const btnOpen = document.createElement("button");
     btnOpen.type = "button";
-    btnOpen.textContent = "Open summary";
+    btnOpen.textContent = "Open samenvatting";
     btnOpen.disabled = !url;
     btnOpen.addEventListener("click", function () {
       openSummaryUrl(url);
@@ -2362,7 +2361,7 @@ import {
     if (mode === "summary_start") {
       const wait = action.wait_for_complete !== false;
       const open = action.open_on_new_tab === true;
-      let label = wait ? "summary: start + wait" : "summary: start async";
+      let label = wait ? "samenvatten: start + wacht" : "samenvatten: start async";
       if (open) {
         label += " / open tab";
       }
@@ -4348,18 +4347,20 @@ import {
     syncStepRowDragState();
   });
 
-  quickOpenButtons.forEach(function (button) {
-    button.addEventListener("click", async function () {
-      const exampleName = button.getAttribute("data-example");
+  if (quickOpenSelect instanceof HTMLSelectElement) {
+    quickOpenSelect.addEventListener("change", async function () {
+      const exampleName = quickOpenSelect.value;
       if (!exampleName) {
         return;
       }
       if (!confirmDiscardEditorChanges()) {
+        quickOpenSelect.value = "";
         return;
       }
       await loadExample(exampleName);
+      quickOpenSelect.value = "";
     });
-  });
+  }
 
   window.addEventListener("beforeunload", function (event) {
     if (!editorDirty) {

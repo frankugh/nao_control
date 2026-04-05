@@ -202,7 +202,12 @@ _DM_EVENT_SOURCES = (
     "system_auto",
 )
 _DM_EVENT_SOURCE_SET = set(_DM_EVENT_SOURCES)
-_DM_UI_PREF_KEYS = {"ui_active_tab", "ui_color_scheme"}
+_DM_UI_PREF_KEYS = {
+    "ui_active_tab",
+    "ui_color_scheme",
+    "ui_show_logs_tab",
+    "ui_show_active_learning_nav",
+}
 _DM_SECRET_KEY_RE = re.compile(r"(key|token|secret|password)", re.IGNORECASE)
 _SUMMARY_CAPTURE_JOIN_TIMEOUT_S = 15.0
 _SUMMARY_CAPTURE_TIMEOUT_DEFAULT_S = 2.0
@@ -526,6 +531,23 @@ def _clean_ui_color_scheme(raw: Any) -> str:
     return "default"
 
 
+def _clean_ui_visibility_pref(raw: Any, *, default: bool = False) -> bool:
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    value = str(raw or "").strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _clean_llm_temperature(raw: Any) -> Optional[float]:
     if raw is None:
         return None
@@ -822,6 +844,10 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "listen_mode": _clean_listen_mode(cfg_src.get("listen_mode", "ptt")),
         "ui_active_tab": _clean_ui_active_tab(cfg_src.get("ui_active_tab", "prompt")),
         "ui_color_scheme": _clean_ui_color_scheme(cfg_src.get("ui_color_scheme", "default")),
+        "ui_show_logs_tab": _clean_ui_visibility_pref(cfg_src.get("ui_show_logs_tab"), default=False),
+        "ui_show_active_learning_nav": _clean_ui_visibility_pref(
+            cfg_src.get("ui_show_active_learning_nav"), default=False
+        ),
         "locomotion_frequency": _clean_locomotion_frequency(
             cfg_src.get("locomotion_frequency", _LOCOMOTION_FREQUENCY_DEFAULT),
             default=_LOCOMOTION_FREQUENCY_DEFAULT,
@@ -896,6 +922,14 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
     cfg_out["behavior_autostart"] = bool(runtime_cfg.get("behavior_autostart", False))
     cfg_out["robot_name"] = _clean_robot_name(runtime_cfg.get("robot_name") or cfg_out.get("robot_name") or "")
     cfg_out["ui_color_scheme"] = _clean_ui_color_scheme(runtime_cfg.get("ui_color_scheme", cfg_out.get("ui_color_scheme", "default")))
+    cfg_out["ui_show_logs_tab"] = _clean_ui_visibility_pref(
+        runtime_cfg.get("ui_show_logs_tab", cfg_out.get("ui_show_logs_tab")),
+        default=False,
+    )
+    cfg_out["ui_show_active_learning_nav"] = _clean_ui_visibility_pref(
+        runtime_cfg.get("ui_show_active_learning_nav", cfg_out.get("ui_show_active_learning_nav")),
+        default=False,
+    )
     cfg_out["confirm_policy"] = _clean_confirm_policy(runtime_cfg.get("confirm_policy", cfg_out.get("confirm_policy", "when_guarded")))
 
     if "nao_connection" in cfg_out:
@@ -1253,6 +1287,11 @@ def create_app(
         cfg_obj["confirm_policy"] = _clean_confirm_policy(cfg_obj.get("confirm_policy", "when_guarded"))
         cfg_obj["ui_active_tab"] = _clean_ui_active_tab(cfg_obj.get("ui_active_tab", "prompt"))
         cfg_obj["ui_color_scheme"] = _clean_ui_color_scheme(cfg_obj.get("ui_color_scheme", "default"))
+        cfg_obj["ui_show_logs_tab"] = _clean_ui_visibility_pref(cfg_obj.get("ui_show_logs_tab"), default=False)
+        cfg_obj["ui_show_active_learning_nav"] = _clean_ui_visibility_pref(
+            cfg_obj.get("ui_show_active_learning_nav"),
+            default=False,
+        )
         cfg_obj["robot_name"] = _clean_robot_name(cfg_obj.get("robot_name", ""))
         cfg_obj["llm_temperature"] = _clean_llm_temperature(cfg_obj.get("llm_temperature"))
         cfg_obj["llm_top_p"] = _clean_llm_top_p(cfg_obj.get("llm_top_p"))
@@ -8104,6 +8143,8 @@ def create_app(
                     "llm_type": "echo",
                     "llm_model": "",
                     "ui_color_scheme": "default",
+                    "ui_show_logs_tab": False,
+                    "ui_show_active_learning_nav": False,
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,
@@ -8124,6 +8165,8 @@ def create_app(
                     "llm_type": "ollama_local",
                     "llm_model": "gemma:2b",
                     "ui_color_scheme": "default",
+                    "ui_show_logs_tab": False,
+                    "ui_show_active_learning_nav": False,
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,
@@ -8144,6 +8187,8 @@ def create_app(
                     "llm_type": "ollama_cloud",
                     "llm_model": "gpt-oss:120b-cloud",
                     "ui_color_scheme": "default",
+                    "ui_show_logs_tab": False,
+                    "ui_show_active_learning_nav": False,
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,

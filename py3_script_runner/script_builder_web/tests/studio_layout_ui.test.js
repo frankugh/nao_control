@@ -202,6 +202,27 @@ describe("studio layout ui", () => {
     expect(document.querySelectorAll('#stepInspector select[data-field="action.mode"]')).toHaveLength(1);
   });
 
+  test("quick open dropdown loads an example and resets selection", async () => {
+    await loadApp(null, {
+      fetchImpl(url) {
+        if (url === "/examples/example_workshop.json") {
+          return makeJsonResponse(TEMPLATE_FIXTURE.default_script);
+        }
+        return null;
+      },
+    });
+
+    const quickOpenSelect = document.getElementById("quickOpenSelect");
+    quickOpenSelect.value = "example_workshop.json";
+    quickOpenSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => document.getElementById("fileLabel").textContent.includes("example_workshop.json"));
+
+    expect(document.getElementById("fileLabel").textContent).toBe("example_workshop.json (voorbeeld)");
+    expect(document.getElementById("saveState").textContent).toBe("Clean");
+    expect(quickOpenSelect.value).toBe("");
+  });
+
   test("selecting a different step keeps the steps rail scroll position", async () => {
     const originalReplaceChildren = Element.prototype.replaceChildren;
     vi.spyOn(Element.prototype, "replaceChildren").mockImplementation(function (...nodes) {

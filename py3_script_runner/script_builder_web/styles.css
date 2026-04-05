@@ -146,18 +146,27 @@ p {
 }
 
 .toolbar,
-.row-actions,
-.quick-open {
+.row-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.quick-open {
+.toolbar {
   align-items: center;
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 13px;
+}
+
+.toolbar .quick-open-select {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 210px;
+}
+
+@media (max-width: 720px) {
+  .toolbar .quick-open-select {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 button,

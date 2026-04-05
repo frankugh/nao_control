@@ -44,7 +44,7 @@ def test_summary_page_exposes_workflow_config_and_bootstrap_calls(monkeypatch):
     html = resp.get_data(as_text=True)
 
     required_snippets = [
-        "NAO Control",
+        "NAO Studio",
         'id="summaryPresetSelect"',
         'id="cfgInputDevice"',
         'id="cfgOutputDevice"',
@@ -98,7 +98,7 @@ def test_summary_page_exposes_workflow_config_and_bootstrap_calls(monkeypatch):
         "fetchJson('/api/summary/use_fallback_summary'",
         "fetchJson('/api/summary/complete_without_publish'",
         'id="summaryFallbackPreview"',
-        "Spreek fallback summary uit",
+            "Spreek fallbacksamenvatting uit",
         "active.id!=='summaryTranscriptEditor'&&active.id!=='summaryDraftEditor'&&active.id!=='summaryRepairPrompt'",
         "function filteredConnectivityIssues(rawItems)",
         "item&&item.active!==false",

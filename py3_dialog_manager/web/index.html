@@ -429,8 +429,12 @@
       .app-brand-image { display: block; width: 56px; height: 56px; border-radius: 14px; object-fit: cover; object-position: center 16%; border: 1px solid var(--border-strong); background: #eef4fb; box-shadow: 0 4px 10px rgba(32, 63, 101, 0.18); cursor: zoom-in; }
       .app-nav { display: flex; align-items: center; gap: 8px; }
       .app-nav-badge { width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid var(--border-strong); opacity: 0.95; cursor: zoom-in; }
-      .app-nav .small { margin: 0; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border-soft); background: var(--panel-bg); text-decoration: none; font-size: 12px; color: var(--text-main); }
-      .app-nav .small:hover { background: var(--accent-soft); border-color: #bdd2ee; color: #0f2b55; }
+      .app-nav .small,
+      .app-nav-action { margin: 0; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border-soft); background: var(--panel-bg); text-decoration: none; font-size: 12px; color: var(--text-main); box-shadow: none; }
+      .app-nav .small:hover,
+      .app-nav-action:hover { background: var(--accent-soft); border-color: #bdd2ee; color: #0f2b55; }
+      .app-nav-action { min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; font-size: 16px; line-height: 1; }
+      .app-nav-action[aria-pressed="true"] { background: var(--accent-soft); border-color: #bdd2ee; }
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       button { padding: 8px 12px; font-size: 14px; border-radius: 10px; border: 1px solid var(--border-strong); background: linear-gradient(180deg, #ffffff 0%, var(--button-bg-bottom) 100%); color: var(--text-main); box-shadow: 0 1px 0 rgba(255,255,255,0.6), 0 2px 7px rgba(16, 42, 72, 0.08); transition: all 0.15s ease; }
@@ -702,11 +706,115 @@
         border-color: #9f7658;
         color: #f0dfcf;
       }
+      body[data-color-scheme="night_blue"] .app-nav-action:hover,
+      body[data-color-scheme="night_brown"] .app-nav-action:hover,
+      body[data-color-scheme="night_teal"] .app-nav-action:hover {
+        background: rgba(30, 48, 66, 0.95);
+        border-color: var(--border-strong);
+        color: var(--text-main);
+      }
+      body[data-color-scheme="night_brown"] .app-nav-action:hover {
+        background: rgba(93, 68, 51, 0.95);
+        border-color: #9f7658;
+        color: #f0dfcf;
+      }
+      body[data-color-scheme="night_blue"] .settings-panel,
+      body[data-color-scheme="night_brown"] .settings-panel,
+      body[data-color-scheme="night_teal"] .settings-panel {
+        background: var(--panel-bg);
+        color: var(--text-main);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+      }
+      body[data-color-scheme="night_blue"] .settings-sidebar,
+      body[data-color-scheme="night_brown"] .settings-sidebar,
+      body[data-color-scheme="night_teal"] .settings-sidebar {
+        background: linear-gradient(180deg, var(--panel-soft) 0%, var(--panel-bg) 100%);
+        border-right-color: var(--border-strong);
+      }
+      body[data-color-scheme="night_blue"] .settings-nav-item,
+      body[data-color-scheme="night_brown"] .settings-nav-item,
+      body[data-color-scheme="night_teal"] .settings-nav-item {
+        color: var(--text-main);
+      }
+      body[data-color-scheme="night_blue"] .settings-nav-item:hover,
+      body[data-color-scheme="night_brown"] .settings-nav-item:hover,
+      body[data-color-scheme="night_teal"] .settings-nav-item:hover {
+        background: var(--accent-soft);
+        border-color: var(--border-strong);
+        color: var(--text-main);
+      }
+      body[data-color-scheme="night_blue"] .settings-nav-item.active,
+      body[data-color-scheme="night_brown"] .settings-nav-item.active,
+      body[data-color-scheme="night_teal"] .settings-nav-item.active {
+        background: linear-gradient(180deg, var(--accent-soft) 0%, var(--panel-soft) 100%);
+        border-color: var(--border-strong);
+        color: var(--header-title);
+      }
+      body[data-color-scheme="night_blue"] .settings-card,
+      body[data-color-scheme="night_brown"] .settings-card,
+      body[data-color-scheme="night_teal"] .settings-card {
+        background: linear-gradient(180deg, var(--bg-overlay) 0%, var(--panel-soft) 100%);
+        border-color: var(--border-strong);
+      }
+      body[data-color-scheme="night_blue"] .settings-status,
+      body[data-color-scheme="night_brown"] .settings-status,
+      body[data-color-scheme="night_teal"] .settings-status {
+        color: var(--text-muted);
+      }
+      body[data-color-scheme="night_blue"] .settings-status.error,
+      body[data-color-scheme="night_brown"] .settings-status.error,
+      body[data-color-scheme="night_teal"] .settings-status.error {
+        color: #ffb8ab;
+      }
+      body[data-color-scheme="night_blue"] .settings-close,
+      body[data-color-scheme="night_brown"] .settings-close,
+      body[data-color-scheme="night_teal"] .settings-close {
+        background: linear-gradient(180deg, var(--panel-bg) 0%, var(--panel-soft) 100%);
+        border-color: var(--border-strong);
+        color: var(--text-main);
+        box-shadow: none;
+      }
       .image-preview-modal { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: center; justify-content: center; background: rgba(10, 16, 26, 0.74); padding: 20px; }
       .image-preview-modal.hidden { display: none; }
       .image-preview-panel { position: relative; width: min(92vw, 920px); max-height: 90vh; border-radius: 16px; border: 1px solid var(--border-strong); background: #0f1724; box-shadow: 0 16px 50px rgba(0,0,0,0.45); padding: 12px; }
       .image-preview-view { display: block; width: 100%; max-height: calc(90vh - 24px); object-fit: contain; border-radius: 10px; background: #08101b; }
       .image-preview-close { position: absolute; top: 10px; right: 10px; width: 34px; height: 34px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); background: rgba(17, 28, 43, 0.92); color: #fff; font-size: 22px; line-height: 1; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+      .settings-modal { position: fixed; inset: 0; z-index: 12010; display: flex; align-items: center; justify-content: center; background: rgba(10, 16, 26, 0.68); padding: 24px; }
+      .settings-modal.hidden { display: none; }
+      .settings-panel { width: min(92vw, 980px); max-height: min(86vh, 760px); border-radius: 24px; border: 1px solid var(--border-strong); background: var(--panel-bg); box-shadow: 0 24px 70px rgba(8, 18, 33, 0.28); overflow: hidden; }
+      .settings-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: min(70vh, 640px); }
+      .settings-sidebar { display: flex; flex-direction: column; gap: 10px; padding: 22px 18px; background: linear-gradient(180deg, rgba(248, 251, 255, 0.98) 0%, rgba(240, 246, 253, 0.96) 100%); border-right: 1px solid var(--border-soft); }
+      .settings-sidebar-head { display: flex; flex-direction: column; gap: 12px; padding: 0 6px; }
+      .settings-sidebar-title { font-size: 22px; color: var(--header-title); }
+      .settings-nav { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+      .settings-nav-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 14px; border-radius: 14px; border: 1px solid transparent; background: transparent; box-shadow: none; font-size: 14px; font-weight: 600; text-align: left; }
+      .settings-nav-item:hover { background: var(--accent-soft); border-color: #bdd2ee; }
+      .settings-nav-item.active { background: linear-gradient(180deg, #eef6ff 0%, #dcecff 100%); border-color: #bdd2ee; color: #123a68; }
+      .settings-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+      .settings-content-main { display: flex; flex-direction: column; gap: 18px; padding: 22px 24px 20px; overflow: auto; min-height: 0; }
+      .settings-content-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+      .settings-content-head h2 { margin: 0; font-size: 32px; color: var(--header-title); }
+      .settings-status { min-height: 18px; color: var(--text-muted); text-align: right; }
+      .settings-status.error { color: #8a2f21; }
+      .settings-card { border: 1px solid var(--border-soft); border-radius: 18px; background: linear-gradient(180deg, rgba(248, 251, 255, 0.92) 0%, rgba(242, 247, 252, 0.88) 100%); padding: 18px; }
+      .settings-card h3 { margin: 0 0 6px; font-size: 19px; color: var(--header-title); }
+      .settings-fields { margin-top: 16px; border-top: 1px solid var(--border-soft); }
+      .settings-field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 290px); gap: 18px; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border-soft); }
+      .settings-field-row:last-child { border-bottom: 0; padding-bottom: 0; }
+      .settings-field-label { font-size: 15px; font-weight: 700; color: var(--header-title); }
+      .settings-field-row .enable-row { margin: 0; justify-self: start; }
+      .settings-field-row .enable-row input { margin: 0; accent-color: var(--accent); }
+      .settings-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+      .settings-close { width: 38px; height: 38px; padding: 0; border-radius: 999px; }
+      .settings-close-sidebar { align-self: flex-start; }
+      .settings-pane.hidden { display: none; }
+      @media (max-width: 860px) {
+        .settings-shell { grid-template-columns: 1fr; }
+        .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--border-soft); }
+        .settings-content-head { flex-direction: column; }
+        .settings-status { text-align: left; }
+        .settings-field-row { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
@@ -721,15 +829,93 @@
       </div>
       <div class="app-nav">
         <img id="navBadgePreviewTrigger" class="app-nav-badge" src="/assets/img/NAO2.jpeg" alt="NAO detail" role="button" tabindex="0" title="Klik voor groter beeld" />
-        <a id="navToActiveLearning" class="small" href="/active_learning">Active learning</a>
-        <a id="navToSummary" class="small" href="/summary">Summary</a>
+        <a id="navToActiveLearning" class="small" href="/active_learning" hidden>Actief leren</a>
+        <a id="navToSummary" class="small" href="/summary">Samenvatten</a>
         <a id="navToMain" class="small" href="/">Terug naar NAO Studio</a>
+        <button id="btnOpenSettings" type="button" class="app-nav-action" aria-label="Instellingen" title="Instellingen" hidden>&#9881;</button>
       </div>
     </div>
     <div id="imagePreviewModal" class="image-preview-modal hidden" aria-hidden="true">
       <div class="image-preview-panel" role="dialog" aria-modal="true" aria-label="Afbeelding preview">
         <button id="btnImagePreviewClose" type="button" class="image-preview-close" aria-label="Sluiten">&times;</button>
         <img id="imagePreviewView" class="image-preview-view" src="" alt="NAO afbeelding preview" />
+      </div>
+    </div>
+    <div id="settingsModal" class="settings-modal hidden" aria-hidden="true">
+      <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="settings-shell">
+          <aside class="settings-sidebar">
+            <div class="settings-sidebar-head">
+              <button id="btnSettingsClose" type="button" class="settings-close settings-close-sidebar" aria-label="Sluiten">&times;</button>
+              <div class="settings-sidebar-title">Instellingen</div>
+            </div>
+            <div class="settings-nav" role="tablist" aria-label="Instellingencategorieen">
+              <button id="settingsSectionUi" type="button" class="settings-nav-item active" role="tab" aria-selected="true" data-settings-section="ui" aria-controls="settingsPaneUi">UI</button>
+            </div>
+          </aside>
+          <section class="settings-content">
+            <div class="settings-content-main">
+              <div class="settings-content-head">
+                <div>
+                  <h2 id="settingsTitle">UI</h2>
+                </div>
+              </div>
+              <div id="settingsStatus" class="small settings-status" aria-live="polite"></div>
+              <div id="settingsPaneUi" class="settings-pane" role="tabpanel" data-settings-pane="ui">
+                <div class="settings-card">
+                  <h3>Algemeen</h3>
+                  <div class="settings-fields">
+                    <div class="settings-field-row">
+                      <div>
+                        <div class="settings-field-label">Robot / agent naam</div>
+                      </div>
+                      <input id="uiSettingsRobotName" type="text" placeholder="bijv. Alex" title="Wordt gebruikt in badges en de paginatitel. Wijzigt pas na opslaan." />
+                    </div>
+                    <div class="settings-field-row">
+                      <div>
+                        <div class="settings-field-label">Color scheme</div>
+                      </div>
+                      <select id="uiSettingsColorScheme" title="Previewt direct in deze UI. Annuleren herstelt het vorige schema.">
+                        <option value="default">default (blauw)</option>
+                        <option value="brown">brown</option>
+                        <option value="forest">forest</option>
+                        <option value="gold">gold</option>
+                        <option value="rose">rose</option>
+                        <option value="teal">teal</option>
+                        <option value="slate">slate</option>
+                        <option value="night_blue">night blue (dark)</option>
+                        <option value="night_brown">night brown (dark)</option>
+                        <option value="night_teal">night teal (dark)</option>
+                      </select>
+                    </div>
+                    <div class="settings-field-row">
+                      <div>
+                        <div class="settings-field-label">Logscherm</div>
+                      </div>
+                      <label class="enable-row" title="Toon het logscherm als tab.">
+                        <span>Tonen</span>
+                        <input id="uiSettingsShowLogsTab" type="checkbox" />
+                      </label>
+                    </div>
+                    <div class="settings-field-row">
+                      <div>
+                        <div class="settings-field-label">Navigatie: Actief leren</div>
+                      </div>
+                      <label class="enable-row" title="Toon de navigatieknop naar Actief leren.">
+                        <span>Tonen</span>
+                        <input id="uiSettingsShowActiveLearningNav" type="checkbox" />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button id="btnSettingsCancel" type="button">Annuleren</button>
+                <button id="btnSettingsSave" type="button">Opslaan</button>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
     <div class="layout">
@@ -777,7 +963,7 @@
           <button id="tabCamera" class="tab" type="button">Camera</button>
           <button id="tabReview" class="tab" type="button">Data review</button>
           <button id="tabRetrain" class="tab" type="button">Model trainen</button>
-          <button id="tabLogs" class="tab" type="button">Logs</button>
+          <button id="tabLogs" class="tab" type="button" hidden>Logs</button>
         </div>
         <div id="tab-prompt" class="tabpane prompt-pane">
           <div class="row" style="margin-bottom:8px">
@@ -1024,26 +1210,6 @@
           </div>
           <div id="cfgTabNaoPane" class="subtabpane">
             <div class="formgrid">
-              <div>
-                <label>Robot / agent naam</label>
-                <input id="cfgRobotName" type="text" placeholder="bijv. Alex" />
-              </div>
-              <div>
-                <label>Color scheme (port)</label>
-                <select id="cfgColorScheme" title="Kleurenschema voor deze instance. Inclusief light en dark varianten; wordt opgeslagen in runtime config zodat je instances visueel kunt onderscheiden.">
-                  <option value="default">default (blauw)</option>
-                  <option value="brown">brown</option>
-                  <option value="forest">forest</option>
-                  <option value="gold">gold</option>
-                  <option value="rose">rose</option>
-                  <option value="teal">teal</option>
-                  <option value="slate">slate</option>
-                  <option value="night_blue">night blue (dark)</option>
-                  <option value="night_brown">night brown (dark)</option>
-                  <option value="night_teal">night teal (dark)</option>
-                </select>
-                <div class="small" style="margin-top:6px">Per poort opgeslagen in runtime config.</div>
-              </div>
               <div>
                 <label>NAO IP</label>
                 <div class="field-row">
@@ -1441,11 +1607,23 @@
       const listenRobotNameBadge = document.getElementById('listenRobotNameBadge');
       const navToActiveLearning = document.getElementById('navToActiveLearning');
       const navToMain = document.getElementById('navToMain');
+      const btnOpenSettings = document.getElementById('btnOpenSettings');
       const brandImagePreviewTrigger = document.getElementById('brandImagePreviewTrigger');
       const navBadgePreviewTrigger = document.getElementById('navBadgePreviewTrigger');
       const imagePreviewModal = document.getElementById('imagePreviewModal');
       const imagePreviewView = document.getElementById('imagePreviewView');
       const btnImagePreviewClose = document.getElementById('btnImagePreviewClose');
+      const settingsModal = document.getElementById('settingsModal');
+      const settingsSectionUi = document.getElementById('settingsSectionUi');
+      const settingsPaneUi = document.getElementById('settingsPaneUi');
+      const uiSettingsRobotName = document.getElementById('uiSettingsRobotName');
+      const uiSettingsColorScheme = document.getElementById('uiSettingsColorScheme');
+      const uiSettingsShowLogsTab = document.getElementById('uiSettingsShowLogsTab');
+      const uiSettingsShowActiveLearningNav = document.getElementById('uiSettingsShowActiveLearningNav');
+      const settingsStatus = document.getElementById('settingsStatus');
+      const btnSettingsClose = document.getElementById('btnSettingsClose');
+      const btnSettingsCancel = document.getElementById('btnSettingsCancel');
+      const btnSettingsSave = document.getElementById('btnSettingsSave');
       const layoutEl = document.querySelector('.layout');
       const layoutSplitter = document.getElementById('layoutSplitter');
       const tabPrompt = document.getElementById('tabPrompt');
@@ -1479,8 +1657,6 @@
       const cfgTabAudioPane = document.getElementById('cfgTabAudioPane');
       const cfgTabOutputPane = document.getElementById('cfgTabOutputPane');
       const cfgTabReasoningPane = document.getElementById('cfgTabReasoningPane');
-      const cfgRobotName = document.getElementById('cfgRobotName');
-      const cfgColorScheme = document.getElementById('cfgColorScheme');
       const reviewTabQueue = document.getElementById('reviewTabQueue');
       const reviewTabReviewed = document.getElementById('reviewTabReviewed');
       const reviewTabAutoQueue = document.getElementById('reviewTabAutoQueue');
@@ -1699,6 +1875,8 @@
         'base_autostart',
         'behavior_autostart',
         'ui_color_scheme',
+        'ui_show_logs_tab',
+        'ui_show_active_learning_nav',
         'input_device',
         'stt_type',
         'mic_params_ptt',
@@ -1737,7 +1915,6 @@
       ];
       const CFG_TAB_RESET_KEYS = {
         nao: [
-          'robot_name',
           'nao_ip',
           'nao_ip_enabled',
           'nao_base_url',
@@ -1746,7 +1923,6 @@
           'behavior_enabled',
           'base_autostart',
           'behavior_autostart',
-          'ui_color_scheme',
           'custom_life_enabled',
           'custom_life_settings',
           'nao_auto_rest_after_s',
@@ -1806,6 +1982,10 @@
       let uiMode = 'client';
       let imagePreviewBodyOverflow = '';
       let imagePreviewReturnFocusEl = null;
+      let settingsModalBodyOverflow = '';
+      let settingsModalReturnFocusEl = null;
+      let activeSettingsSection = 'ui';
+      let uiSettingsSaveInFlight = false;
       let continuousActive = false;
       let continuousPoll = null;
       let logsPollTimer = null;
@@ -1883,6 +2063,13 @@
       let cmdNaoDeferredRefreshTimer = null;
       let cmdNaoHealthAvailable = false;
       let locomotionSeq = 0;
+      let uiSettingsState = {
+        robot_name: '',
+        ui_color_scheme: 'default',
+        ui_show_logs_tab: false,
+        ui_show_active_learning_nav: false,
+      };
+      let uiSettingsDraft = null;
       const applyInputBindings = [];
       let cameraStreamEnabled = false;
       let cameraPollTimer = null;
@@ -2210,8 +2397,21 @@
         if (isActiveLearningMode()) {
           return value === 'retrain' ? 'retrain' : 'review';
         }
+        if (value === 'logs' && !(uiSettingsState && uiSettingsState.ui_show_logs_tab)) {
+          return 'prompt';
+        }
         const allowed = ['prompt', 'runtime', 'commands', 'camera', 'logs'];
         return allowed.includes(value) ? value : 'prompt';
+      }
+
+      function normalizeUiVisibilityFlag(value, defaultValue = false) {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value !== 0;
+        const text = String(value ?? '').trim().toLowerCase();
+        if (!text) return defaultValue;
+        if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+        if (['0', 'false', 'no', 'off'].includes(text)) return false;
+        return defaultValue;
       }
 
       function normalizeColorScheme(value) {
@@ -2221,6 +2421,26 @@
         if (key === 'dark' || key === 'night') return 'night_blue';
         const allowed = ['default', 'brown', 'forest', 'gold', 'rose', 'teal', 'slate', 'night_blue', 'night_brown', 'night_teal'];
         return allowed.includes(key) ? key : 'default';
+      }
+
+      function normalizeUiSettings(source) {
+        const cfg = (source && typeof source === 'object') ? source : {};
+        return {
+          robot_name: normalizeRobotName(cfg.robot_name || ''),
+          ui_color_scheme: normalizeColorScheme(cfg.ui_color_scheme || 'default'),
+          ui_show_logs_tab: normalizeUiVisibilityFlag(cfg.ui_show_logs_tab, false),
+          ui_show_active_learning_nav: normalizeUiVisibilityFlag(cfg.ui_show_active_learning_nav, false),
+        };
+      }
+
+      function cloneUiSettingsDraft(source) {
+        const normalized = normalizeUiSettings(source);
+        return {
+          robot_name: normalized.robot_name,
+          ui_color_scheme: normalized.ui_color_scheme,
+          ui_show_logs_tab: normalized.ui_show_logs_tab,
+          ui_show_active_learning_nav: normalized.ui_show_active_learning_nav,
+        };
       }
 
       function applyColorScheme(value) {
@@ -2235,6 +2455,22 @@
         return raw ? raw.slice(0, 60) : '';
       }
 
+      function isSettingsModalOpen() {
+        return !!(settingsModal && !settingsModal.classList.contains('hidden'));
+      }
+
+      function currentUiSettingsDraftNormalized() {
+        return normalizeUiSettings(uiSettingsDraft || uiSettingsState);
+      }
+
+      function hasUiSettingsDraftChanges() {
+        const normalizedDraft = currentUiSettingsDraftNormalized();
+        return normalizedDraft.robot_name !== uiSettingsState.robot_name
+          || normalizedDraft.ui_color_scheme !== uiSettingsState.ui_color_scheme
+          || normalizedDraft.ui_show_logs_tab !== uiSettingsState.ui_show_logs_tab
+          || normalizedDraft.ui_show_active_learning_nav !== uiSettingsState.ui_show_active_learning_nav;
+      }
+
       function getRobotDisplayName() {
         return normalizeRobotName(currentRobotName) || 'Bot';
       }
@@ -2246,7 +2482,7 @@
       }
 
       function updateAppIdentity() {
-        const baseTitle = isActiveLearningMode() ? 'Active learning' : 'NAO Studio';
+        const baseTitle = isActiveLearningMode() ? 'Actief leren' : 'NAO Studio';
         const robotName = normalizeRobotName(currentRobotName);
         if (appTitle) {
           appTitle.textContent = baseTitle;
@@ -2255,6 +2491,176 @@
         applyRobotBadge(listenRobotNameBadge, robotName);
         applyRobotBadge(cmdRobotNameBadge, robotName);
         document.title = robotName ? `${baseTitle} - ${robotName}` : baseTitle;
+      }
+
+      function applyUiSettingsVisibility() {
+        if (navToActiveLearning) {
+          navToActiveLearning.hidden = isActiveLearningMode() || !uiSettingsState.ui_show_active_learning_nav;
+        }
+        if (tabLogs) {
+          tabLogs.hidden = isActiveLearningMode() || !uiSettingsState.ui_show_logs_tab;
+        }
+        if (!isActiveLearningMode() && activeTab === 'logs' && !uiSettingsState.ui_show_logs_tab) {
+          setTab('prompt');
+        }
+      }
+
+      function setSettingsStatus(message, isError = false) {
+        if (!settingsStatus) return;
+        settingsStatus.textContent = message || '';
+        settingsStatus.classList.toggle('error', !!isError);
+      }
+
+      function setSettingsSection(which) {
+        activeSettingsSection = which === 'ui' ? 'ui' : 'ui';
+        if (settingsSectionUi) {
+          settingsSectionUi.classList.toggle('active', activeSettingsSection === 'ui');
+          settingsSectionUi.setAttribute('aria-selected', activeSettingsSection === 'ui' ? 'true' : 'false');
+        }
+        if (settingsPaneUi) settingsPaneUi.classList.toggle('hidden', activeSettingsSection !== 'ui');
+      }
+
+      function syncUiSettingsModalFields() {
+        const draft = uiSettingsDraft || cloneUiSettingsDraft(uiSettingsState);
+        if (uiSettingsRobotName) uiSettingsRobotName.value = draft.robot_name || '';
+        if (uiSettingsColorScheme) uiSettingsColorScheme.value = normalizeColorScheme(draft.ui_color_scheme || 'default');
+        if (uiSettingsShowLogsTab) uiSettingsShowLogsTab.checked = !!draft.ui_show_logs_tab;
+        if (uiSettingsShowActiveLearningNav) uiSettingsShowActiveLearningNav.checked = !!draft.ui_show_active_learning_nav;
+      }
+
+      function updateSettingsModalActions() {
+        const readOnly = !isServerUi();
+        if (uiSettingsRobotName) uiSettingsRobotName.readOnly = readOnly;
+        if (uiSettingsColorScheme) uiSettingsColorScheme.disabled = readOnly;
+        if (uiSettingsShowLogsTab) uiSettingsShowLogsTab.disabled = readOnly;
+        if (uiSettingsShowActiveLearningNav) uiSettingsShowActiveLearningNav.disabled = readOnly;
+        if (btnSettingsSave) {
+          btnSettingsSave.disabled = readOnly || uiSettingsSaveInFlight || !hasUiSettingsDraftChanges();
+        }
+        if (btnSettingsCancel) {
+          btnSettingsCancel.textContent = 'Annuleren';
+        }
+        if (btnOpenSettings) {
+          btnOpenSettings.hidden = !isServerUi();
+          btnOpenSettings.setAttribute('aria-pressed', isSettingsModalOpen() ? 'true' : 'false');
+        }
+      }
+
+      function syncUiSettingsDraftFromForm() {
+        if (!uiSettingsDraft) {
+          uiSettingsDraft = cloneUiSettingsDraft(uiSettingsState);
+        }
+        if (uiSettingsRobotName) uiSettingsDraft.robot_name = uiSettingsRobotName.value || '';
+        if (uiSettingsColorScheme) uiSettingsDraft.ui_color_scheme = uiSettingsColorScheme.value || 'default';
+        if (uiSettingsShowLogsTab) uiSettingsDraft.ui_show_logs_tab = !!uiSettingsShowLogsTab.checked;
+        if (uiSettingsShowActiveLearningNav) uiSettingsDraft.ui_show_active_learning_nav = !!uiSettingsShowActiveLearningNav.checked;
+        const normalizedDraft = currentUiSettingsDraftNormalized();
+        if (uiSettingsColorScheme && uiSettingsColorScheme.value !== normalizedDraft.ui_color_scheme) {
+          uiSettingsColorScheme.value = normalizedDraft.ui_color_scheme;
+        }
+        applyColorScheme(normalizedDraft.ui_color_scheme);
+        updateSettingsModalActions();
+      }
+
+      function syncUiSettingsStateFromConfig(cfg, opts = {}) {
+        const preserveDraft = !!opts.preserveDraft;
+        uiSettingsState = normalizeUiSettings(cfg);
+        currentRobotName = uiSettingsState.robot_name;
+        updateAppIdentity();
+        applyUiSettingsVisibility();
+        if (!preserveDraft) {
+          applyColorScheme(uiSettingsState.ui_color_scheme);
+        }
+        if (isSettingsModalOpen()) {
+          if (!preserveDraft) {
+            uiSettingsDraft = cloneUiSettingsDraft(uiSettingsState);
+          }
+          syncUiSettingsModalFields();
+          updateSettingsModalActions();
+          if (preserveDraft) {
+            applyColorScheme(currentUiSettingsDraftNormalized().ui_color_scheme);
+          }
+        } else {
+          uiSettingsDraft = null;
+          applyColorScheme(uiSettingsState.ui_color_scheme);
+        }
+      }
+
+      function openSettingsModal(returnFocusEl) {
+        if (!settingsModal || !isServerUi()) return;
+        settingsModalReturnFocusEl = returnFocusEl || document.activeElement || null;
+        settingsModalBodyOverflow = document.body.style.overflow || '';
+        document.body.style.overflow = 'hidden';
+        uiSettingsDraft = cloneUiSettingsDraft(uiSettingsState);
+        setSettingsSection('ui');
+        syncUiSettingsModalFields();
+        setSettingsStatus('');
+        settingsModal.classList.remove('hidden');
+        settingsModal.setAttribute('aria-hidden', 'false');
+        updateSettingsModalActions();
+        if (uiSettingsRobotName && !uiSettingsRobotName.readOnly) {
+          uiSettingsRobotName.focus();
+          return;
+        }
+        if (btnSettingsClose) btnSettingsClose.focus();
+      }
+
+      function closeSettingsModal(opts) {
+        if (!settingsModal) return;
+        if (uiSettingsSaveInFlight) return;
+        opts = (opts && typeof opts === 'object') ? opts : {};
+        const restorePreview = opts.restorePreview !== false;
+        if (restorePreview) {
+          applyColorScheme(uiSettingsState.ui_color_scheme);
+        }
+        settingsModal.classList.add('hidden');
+        settingsModal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = settingsModalBodyOverflow;
+        uiSettingsDraft = null;
+        setSettingsStatus('');
+        updateSettingsModalActions();
+        const focusEl = settingsModalReturnFocusEl;
+        settingsModalReturnFocusEl = null;
+        if (focusEl && typeof focusEl.focus === 'function') {
+          focusEl.focus();
+        }
+      }
+
+      async function saveUiSettings() {
+        if (!isServerUi() || uiSettingsSaveInFlight || !hasUiSettingsDraftChanges()) {
+          return;
+        }
+        uiSettingsSaveInFlight = true;
+        setSettingsStatus('Opslaan...');
+        updateSettingsModalActions();
+        const normalizedDraft = currentUiSettingsDraftNormalized();
+        const payload = {
+          robot_name: normalizedDraft.robot_name,
+          ui_color_scheme: normalizedDraft.ui_color_scheme,
+          ui_show_logs_tab: normalizedDraft.ui_show_logs_tab,
+          ui_show_active_learning_nav: normalizedDraft.ui_show_active_learning_nav,
+        };
+        try {
+          const r = await fetch('/api/runtime_config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: payload })
+          });
+          const j = await r.json();
+          if (!j.ok) {
+            throw new Error(j.error || 'runtime config update failed');
+          }
+          syncUiSettingsStateFromConfig(j.runtime_config || j.config || payload);
+          uiSettingsSaveInFlight = false;
+          closeSettingsModal({ restorePreview: false });
+        } catch (e) {
+          setSettingsStatus(`Opslaan mislukt: ${e?.message || e}`, true);
+        } finally {
+          uiSettingsSaveInFlight = false;
+          if (isSettingsModalOpen()) {
+            updateSettingsModalActions();
+          }
+        }
       }
 
       function currentUiPrefs() {
@@ -2537,6 +2943,7 @@
           }
           el.setAttribute('disabled', 'disabled');
         });
+        updateSettingsModalActions();
       }
 
       function updateClientAudioModeUi() {
@@ -2580,6 +2987,8 @@
         }
         updateOutputAvailability();
         applyClientConfigReadOnly();
+        applyUiSettingsVisibility();
+        updateSettingsModalActions();
       }
 
       if (listenModeEl) {
@@ -5646,7 +6055,6 @@
         const naoIpValue = (cfgNaoIp.value || '').trim() || lastAppliedNaoIp || '';
         const naoBaseValue = (cfgNaoBase.value || '').trim() || lastAppliedBaseUrl || '';
         const behaviorValue = (cfgBehavior.value || '').trim() || lastAppliedBehaviorUrl || '';
-        const robotNameValue = normalizeRobotName(cfgRobotName ? cfgRobotName.value : '');
         const autoRestEnabled = !!cfgNaoAutoRestEnabled.checked;
         let autoRestSeconds = parseInt(cfgNaoAutoRestSeconds.value || '0', 10);
         if (isNaN(autoRestSeconds) || autoRestSeconds < 0) autoRestSeconds = 0;
@@ -5680,8 +6088,10 @@
           const llmTopP = readFloatOrNull(cfgLlmTopP ? cfgLlmTopP.value : '');
           const llmTopK = readIntOrNull(cfgLlmTopK ? cfgLlmTopK.value : '');
           return {
-            robot_name: robotNameValue,
-            ui_color_scheme: normalizeColorScheme(cfgColorScheme ? cfgColorScheme.value : 'default'),
+            robot_name: uiSettingsState.robot_name,
+            ui_color_scheme: uiSettingsState.ui_color_scheme,
+            ui_show_logs_tab: uiSettingsState.ui_show_logs_tab,
+            ui_show_active_learning_nav: uiSettingsState.ui_show_active_learning_nav,
             nao_ip: naoIpValue,
             nao_ip_enabled: !!cfgNaoIpEnabled.checked,
             nao_base_url: naoBaseValue,
@@ -5740,12 +6150,8 @@
           const effectiveStt = ((effectiveCfg || {}).input || {}).stt || {};
           const effectiveSttParams = effectiveStt.params || {};
           const effectiveSttType = (effectiveStt.type || '').toLowerCase();
-          if (cfgRobotName) cfgRobotName.value = cfg.robot_name || '';
-          const scheme = normalizeColorScheme(cfg.ui_color_scheme || 'default');
-          if (cfgColorScheme) cfgColorScheme.value = scheme;
-          applyColorScheme(scheme);
-          currentRobotName = normalizeRobotName(cfg.robot_name || '');
-          updateAppIdentity();
+          const preserveUiDraft = isSettingsModalOpen() && !!uiSettingsDraft && hasUiSettingsDraftChanges() && !uiSettingsSaveInFlight;
+          syncUiSettingsStateFromConfig(cfg, { preserveDraft: preserveUiDraft });
           cfgNaoIp.value = cfg.nao_ip || '';
           cfgNaoIpEnabled.checked = !!cfg.nao_ip_enabled;
           cfgNaoBase.value = cfg.nao_base_url || '';
@@ -7476,6 +7882,10 @@
         }
       });
       document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isSettingsModalOpen()) {
+          closeSettingsModal();
+          return;
+        }
         if (e.key === 'Escape' && isImagePreviewOpen()) {
           closeImagePreview();
           return;
@@ -7794,6 +8204,52 @@
         dmLogLimit.addEventListener('change', () => refreshProcessLogs());
       }
 
+      if (btnOpenSettings) {
+        btnOpenSettings.addEventListener('click', () => openSettingsModal(btnOpenSettings));
+      }
+      if (settingsSectionUi) {
+        settingsSectionUi.addEventListener('click', () => setSettingsSection('ui'));
+      }
+      if (btnSettingsClose) {
+        btnSettingsClose.addEventListener('click', () => closeSettingsModal());
+      }
+      if (btnSettingsCancel) {
+        btnSettingsCancel.addEventListener('click', () => closeSettingsModal());
+      }
+      if (btnSettingsSave) {
+        btnSettingsSave.addEventListener('click', () => saveUiSettings());
+      }
+      if (settingsModal) {
+        settingsModal.addEventListener('click', (e) => {
+          if (e.target !== settingsModal) return;
+          closeSettingsModal();
+        });
+      }
+      if (uiSettingsRobotName) {
+        uiSettingsRobotName.addEventListener('input', () => {
+          if (!uiSettingsDraft) {
+            uiSettingsDraft = cloneUiSettingsDraft(uiSettingsState);
+          }
+          uiSettingsDraft.robot_name = uiSettingsRobotName.value || '';
+          updateSettingsModalActions();
+        });
+      }
+      if (uiSettingsColorScheme) {
+        uiSettingsColorScheme.addEventListener('change', () => {
+          syncUiSettingsDraftFromForm();
+        });
+      }
+      if (uiSettingsShowLogsTab) {
+        uiSettingsShowLogsTab.addEventListener('change', () => {
+          syncUiSettingsDraftFromForm();
+        });
+      }
+      if (uiSettingsShowActiveLearningNav) {
+        uiSettingsShowActiveLearningNav.addEventListener('change', () => {
+          syncUiSettingsDraftFromForm();
+        });
+      }
+
       btnRefreshCfg.addEventListener('click', async () => {
         await refreshConfigDump();
         refreshInputDevices(true).catch(() => {});
@@ -8026,12 +8482,6 @@
 
       cfgCmdrec.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       cfgStt.addEventListener('change', () => { updateAzureFields(); applyRuntimeConfig(getConfigFromForm(), false, false); });
-      if (cfgColorScheme) {
-        cfgColorScheme.addEventListener('change', () => {
-          applyColorScheme(cfgColorScheme.value || 'default');
-          applyRuntimeConfig(getConfigFromForm(), false, false);
-        });
-      }
       if (cfgAzureInitialSilence) {
         cfgAzureInitialSilence.addEventListener('change', () => applyRuntimeConfig(getConfigFromForm(), false, false));
       }
@@ -8214,7 +8664,6 @@
         cfgLlmTopK.addEventListener('change', () => applyLlmAdvancedNow());
       }
 
-      addApplyButtonForInput(cfgRobotName, { id: 'btnApplyRobotName', label: 'Robotnaam toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgNaoAutoRestSeconds, { id: 'btnApplyNaoAutoRestSeconds', label: 'Auto-rest toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgWakeTimeout, { id: 'btnApplyWakeTimeout', label: 'Wake-timeout toepassen', onApply: applyConfigNow });
       addApplyButtonForInput(cfgVadStartRms, { id: 'btnApplyVadStartRms', label: 'VAD toepassen', onApply: applyConfigNow });

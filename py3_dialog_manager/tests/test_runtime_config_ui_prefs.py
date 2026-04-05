@@ -46,6 +46,8 @@ def test_runtime_config_defaults_include_ui_preferences(monkeypatch):
     cfg = data["config"]
     assert cfg["listen_mode"] == "ptt"
     assert cfg["ui_active_tab"] == "prompt"
+    assert cfg["ui_show_logs_tab"] is False
+    assert cfg["ui_show_active_learning_nav"] is False
     assert cfg["locomotion_frequency"] == 0.2
     assert cfg["locomotion_arms_enabled"] is True
 
@@ -63,11 +65,15 @@ def test_runtime_config_ui_preferences_persist_and_are_cleaned(monkeypatch):
     assert data["ok"] is True
     assert data["config"]["listen_mode"] == "continuous"
     assert data["config"]["ui_active_tab"] == "commands"
+    assert data["config"]["ui_show_logs_tab"] is False
+    assert data["config"]["ui_show_active_learning_nav"] is False
 
     effective = client.get("/api/runtime_effective").get_json()
     assert effective["ok"] is True
     assert effective["runtime_config"]["listen_mode"] == "continuous"
     assert effective["runtime_config"]["ui_active_tab"] == "commands"
+    assert effective["runtime_config"]["ui_show_logs_tab"] is False
+    assert effective["runtime_config"]["ui_show_active_learning_nav"] is False
 
     resp2 = client.post(
         "/api/runtime_config",
@@ -78,8 +84,35 @@ def test_runtime_config_ui_preferences_persist_and_are_cleaned(monkeypatch):
     assert data2["ok"] is True
     assert data2["config"]["listen_mode"] == "ptt"
     assert data2["config"]["ui_active_tab"] == "prompt"
+    assert data2["config"]["ui_show_logs_tab"] is False
+    assert data2["config"]["ui_show_active_learning_nav"] is False
     assert data2["config"]["locomotion_frequency"] == 0.2
     assert data2["config"]["locomotion_arms_enabled"] is True
+
+
+def test_runtime_config_ui_visibility_preferences_persist_and_are_cleaned(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"ui_show_logs_tab": True, "ui_show_active_learning_nav": "1"}},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["config"]["ui_show_logs_tab"] is True
+    assert data["config"]["ui_show_active_learning_nav"] is True
+
+    resp2 = client.post(
+        "/api/runtime_config",
+        json={"config": {"ui_show_logs_tab": "later", "ui_show_active_learning_nav": None}},
+    )
+    assert resp2.status_code == 200
+    data2 = resp2.get_json()
+    assert data2["ok"] is True
+    assert data2["config"]["ui_show_logs_tab"] is False
+    assert data2["config"]["ui_show_active_learning_nav"] is False
 
 
 def test_runtime_config_locomotion_values_are_clamped(monkeypatch):
