@@ -84,8 +84,76 @@ def test_commands_tab_exposes_posture_and_auto_rest_pills(monkeypatch):
 
     assert 'id="cmdNaoPostureState"' in html
     assert 'id="cmdNaoAutoRestState"' in html
+    assert 'id="btnCmdNaoRefresh"' in html
     assert "function currentCmdNaoAutoRestRemaining()" in html
     assert "fetch('/api/nao_command_state')" in html
+
+
+@pytest.mark.ui_contract
+def test_chat_ui_exposes_hybrid_nao_header_actions(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert 'id="navBadgePreviewTrigger"' in html
+    assert 'id="btnNaoConnectPlaceholder"' in html
+    assert 'id="btnNaoDisconnectPlaceholder"' in html
+    assert 'id="btnCmdWakeUp"' in html
+    assert 'id="btnCmdRest"' in html
+    assert 'id="btnCmdAutLifeToggle"' in html
+    assert 'id="naoHeaderActionStatus"' in html
+    assert html.index('id="navBadgePreviewTrigger"') < html.index('id="btnNaoConnectPlaceholder"') < html.index('id="navToMain"')
+    assert 'id="btnNaoConnectPlaceholder" type="button" class="app-nav-action nao-header-action nao-header-placeholder" title="Connect met NAO (later)" aria-label="Connect met NAO" disabled' in html
+    assert 'id="btnNaoDisconnectPlaceholder" type="button" class="app-nav-action nao-header-action nao-header-placeholder" title="Disconnect met NAO (later)" aria-label="Disconnect met NAO" disabled' in html
+    assert 'id="btnCmdWakeUp" type="button" class="app-nav-action nao-header-action" title="NAO wakker maken" aria-label="NAO wakker maken"' in html
+    assert 'id="btnCmdRest" type="button" class="app-nav-action nao-header-action" title="NAO laten slapen" aria-label="NAO laten slapen"' in html
+    assert 'id="btnCmdAutLifeToggle" type="button" class="app-nav-action nao-header-action" title="Autonoom leven" aria-label="Autonoom leven" aria-pressed="false"' in html
+    assert 'class="nao-header-icon connect"' in html
+    assert 'class="nao-header-icon disconnect"' in html
+    assert 'body[data-color-scheme="night_blue"] .nao-header-status.error' in html
+
+
+@pytest.mark.ui_contract
+def test_commands_tab_keeps_rich_status_and_removes_duplicate_nao_actions(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert html.count('id="btnCmdWakeUp"') == 1
+    assert html.count('id="btnCmdRest"') == 1
+    assert html.count('id="btnCmdAutLifeToggle"') == 1
+    assert 'id="cmdRobotNameBadge"' not in html
+    assert 'id="cmdNaoLifeStatus"' not in html
+    assert '>Commands</label>' in html
+    assert 'Laat de NAO robot lopen' in html
+    assert 'Hier zie je geïnstalleerde behaviors van een verbonden NAO robot.' in html
+    assert 'Verbind met een NAO robot om beschikbare behaviors te bekijken.' in html
+    assert 'id="behaviorActions" class="row" style="margin-top:8px" hidden' in html
+    assert 'id="btnMoveForward"' in html
+    assert 'id="locomotionFrequency"' in html
+    assert 'id="behaviorTree" hidden' in html
+    assert html.index('>Commands</label>') < html.index('Laat de NAO robot lopen')
+    assert html.index('Laat de NAO robot lopen') < html.index('>NAO ogen</label>')
+    assert html.index('>NAO ogen</label>') < html.index('>Behaviors</label>')
+    assert 'id="btnCmdStopCommand" type="button" hidden>Stop</button>' in html
+    assert 'id="btnCmdStopAll" type="button">Stop all</button>' in html
+    assert "cmdList.size = Math.max(1, Math.min(10, commands.length));" in html
+    assert "btnCmdStopCommand.hidden = !hasCommandStop;" in html
+    assert "btnCmdStopAll.textContent = sendStopInFlight ? 'Stop all...' : 'Stop all';" in html
+    assert 'id="reviewCounter" class="small" style="margin-bottom:6px" hidden' in html
+    assert 'id="reviewCounterReview" class="small" style="margin-bottom:8px" hidden' in html
+    assert 'id="retrainDelta" style="margin-bottom:6px" hidden' in html
+    assert 'Nieuwe reviewed sinds laatste retrain:' not in html
+    assert 'laatste bundle:' not in html
+    assert 'Reviewed sinds laatste retrain:' not in html
+    assert "el.textContent = '';" in html
+    assert "el.hidden = true;" in html
 
 
 @pytest.mark.ui_contract
@@ -102,7 +170,10 @@ def test_commands_tab_renders_disabled_state_when_nao_is_disabled(monkeypatch):
     assert "aut life: disabled" in render_body
     assert "posture: disabled" in render_body
     assert "auto-rest: disabled" in render_body
-    assert "cmdNaoLifeStatus.textContent = 'disabled';" in render_body
+    assert "btnCmdWakeUp.disabled = true;" in render_body
+    assert "btnCmdRest.disabled = true;" in render_body
+    assert "btnCmdAutLifeToggle.setAttribute('aria-pressed', 'false');" in render_body
+    assert "renderNaoHeaderStatus();" in render_body
     assert "async function refreshCmdNaoState(opts = {})" in html
     assert "if (cmdNaoDisabledByConfig) {" in html
     assert "resetCmdNaoState({ disabled: true });" in html
@@ -272,6 +343,25 @@ def test_chat_ui_shows_stop_actions_optimistically_for_stoppable_commands_and_be
     assert "normalizedLabel === 'DANCE' || normalizedLabel === 'WALK_WITH_ME'" in command_body
     assert "beginOptimisticStopAction(stopLabel, { behaviorTarget: behavior })" in behavior_body
     assert "syncStopAvailability(j);" in behavior_body
+
+
+@pytest.mark.ui_contract
+def test_nao_refresh_follows_header_actions_outside_commands_tab(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    command_body = _extract_function_body(html, "runSelectedCommand")
+
+    assert "scheduleCmdNaoRefresh(commandNaoRefreshDelayMs(label), false);" in command_body
+    assert "if (cmdNaoHealthAvailable) {" in command_body
+    assert "activeTab === 'commands'" not in html
+    assert "activeTab !== 'commands'" not in html
+    assert "NAO status verversen na" not in html
+    assert html.count("scheduleCmdNaoRefresh(150, false);") >= 2
+    assert html.count("refreshCmdNaoState({ showErrors: false }).catch(() => {});") >= 4
 
 
 @pytest.mark.ui_contract

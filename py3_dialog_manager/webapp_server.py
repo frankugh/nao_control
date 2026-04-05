@@ -9017,10 +9017,21 @@ def create_app(
             return jsonify({"ok": False, "error": "cmdrec niet beschikbaar."}), 400
         try:
             labels = cmdrec.get_labels() or []
-            exclude = {"LOCOMOTION_REQUEST", "WALK_WITH_ME", "REST"}
+            exclude = {
+                "NONE",
+                "LOCOMOTION_REQUEST",
+                "REST",
+                "STOP",
+                "WALK_FORWARD",
+                "WALK_BACKWARD",
+                "WALK_LEFT",
+                "WALK_RIGHT",
+                "TURN_LEFT",
+                "TURN_RIGHT",
+            }
             commands = []
             for label in sorted(labels):
-                label_upper = label.upper()
+                label_upper = _normalize_command_label(label)
                 if label_upper in exclude or "LOCOMOTION" in label_upper:
                     continue
                 behavior = _command_behavior_preview(label, cmdrec, behavior_executor, runtime_cfg=runtime_cfg)

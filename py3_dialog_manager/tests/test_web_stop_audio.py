@@ -288,8 +288,23 @@ def test_nao_wake_up_timeout_returns_pending(monkeypatch):
     assert data["is_awake"] is None
 
 
-def test_command_catalog_excludes_rest(monkeypatch):
-    cmdrec = StubCmdrec(["REST", "DANCE", "WALK_WITH_ME", "LOCOMOTION_REQUEST"])
+def test_command_catalog_excludes_non_manual_labels(monkeypatch):
+    cmdrec = StubCmdrec(
+        [
+            "REST",
+            "DANCE",
+            "WALK_WITH_ME",
+            "LOCOMOTION_REQUEST",
+            "STOP",
+            "WALK_FORWARD",
+            "WALK_BACKWARD",
+            "WALK_LEFT",
+            "WALK_RIGHT",
+            "TURN_LEFT",
+            "TURN_RIGHT",
+            "NONE",
+        ]
+    )
     app = _make_app(monkeypatch, cmdrec=cmdrec)
     client = app.test_client()
 
@@ -299,9 +314,51 @@ def test_command_catalog_excludes_rest(monkeypatch):
     assert data["ok"] is True
     labels = [item["label"] for item in data.get("commands", [])]
     assert "DANCE" in labels
+    assert "WALK_WITH_ME" in labels
+    assert "NONE" not in labels
     assert "REST" not in labels
-    assert "WALK_WITH_ME" not in labels
+    assert "STOP" not in labels
     assert "LOCOMOTION_REQUEST" not in labels
+    assert "WALK_FORWARD" not in labels
+    assert "WALK_BACKWARD" not in labels
+    assert "WALK_LEFT" not in labels
+    assert "WALK_RIGHT" not in labels
+    assert "TURN_LEFT" not in labels
+    assert "TURN_RIGHT" not in labels
+
+
+def test_command_catalog_normalizes_escaped_labels_before_filtering(monkeypatch):
+    cmdrec = StubCmdrec(
+        [
+            r"WALK\_WITH\_ME",
+            r"WALK\_FORWARD",
+            r"WALK\_BACKWARD",
+            r"WALK\_LEFT",
+            r"WALK\_RIGHT",
+            r"TURN\_LEFT",
+            r"TURN\_RIGHT",
+            r"LOCOMOTION\_REQUEST",
+            r"STOP",
+            r"NONE",
+        ]
+    )
+    app = _make_app(monkeypatch, cmdrec=cmdrec)
+    client = app.test_client()
+
+    resp = client.get("/api/command_catalog")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    labels = [item["label"] for item in data.get("commands", [])]
+    assert r"WALK\_WITH\_ME" in labels
+    assert r"WALK\_FORWARD" not in labels
+    assert r"WALK\_BACKWARD" not in labels
+    assert r"WALK\_LEFT" not in labels
+    assert r"WALK\_RIGHT" not in labels
+    assert r"TURN\_LEFT" not in labels
+    assert r"TURN\_RIGHT" not in labels
+    assert r"LOCOMOTION\_REQUEST" not in labels
+    assert r"STOP" not in labels
 
 
 def test_nao_custom_life_set_uses_custom_life_path_and_updates_runtime(monkeypatch):

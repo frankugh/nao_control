@@ -435,6 +435,23 @@
       .app-nav-action:hover { background: var(--accent-soft); border-color: #bdd2ee; color: #0f2b55; }
       .app-nav-action { min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; font-size: 16px; line-height: 1; }
       .app-nav-action[aria-pressed="true"] { background: var(--accent-soft); border-color: #bdd2ee; }
+      .nao-header-actions { display: inline-flex; align-items: center; gap: 6px; }
+      .nao-header-action { min-width: 32px; width: 32px; min-height: 32px; padding: 0; font-size: 15px; }
+      .nao-header-placeholder:disabled { opacity: 0.8; }
+      .nao-header-icon { width: 18px; height: 18px; display: block; }
+      .nao-header-icon path,
+      .nao-header-icon circle {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .nao-header-icon.connect { color: #31a354; }
+      .nao-header-icon.disconnect { color: #d84d4d; }
+      .nao-header-status { margin: 0 4px 0 0; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+      .nao-header-status.error { color: #8a2f21; }
+      .nao-header-status.warning { color: #8b5b10; }
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       button { padding: 8px 12px; font-size: 14px; border-radius: 10px; border: 1px solid var(--border-strong); background: linear-gradient(180deg, #ffffff 0%, var(--button-bg-bottom) 100%); color: var(--text-main); box-shadow: 0 1px 0 rgba(255,255,255,0.6), 0 2px 7px rgba(16, 42, 72, 0.08); transition: all 0.15s ease; }
@@ -718,6 +735,16 @@
         border-color: #9f7658;
         color: #f0dfcf;
       }
+      body[data-color-scheme="night_blue"] .nao-header-status.error,
+      body[data-color-scheme="night_brown"] .nao-header-status.error,
+      body[data-color-scheme="night_teal"] .nao-header-status.error {
+        color: #ffb8ab;
+      }
+      body[data-color-scheme="night_blue"] .nao-header-status.warning,
+      body[data-color-scheme="night_brown"] .nao-header-status.warning,
+      body[data-color-scheme="night_teal"] .nao-header-status.warning {
+        color: #ffe2a1;
+      }
       body[data-color-scheme="night_blue"] .settings-panel,
       body[data-color-scheme="night_brown"] .settings-panel,
       body[data-color-scheme="night_teal"] .settings-panel {
@@ -829,6 +856,14 @@
       </div>
       <div class="app-nav">
         <img id="navBadgePreviewTrigger" class="app-nav-badge" src="/assets/img/NAO2.jpeg" alt="NAO detail" role="button" tabindex="0" title="Klik voor groter beeld" />
+        <div id="naoHeaderActions" class="nao-header-actions" aria-label="NAO acties">
+          <button id="btnNaoConnectPlaceholder" type="button" class="app-nav-action nao-header-action nao-header-placeholder" title="Connect met NAO (later)" aria-label="Connect met NAO" disabled><svg class="nao-header-icon connect" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v2"></path><path d="M9 19h6"></path><circle cx="12" cy="14" r="1"></circle><path d="M8.5 14a3.5 3.5 0 0 1 7 0"></path><path d="M5.5 13.5a6.5 6.5 0 0 1 13 0"></path></svg></button>
+          <button id="btnNaoDisconnectPlaceholder" type="button" class="app-nav-action nao-header-action nao-header-placeholder" title="Disconnect met NAO (later)" aria-label="Disconnect met NAO" disabled><svg class="nao-header-icon disconnect" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v2"></path><path d="M9 19h6"></path><circle cx="12" cy="14" r="1"></circle><path d="M8.5 14a3.5 3.5 0 0 1 7 0"></path><path d="M5.5 13.5a6.5 6.5 0 0 1 13 0"></path><path d="M6 6l12 12"></path></svg></button>
+          <button id="btnCmdWakeUp" type="button" class="app-nav-action nao-header-action" title="NAO wakker maken" aria-label="NAO wakker maken">&#9728;</button>
+          <button id="btnCmdRest" type="button" class="app-nav-action nao-header-action" title="NAO laten slapen" aria-label="NAO laten slapen">&#9789;</button>
+          <button id="btnCmdAutLifeToggle" type="button" class="app-nav-action nao-header-action" title="Autonoom leven" aria-label="Autonoom leven" aria-pressed="false">&#9881;</button>
+        </div>
+        <span id="naoHeaderActionStatus" class="nao-header-status" aria-live="polite" hidden></span>
         <a id="navToActiveLearning" class="small" href="/active_learning" hidden>Actief leren</a>
         <a id="navToSummary" class="small" href="/summary">Samenvatten</a>
         <a id="navToMain" class="small" href="/">Terug naar NAO Studio</a>
@@ -890,7 +925,7 @@
                     </div>
                     <div class="settings-field-row">
                       <div>
-                        <div class="settings-field-label">Logscherm</div>
+                        <div class="settings-field-label">Logtab</div>
                       </div>
                       <label class="enable-row" title="Toon het logscherm als tab.">
                         <span>Tonen</span>
@@ -1018,22 +1053,30 @@
           <div class="card" style="margin-bottom:10px; background:var(--panel-soft)">
             <div class="row" style="align-items:center; gap:8px; flex-wrap:wrap">
               <label style="margin:0">NAO status</label>
-              <span id="cmdRobotNameBadge" class="robot-chip inline missing">Robot: niet ingesteld</span>
+              <button id="btnCmdNaoRefresh" type="button">&#8635; Ververs</button>
               <span id="cmdNaoAwakeState" class="pill">motoren: onbekend</span>
               <span id="cmdNaoAutLifeState" class="pill">aut life: onbekend</span>
               <span id="cmdNaoPostureState" class="pill">posture: onbekend</span>
               <span id="cmdNaoAutoRestState" class="pill">auto-rest: onbekend</span>
-              <span id="cmdNaoLifeStatus" class="small"></span>
-            </div>
-            <div class="row" style="margin-top:8px; gap:6px">
-              <button id="btnCmdWakeUp" type="button">&#9728; Wake up</button>
-              <button id="btnCmdRest" type="button">&#9789; Rest</button>
-              <button id="btnCmdAutLifeToggle" type="button">&#9881; Aut life</button>
-              <button id="btnCmdNaoRefresh" type="button">&#8635; Ververs</button>
             </div>
           </div>
-          <div class="card" style="margin-bottom:10px; background:var(--panel-soft)">
-            <label style="margin:0">Locomotion (ALMotion moveToward)</label>
+          <div>
+            <label>Commands</label>
+            <div id="reviewCounter" class="small" style="margin-bottom:6px" hidden></div>
+            <select id="cmdList" size="10" style="width:100%"></select>
+            <div class="row" style="margin-top:8px">
+              <label style="margin:0">Dance</label>
+              <select id="danceList" style="width:100%"></select>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <button id="btnCmdRun" type="button">Run command</button>
+              <button id="btnCmdStopCommand" type="button" hidden>Stop</button>
+              <button id="btnCmdStopAll" type="button">Stop all</button>
+              <span id="cmdStatus" class="small"></span>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px; margin-bottom:10px; background:var(--panel-soft)">
+            <label style="margin:0">Laat de NAO robot lopen</label>
             <div class="locomotion-grid">
               <button id="btnMoveTurnLeft" class="locomotion-btn" type="button">&#8634;</button>
               <button id="btnMoveForward" class="locomotion-btn" type="button">&#8593;</button>
@@ -1046,34 +1089,11 @@
               <span></span>
             </div>
             <div class="row locomotion-settings">
-              <label style="margin:0">speed</label>
+              <label style="margin:0">Snelheid</label>
               <input id="locomotionFrequency" type="number" min="0.05" max="1.0" step="0.05" value="0.20" />
-              <label class="enable-row"><span>arms enabled</span><input id="locomotionArmsEnabled" type="checkbox" checked /></label>
+              <label class="enable-row"><span>Armen meebewegen</span><input id="locomotionArmsEnabled" type="checkbox" checked /></label>
             </div>
             <div id="locomotionStatus" class="small locomotion-status"></div>
-          </div>
-          <div>
-            <label>Commands</label>
-            <div id="reviewCounter" class="small" style="margin-bottom:6px"></div>
-            <select id="cmdList" size="10" style="width:100%"></select>
-            <div class="row" style="margin-top:8px">
-              <label style="margin:0">Dance</label>
-              <select id="danceList" style="width:100%"></select>
-            </div>
-            <div class="row" style="margin-top:8px">
-              <button id="btnCmdRun" type="button">Run command</button>
-              <span id="cmdStatus" class="small"></span>
-            </div>
-          </div>
-          <div style="margin-top:12px">
-            <label>Behaviors (van NAO)</label>
-            <div id="behaviorTree"></div>
-            <div id="behaviorSelected" class="small" style="margin-top:6px"></div>
-            <div class="row" style="margin-top:8px">
-              <button id="btnBehaviorStart" type="button">Start behavior</button>
-              <button id="btnBehaviorStop" type="button">Stop behavior</button>
-              <span id="behaviorStatus" class="small"></span>
-            </div>
           </div>
           <div style="margin-top:12px">
             <label>NAO ogen</label>
@@ -1082,6 +1102,18 @@
               <input id="eyeColorDuration" type="number" step="0.1" min="0" placeholder="fade (s)" style="max-width:120px" />
               <button id="btnSetEyeColor" type="button">Set</button>
               <span id="eyeColorStatus" class="small"></span>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <label>Behaviors</label>
+            <div class="small" style="margin-top:6px">Hier zie je geïnstalleerde behaviors van een verbonden NAO robot.</div>
+            <div id="behaviorEmptyState" class="small" style="margin-top:6px">Verbind met een NAO robot om beschikbare behaviors te bekijken.</div>
+            <div id="behaviorTree" hidden></div>
+            <div id="behaviorSelected" class="small" style="margin-top:6px" hidden></div>
+            <div id="behaviorActions" class="row" style="margin-top:8px" hidden>
+              <button id="btnBehaviorStart" type="button">Start behavior</button>
+              <button id="btnBehaviorStop" type="button">Stop behavior</button>
+              <span id="behaviorStatus" class="small"></span>
             </div>
           </div>
         </div>
@@ -1122,7 +1154,7 @@
             <button id="reviewTabAutoQueue" class="subtab" type="button">Auto-train queue</button>
             <button id="reviewTabAuto" class="subtab" type="button">Auto-train (committed)</button>
           </div>
-          <div id="reviewCounterReview" class="small" style="margin-bottom:8px"></div>
+          <div id="reviewCounterReview" class="small" style="margin-bottom:8px" hidden></div>
           <div id="reviewQueuePane" class="subtabpane">
             <div class="review-toolbar">
               <button id="btnReviewQueueRefresh" type="button">Verversen</button>
@@ -1180,7 +1212,7 @@
         </div>
         <div id="tab-retrain" class="tabpane hidden">
           <div class="small" style="margin-bottom:6px">Train een nieuw command-model op basis van reviewed + auto-train data.</div>
-          <div class="small" id="retrainDelta" style="margin-bottom:6px"></div>
+          <div class="small" id="retrainDelta" style="margin-bottom:6px" hidden></div>
           <div class="small" id="retrainSummary" style="margin-bottom:8px; white-space: pre-wrap;"></div>
           <div class="row" style="margin-bottom:8px">
             <button id="btnRetrainStart" type="button">Train nieuw model</button>
@@ -1808,6 +1840,8 @@
       const cmdList = document.getElementById('cmdList');
       const danceList = document.getElementById('danceList');
       const btnCmdRun = document.getElementById('btnCmdRun');
+      const btnCmdStopCommand = document.getElementById('btnCmdStopCommand');
+      const btnCmdStopAll = document.getElementById('btnCmdStopAll');
       const cmdStatus = document.getElementById('cmdStatus');
       const btnMoveForward = document.getElementById('btnMoveForward');
       const btnMoveBackward = document.getElementById('btnMoveBackward');
@@ -1823,8 +1857,7 @@
       const cmdNaoAutLifeState = document.getElementById('cmdNaoAutLifeState');
       const cmdNaoPostureState = document.getElementById('cmdNaoPostureState');
       const cmdNaoAutoRestState = document.getElementById('cmdNaoAutoRestState');
-      const cmdNaoLifeStatus = document.getElementById('cmdNaoLifeStatus');
-      const cmdRobotNameBadge = document.getElementById('cmdRobotNameBadge');
+      const naoHeaderActionStatus = document.getElementById('naoHeaderActionStatus');
       const btnCmdWakeUp = document.getElementById('btnCmdWakeUp');
       const btnCmdRest = document.getElementById('btnCmdRest');
       const btnCmdAutLifeToggle = document.getElementById('btnCmdAutLifeToggle');
@@ -1832,6 +1865,8 @@
       const reviewCounter = document.getElementById('reviewCounter');
       const behaviorTree = document.getElementById('behaviorTree');
       const behaviorSelected = document.getElementById('behaviorSelected');
+      const behaviorEmptyState = document.getElementById('behaviorEmptyState');
+      const behaviorActions = document.getElementById('behaviorActions');
       const btnBehaviorStart = document.getElementById('btnBehaviorStart');
       const btnBehaviorStop = document.getElementById('btnBehaviorStop');
       const behaviorStatus = document.getElementById('behaviorStatus');
@@ -2057,12 +2092,17 @@
       let cmdNaoAutoRestSuspendOwner = '';
       let cmdNaoStateWarning = '';
       let cmdNaoStatusText = '';
+      let cmdNaoStatusKind = '';
       let cmdNaoDisabledByConfig = false;
       let cmdNaoActionBusy = false;
       let cmdNaoRefreshBusy = false;
       let cmdNaoDeferredRefreshTimer = null;
       let cmdNaoHealthAvailable = false;
       let locomotionSeq = 0;
+      let locomotionSettingsState = {
+        frequency: 0.2,
+        arms_enabled: true,
+      };
       let uiSettingsState = {
         robot_name: '',
         ui_color_scheme: 'default',
@@ -2155,9 +2195,19 @@
           btnStopCommand.textContent = formatStopCommandButtonText();
           btnStopCommand.disabled = sendStopInFlight || !hasCommandStop;
         }
+        if (btnCmdStopCommand) {
+          const hasCommandStop = hasActiveStopAction();
+          btnCmdStopCommand.hidden = !hasCommandStop;
+          btnCmdStopCommand.textContent = formatStopCommandButtonText();
+          btnCmdStopCommand.disabled = sendStopInFlight || !hasCommandStop;
+        }
         if (btnStopAll) {
           btnStopAll.textContent = sendStopInFlight ? 'Stop all...' : 'Stop all';
           btnStopAll.disabled = sendStopInFlight;
+        }
+        if (btnCmdStopAll) {
+          btnCmdStopAll.textContent = sendStopInFlight ? 'Stop all...' : 'Stop all';
+          btnCmdStopAll.disabled = sendStopInFlight;
         }
       }
 
@@ -2489,7 +2539,6 @@
         }
         applyRobotBadge(appRobotNameBadge, robotName);
         applyRobotBadge(listenRobotNameBadge, robotName);
-        applyRobotBadge(cmdRobotNameBadge, robotName);
         document.title = robotName ? `${baseTitle} - ${robotName}` : baseTitle;
       }
 
@@ -2503,6 +2552,18 @@
         if (!isActiveLearningMode() && activeTab === 'logs' && !uiSettingsState.ui_show_logs_tab) {
           setTab('prompt');
         }
+      }
+
+      function renderNaoHeaderStatus() {
+        if (!naoHeaderActionStatus) return;
+        const message = String(cmdNaoStatusText || cmdNaoStateWarning || '').trim();
+        naoHeaderActionStatus.textContent = message;
+        naoHeaderActionStatus.hidden = !message;
+        naoHeaderActionStatus.classList.toggle('error', !!cmdNaoStatusText && cmdNaoStatusKind === 'error');
+        naoHeaderActionStatus.classList.toggle(
+          'warning',
+          (!!cmdNaoStatusText && cmdNaoStatusKind === 'warning') || (!cmdNaoStatusText && !!cmdNaoStateWarning)
+        );
       }
 
       function setSettingsStatus(message, isError = false) {
@@ -3492,15 +3553,18 @@
         }
 
         function getLocomotionFrequencyFromUi() {
-          const fallback = 0.2;
+          const fallback = clampLocomotionFrequency(locomotionSettingsState.frequency, 0.2);
           if (!locomotionFrequency) return fallback;
           const value = clampLocomotionFrequency(locomotionFrequency.value, fallback);
           locomotionFrequency.value = value.toFixed(2);
+          locomotionSettingsState.frequency = value;
           return value;
         }
 
         function getLocomotionArmsEnabledFromUi() {
-          return !!(locomotionArmsEnabled && locomotionArmsEnabled.checked);
+          if (!locomotionArmsEnabled) return locomotionSettingsState.arms_enabled !== false;
+          locomotionSettingsState.arms_enabled = !!locomotionArmsEnabled.checked;
+          return locomotionSettingsState.arms_enabled;
         }
 
         async function persistLocomotionConfig() {
@@ -3517,8 +3581,14 @@
             const j = await r.json();
             if (!j.ok) throw new Error(j.error || 'runtime config update failed');
             const cfg = j.config || {};
+            if (cfg.locomotion_frequency != null) {
+              locomotionSettingsState.frequency = clampLocomotionFrequency(cfg.locomotion_frequency, 0.2);
+            }
             if (locomotionFrequency && cfg.locomotion_frequency != null) {
               locomotionFrequency.value = clampLocomotionFrequency(cfg.locomotion_frequency, 0.2).toFixed(2);
+            }
+            if (cfg.locomotion_arms_enabled != null) {
+              locomotionSettingsState.arms_enabled = cfg.locomotion_arms_enabled !== false;
             }
             if (locomotionArmsEnabled && cfg.locomotion_arms_enabled != null) {
               locomotionArmsEnabled.checked = !!cfg.locomotion_arms_enabled;
@@ -3621,6 +3691,14 @@
       }
 
       function renderCmdNaoState() {
+        if (btnCmdWakeUp) {
+          btnCmdWakeUp.title = 'NAO wakker maken';
+          btnCmdWakeUp.setAttribute('aria-label', 'NAO wakker maken');
+        }
+        if (btnCmdRest) {
+          btnCmdRest.title = 'NAO laten slapen';
+          btnCmdRest.setAttribute('aria-label', 'NAO laten slapen');
+        }
         if (cmdNaoDisabledByConfig) {
           if (cmdNaoAwakeState) cmdNaoAwakeState.textContent = 'motoren: disabled';
           if (cmdNaoAutLifeState) cmdNaoAutLifeState.textContent = 'aut life: disabled';
@@ -3630,11 +3708,13 @@
           if (btnCmdRest) btnCmdRest.disabled = true;
           if (btnCmdAutLifeToggle) {
             btnCmdAutLifeToggle.disabled = true;
-            btnCmdAutLifeToggle.innerHTML = '&#9881; Aut life';
+            btnCmdAutLifeToggle.title = 'Autonoom leven';
+            btnCmdAutLifeToggle.setAttribute('aria-label', 'Autonoom leven');
+            btnCmdAutLifeToggle.setAttribute('aria-pressed', 'false');
           }
           if (btnCmdNaoRefresh) btnCmdNaoRefresh.disabled = true;
           setLocomotionButtonsEnabled(false);
-          if (cmdNaoLifeStatus) cmdNaoLifeStatus.textContent = 'disabled';
+          renderNaoHeaderStatus();
           return;
         }
         if (cmdNaoAwakeState) {
@@ -3686,14 +3766,18 @@
         if (btnCmdAutLifeToggle) {
           btnCmdAutLifeToggle.disabled = !cmdNaoReachable || cmdNaoActionBusy || cmdNaoAutLifeEnabled == null;
           if (cmdNaoAutLifeEnabled == null) {
-            btnCmdAutLifeToggle.innerHTML = '&#9881; Aut life';
+            btnCmdAutLifeToggle.title = 'Autonoom leven';
+            btnCmdAutLifeToggle.setAttribute('aria-label', 'Autonoom leven');
+            btnCmdAutLifeToggle.setAttribute('aria-pressed', 'false');
           } else {
-            btnCmdAutLifeToggle.innerHTML = cmdNaoAutLifeEnabled ? '&#9881; Aut life uit' : '&#9881; Aut life aan';
+            btnCmdAutLifeToggle.title = cmdNaoAutLifeEnabled ? 'Autonoom leven uitschakelen' : 'Autonoom leven inschakelen';
+            btnCmdAutLifeToggle.setAttribute('aria-label', btnCmdAutLifeToggle.title);
+            btnCmdAutLifeToggle.setAttribute('aria-pressed', cmdNaoAutLifeEnabled ? 'true' : 'false');
           }
         }
         if (btnCmdNaoRefresh) btnCmdNaoRefresh.disabled = cmdNaoActionBusy || cmdNaoRefreshBusy;
         setLocomotionButtonsEnabled(cmdNaoReachable && !cmdNaoActionBusy);
-        if (cmdNaoLifeStatus) cmdNaoLifeStatus.textContent = cmdNaoStatusText || cmdNaoStateWarning || '';
+        renderNaoHeaderStatus();
       }
 
       function resetCmdNaoState(options = {}) {
@@ -3712,18 +3796,19 @@
         cmdNaoAutoRestSuspendOwner = '';
         cmdNaoStateWarning = '';
         if (!cmdNaoActionBusy) {
-          cmdNaoStatusText = disabled ? 'disabled' : '';
+          cmdNaoStatusText = '';
+          cmdNaoStatusKind = '';
         }
         renderCmdNaoState();
       }
 
-      function setCmdNaoStatus(text) {
+      function setCmdNaoStatus(text, kind = 'error') {
         cmdNaoStatusText = text || '';
+        cmdNaoStatusKind = cmdNaoStatusText ? kind : '';
         renderCmdNaoState();
       }
 
       setInterval(() => {
-        if (activeTab !== 'commands') return;
         if (cmdNaoAutoRestEnabled !== true) return;
         if (cmdNaoAutoRestSuspended) return;
         if (cmdNaoAutoRestTimerActive !== true) return;
@@ -3732,7 +3817,6 @@
       }, 1000);
 
       setInterval(() => {
-        if (activeTab !== 'commands') return;
         if (document.visibilityState === 'hidden') return;
         if (cmdNaoActionBusy || cmdNaoRefreshBusy) return;
         if (!cmdNaoHealthAvailable) return;
@@ -3759,7 +3843,6 @@
         const waitMs = Math.max(0, Number(delayMs) || 0);
         cmdNaoDeferredRefreshTimer = setTimeout(() => {
           cmdNaoDeferredRefreshTimer = null;
-          if (activeTab !== 'commands') return;
           refreshCmdNaoState({ showErrors }).catch(() => {});
         }, waitMs);
       }
@@ -3784,9 +3867,6 @@
         }
         if (cmdNaoRefreshBusy) return;
         cmdNaoRefreshBusy = true;
-        if (showErrors) {
-          setCmdNaoStatus('status verversen...');
-        }
         try {
           const stateRes = await fetch('/api/nao_command_state');
           const state = await stateRes.json();
@@ -3826,24 +3906,18 @@
             const errors = Array.isArray(state.errors) ? state.errors.filter(Boolean) : [];
             const err = errors.length ? String(errors[0] || '').trim() : (awake.error || life.error || posture.error || '').trim();
             if (err && !cmdNaoReachable) {
-              setCmdNaoStatus(`NAO status niet beschikbaar: ${err}`);
+              setCmdNaoStatus(`NAO status niet beschikbaar: ${err}`, 'error');
             } else {
               setCmdNaoStatus('');
             }
-          } else if (
-            cmdNaoReachable &&
-            (
-              cmdNaoStatusText.startsWith('NAO status niet beschikbaar:') ||
-              cmdNaoStatusText.startsWith('NAO status verversen na ')
-            )
-          ) {
+          } else if (cmdNaoReachable && cmdNaoStatusText) {
             setCmdNaoStatus('');
           }
         } catch (e) {
           resetCmdNaoState({ disabled: false });
           if (!cmdNaoActionBusy && showErrors) {
             const msg = (e && e.message) ? e.message : String(e || 'fout');
-            setCmdNaoStatus(`NAO status niet beschikbaar: ${msg}`);
+            setCmdNaoStatus(`NAO status niet beschikbaar: ${msg}`, 'error');
           }
         } finally {
           cmdNaoRefreshBusy = false;
@@ -3855,14 +3929,13 @@
         if (cmdNaoActionBusy) return;
         let followupDelayMs = 300;
         cmdNaoActionBusy = true;
-        setCmdNaoStatus(action === 'wake' ? 'wake up uitvoeren...' : 'rest uitvoeren...');
+        setCmdNaoStatus('');
         try {
           const endpoint = action === 'wake' ? '/api/nao_wake_up' : '/api/nao_rest';
           const r = await fetch(endpoint, { method: 'POST' });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'actie mislukt');
           if (j.pending) {
-            setCmdNaoStatus(action === 'wake' ? 'wake up gestart, robot is nog bezig met opstaan...' : 'rest gestart...');
             followupDelayMs = 1500;
             return;
           }
@@ -3870,12 +3943,12 @@
             cmdNaoReachable = true;
             cmdNaoIsAwake = !!j.is_awake;
           }
-          setCmdNaoStatus(action === 'wake' ? 'wake up uitgevoerd' : 'rest uitgevoerd');
+          setCmdNaoStatus('');
           await refreshCmdNaoState({ showErrors: false });
           followupDelayMs = null;
         } catch (e) {
           const msg = (e && e.message) ? e.message : String(e || 'fout');
-          setCmdNaoStatus(`Actie mislukt: ${msg}`);
+          setCmdNaoStatus(`Actie mislukt: ${msg}`, 'error');
         } finally {
           cmdNaoActionBusy = false;
           renderCmdNaoState();
@@ -3890,7 +3963,7 @@
         const targetEnabled = !cmdNaoAutLifeEnabled;
         let followupDelayMs = 300;
         cmdNaoActionBusy = true;
-        setCmdNaoStatus(targetEnabled ? 'aut life aanzetten...' : 'aut life uitzetten...');
+        setCmdNaoStatus('');
         try {
           const r = await fetch('/api/nao_custom_life_set', {
             method: 'POST',
@@ -3905,15 +3978,15 @@
             syncConfigAutLifeFromCommand(cmdNaoAutLifeEnabled);
           }
           if (j.warning) {
-            setCmdNaoStatus(`Aut life opgeslagen, maar status is nog niet beschikbaar: ${j.warning}`);
+            setCmdNaoStatus(`Aut life opgeslagen, maar status is nog niet beschikbaar: ${j.warning}`, 'warning');
           } else {
-            setCmdNaoStatus(targetEnabled ? 'aut life staat aan' : 'aut life staat uit');
+            setCmdNaoStatus('');
           }
           await refreshCmdNaoState({ showErrors: false });
           followupDelayMs = null;
         } catch (e) {
           const msg = (e && e.message) ? e.message : String(e || 'fout');
-          setCmdNaoStatus(`Actie mislukt: ${msg}`);
+          setCmdNaoStatus(`Actie mislukt: ${msg}`, 'error');
         } finally {
           cmdNaoActionBusy = false;
           renderCmdNaoState();
@@ -4011,8 +4084,9 @@
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'command catalog failed');
           const current = cmdList.value;
+          const commands = Array.isArray(j.commands) ? j.commands : [];
           cmdList.innerHTML = '';
-          (j.commands || []).forEach(item => {
+          commands.forEach(item => {
             const opt = document.createElement('option');
             const label = item.label || '';
             const behavior = item.behavior || '';
@@ -4021,6 +4095,7 @@
             opt.textContent = behavior ? `${prettyLabel}  →  ${behavior}` : prettyLabel;
             cmdList.appendChild(opt);
           });
+          cmdList.size = Math.max(1, Math.min(10, commands.length));
           updateDanceCommandLabel();
           if (current) cmdList.value = current;
           cmdStatus.textContent = '';
@@ -4100,7 +4175,10 @@
             const rows = behaviorTree.querySelectorAll('.behavior-item');
             rows.forEach((el) => el.classList.remove('selected'));
           }
-          if (behaviorSelected) behaviorSelected.textContent = '';
+          if (behaviorSelected) {
+            behaviorSelected.textContent = '';
+            behaviorSelected.hidden = true;
+          }
           return false;
         }
         selectedBehavior = normalized;
@@ -4119,7 +4197,10 @@
             matchedRow.scrollIntoView({ block: 'nearest' });
           }
         }
-        if (behaviorSelected) behaviorSelected.textContent = `geselecteerd: ${selectedBehavior}`;
+        if (behaviorSelected) {
+          behaviorSelected.textContent = `Geselecteerd: ${selectedBehavior}`;
+          behaviorSelected.hidden = false;
+        }
         return !!matchedRow;
       }
 
@@ -4148,9 +4229,33 @@
         }
       }
 
+      function setBehaviorStatus(text) {
+        if (!behaviorStatus) return;
+        const message = String(text || '').trim();
+        behaviorStatus.textContent = message;
+        behaviorStatus.hidden = !message;
+      }
+
+      function setBehaviorEmptyMessage(text) {
+        if (!behaviorEmptyState) return;
+        const message = String(text || '').trim();
+        behaviorEmptyState.textContent = message;
+        behaviorEmptyState.hidden = !message;
+      }
+
       async function refreshBehaviors() {
         if (!behaviorTree) return;
-        behaviorStatus.textContent = 'laden...';
+        if (behaviorTree) {
+          behaviorTree.innerHTML = '';
+          behaviorTree.hidden = true;
+        }
+        if (behaviorSelected) {
+          behaviorSelected.textContent = '';
+          behaviorSelected.hidden = true;
+        }
+        if (behaviorActions) behaviorActions.hidden = true;
+        setBehaviorStatus('');
+        setBehaviorEmptyMessage('Beschikbare behaviors laden...');
         try {
           const r = await fetch('/api/nao_behaviors');
           const j = await r.json();
@@ -4179,6 +4284,11 @@
               }
             }
           });
+
+          if (!behaviors.length) {
+            setBehaviorEmptyMessage('Geen geïnstalleerde behaviors gevonden op deze verbonden NAO robot.');
+            return;
+          }
 
           behaviorTree.innerHTML = '';
 
@@ -4220,16 +4330,30 @@
           }
 
           renderNode(root, behaviorTree, null, 0);
+          behaviorTree.hidden = false;
+          setBehaviorEmptyMessage('');
+          if (behaviorActions) behaviorActions.hidden = false;
           if (selectedBehavior) {
             setSelectedBehavior(selectedBehavior);
           } else if (behaviorSelected) {
             behaviorSelected.textContent = '';
+            behaviorSelected.hidden = true;
           }
-          behaviorStatus.textContent = '';
+          setBehaviorStatus('');
         } catch (e) {
           installedBehaviorSet = null;
           applyDanceAvailability();
-          behaviorStatus.textContent = `laden mislukt: ${e?.message || e}`;
+          if (behaviorTree) {
+            behaviorTree.innerHTML = '';
+            behaviorTree.hidden = true;
+          }
+          if (behaviorSelected) {
+            behaviorSelected.textContent = '';
+            behaviorSelected.hidden = true;
+          }
+          if (behaviorActions) behaviorActions.hidden = true;
+          setBehaviorStatus('');
+          setBehaviorEmptyMessage('Verbind met een NAO robot om beschikbare behaviors te bekijken.');
         }
       }
 
@@ -4274,8 +4398,7 @@
           } else {
             cmdStatus.textContent = 'ok';
           }
-          if (cmdNaoHealthAvailable && activeTab === 'commands') {
-            setCmdNaoStatus(`NAO status verversen na ${label}...`);
+          if (cmdNaoHealthAvailable) {
             scheduleCmdNaoRefresh(commandNaoRefreshDelayMs(label), false);
           }
         } catch (e) {
@@ -4297,10 +4420,10 @@
       async function runSelectedBehavior(start) {
         const behavior = selectedBehavior;
         if (!behavior) {
-          behaviorStatus.textContent = 'geen behavior geselecteerd';
+          setBehaviorStatus('Kies eerst een behavior.');
           return;
         }
-        behaviorStatus.textContent = start ? 'starten...' : 'stoppen...';
+        setBehaviorStatus(start ? 'Behavior starten...' : 'Behavior stoppen...');
         const behaviorNorm = String(behavior || '').trim().toLowerCase();
         const stopLabel = behaviorNorm.includes('walkwithme')
           ? 'WALK_WITH_ME'
@@ -4326,11 +4449,10 @@
           if (!start) {
             clearOptimisticStopAction();
           }
-          behaviorStatus.textContent = 'ok';
+          setBehaviorStatus(start ? 'Behavior gestart.' : 'Behavior gestopt.');
         } catch (e) {
           clearOptimisticStopAction(stopToken);
-          const msg = e && e.message ? e.message : String(e);
-          behaviorStatus.textContent = `mislukt: ${msg}`;
+          setBehaviorStatus(start ? 'Behavior starten mislukt.' : 'Behavior stoppen mislukt.');
         }
       }
 
@@ -4761,21 +4883,11 @@
       }
 
       async function refreshRetrainState() {
-        if (!reviewCounter && !reviewCounterReview && !retrainDelta) return;
-        try {
-          const r = await fetch('/api/al_retrain_state');
-          const j = await r.json();
-          if (!j.ok) return;
-          const state = j.state || {};
-          const count = Number(state.since_last_retrain || 0);
-          const bundle = state.last_retrain_bundle || j.latest_bundle || '';
-          const msg = bundle
-            ? `Nieuwe reviewed sinds laatste retrain: ${count} (laatste bundle: ${bundle})`
-            : `Nieuwe reviewed sinds laatste retrain: ${count}`;
-          if (reviewCounter) reviewCounter.textContent = msg;
-          if (reviewCounterReview) reviewCounterReview.textContent = msg;
-          if (retrainDelta) retrainDelta.textContent = msg;
-        } catch (_) {}
+        [reviewCounter, reviewCounterReview, retrainDelta].forEach((el) => {
+          if (!el) return;
+          el.textContent = '';
+          el.hidden = true;
+        });
       }
 
       function formatRetrainSummary(summary) {
@@ -6238,6 +6350,8 @@
         cfgNaoAutoRestEnabled.checked = autoRestValue > 0;
         cfgNaoAutoRestSeconds.value = String(autoRestValue > 0 ? autoRestValue : 180);
         cfgNaoAutoRestSeconds.disabled = !cfgNaoAutoRestEnabled.checked;
+        locomotionSettingsState.frequency = clampLocomotionFrequency(cfg.locomotion_frequency, 0.2);
+        locomotionSettingsState.arms_enabled = cfg.locomotion_arms_enabled !== false;
         if (locomotionFrequency) {
           locomotionFrequency.value = clampLocomotionFrequency(cfg.locomotion_frequency, 0.2).toFixed(2);
         }
@@ -7936,7 +8050,7 @@
           txt.focus();
           lastTranscript = null;
           setStatus('Klaar. Je kunt opnieuw opnemen.');
-          if (cmdNaoHealthAvailable && activeTab === 'commands') {
+          if (cmdNaoHealthAvailable) {
             scheduleCmdNaoRefresh(150, false);
           }
           if (j.emit_used === 'pipeline' && (j.reply || '').trim()) {
@@ -8007,7 +8121,7 @@
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'confirm failed');
-          if (cmdNaoHealthAvailable && activeTab === 'commands') {
+          if (cmdNaoHealthAvailable) {
             scheduleCmdNaoRefresh(150, false);
           }
           syncStopAvailability(j);
@@ -8539,6 +8653,16 @@
       if (btnCmdRun) {
         btnCmdRun.addEventListener('click', () => runSelectedCommand());
       }
+      if (btnCmdStopCommand) {
+        btnCmdStopCommand.addEventListener('click', async () => {
+          await stopCurrentBehavior();
+        });
+      }
+      if (btnCmdStopAll) {
+        btnCmdStopAll.addEventListener('click', async () => {
+          await stopCurrentAction();
+        });
+      }
       if (btnCmdWakeUp) {
         btnCmdWakeUp.addEventListener('click', () => runCmdNaoPowerAction('wake'));
       }
@@ -8768,17 +8892,13 @@
         if (document.visibilityState === 'visible') {
           refreshInputDevices(false).catch(() => {});
           refreshOutputDevices(false).catch(() => {});
-          if (activeTab === 'commands') {
-            refreshCmdNaoState({ showErrors: false }).catch(() => {});
-          }
+          refreshCmdNaoState({ showErrors: false }).catch(() => {});
         }
       });
       window.addEventListener('focus', () => {
         refreshInputDevices(false).catch(() => {});
         refreshOutputDevices(false).catch(() => {});
-        if (activeTab === 'commands') {
-          refreshCmdNaoState({ showErrors: false }).catch(() => {});
-        }
+        refreshCmdNaoState({ showErrors: false }).catch(() => {});
       });
 
       renderCmdNaoState();
