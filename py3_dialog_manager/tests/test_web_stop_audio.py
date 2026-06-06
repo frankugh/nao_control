@@ -34,6 +34,7 @@ class BlockingExecutor:
         self.calls: list[str] = []
         self.started = threading.Event()
         self.release = threading.Event()
+        self.finished = threading.Event()
 
     def execute(self, cmd) -> None:
         label = str(getattr(cmd, "label", "") or "")
@@ -41,8 +42,28 @@ class BlockingExecutor:
         if label.upper() != self.blocking_label:
             return
         self.started.set()
-        if not self.release.wait(timeout=5):
-            raise AssertionError("blocking executor release wait timed out")
+        try:
+            if not self.release.wait(timeout=5):
+                raise AssertionError("blocking executor release wait timed out")
+        finally:
+            self.finished.set()
+
+
+class TimeoutExecutor:
+    def __init__(self, *, timeout_label: str) -> None:
+        self.timeout_label = str(timeout_label or "").upper()
+        self.calls: list[str] = []
+        self.started = threading.Event()
+
+    def execute(self, cmd) -> None:
+        label = str(getattr(cmd, "label", "") or "")
+        self.calls.append(label)
+        if label.upper() == self.timeout_label:
+            self.started.set()
+            raise RuntimeError(
+                "HTTPConnectionPool(host='127.0.0.1', port=5101): "
+                "Read timed out. (read timeout=12.0)"
+            )
 
 
 class StubCmdrec:
@@ -258,6 +279,90 @@ def test_manual_stop_during_blocking_walk_does_not_restore_stop_state(monkeypatc
     end_data = end_state.get_json()
     assert end_data["command_stop_available"] is False
     assert end_data["command_stop_label"] is None
+
+
+def test_script_do_walk_with_me_returns_before_blocking_behavior_finishes(monkeypatch):
+    executor = BlockingExecutor(blocking_label="WALK_WITH_ME")
+    app = _make_app(monkeypatch, executor=executor)
+    client = app.test_client(use_cookies=False)
+    headers = {"Cookie": "sid=script-walk"}
+
+    start_resp = client.post(
+        "/api/script/do",
+        json={"mode": "command", "label": "WALK_WITH_ME"},
+        headers=headers,
+    )
+    assert start_resp.status_code == 200
+    start_data = start_resp.get_json()
+    assert start_data["ok"] is True
+    assert start_data["status"] == "started_async"
+    assert start_data["command_stop_available"] is True
+    assert start_data["command_stop_label"] == "WALK_WITH_ME"
+    assert executor.started.wait(timeout=2), "async WALK_WITH_ME did not start"
+
+    mid_state = client.get("/api/state", headers=headers)
+    assert mid_state.status_code == 200
+    mid_data = mid_state.get_json()
+    assert mid_data["command_stop_available"] is True
+    assert mid_data["command_stop_label"] == "WALK_WITH_ME"
+
+    stop_resp = client.post(
+        "/api/script/do",
+        json={"mode": "command", "label": "STOP"},
+        headers=headers,
+    )
+    assert stop_resp.status_code == 200
+    stop_data = stop_resp.get_json()
+    assert stop_data["ok"] is True
+    assert stop_data["status"] == "accepted"
+    assert stop_data["command_stop_available"] is False
+    assert stop_data["command_stop_label"] is None
+
+    executor.release.set()
+    assert executor.finished.wait(timeout=2), "async WALK_WITH_ME did not finish after release"
+
+    end_state = client.get("/api/state", headers=headers)
+    assert end_state.status_code == 200
+    end_data = end_state.get_json()
+    assert end_data["command_stop_available"] is False
+    assert end_data["command_stop_label"] is None
+
+
+def test_script_do_walk_with_me_timeout_keeps_stop_available(monkeypatch):
+    executor = TimeoutExecutor(timeout_label="WALK_WITH_ME")
+    app = _make_app(monkeypatch, executor=executor)
+    client = app.test_client(use_cookies=False)
+    headers = {"Cookie": "sid=script-walk-timeout"}
+
+    start_resp = client.post(
+        "/api/script/do",
+        json={"mode": "command", "label": "WALK_WITH_ME"},
+        headers=headers,
+    )
+    assert start_resp.status_code == 200
+    start_data = start_resp.get_json()
+    assert start_data["ok"] is True
+    assert start_data["status"] == "started_async"
+    assert start_data["command_stop_available"] is True
+    assert start_data["command_stop_label"] == "WALK_WITH_ME"
+    assert executor.started.wait(timeout=2), "async WALK_WITH_ME did not start"
+
+    mid_state = client.get("/api/state", headers=headers)
+    assert mid_state.status_code == 200
+    mid_data = mid_state.get_json()
+    assert mid_data["command_stop_available"] is True
+    assert mid_data["command_stop_label"] == "WALK_WITH_ME"
+
+    stop_resp = client.post(
+        "/api/script/do",
+        json={"mode": "command", "label": "STOP"},
+        headers=headers,
+    )
+    assert stop_resp.status_code == 200
+    stop_data = stop_resp.get_json()
+    assert stop_data["ok"] is True
+    assert stop_data["command_stop_available"] is False
+    assert stop_data["command_stop_label"] is None
 
 
 def test_nao_wake_up_timeout_returns_pending(monkeypatch):

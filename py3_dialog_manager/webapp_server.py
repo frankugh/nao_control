@@ -9107,6 +9107,7 @@ def create_app(
         *,
         source: str = "manual_command_ui",
         request_id: Optional[str] = None,
+        non_blocking: bool = False,
     ) -> Tuple[Dict[str, Any], int]:
         label = (payload.get("label") or "").strip()
         if not label:
@@ -9160,6 +9161,145 @@ def create_app(
                 source=source,
                 request_id=request_id,
             )
+        run_in_background = (
+            bool(non_blocking)
+            and normalized_label != "STOP"
+            and lock_mode == _CUSTOM_LIFE_LOCK_UNTIL_STOP
+        )
+        if run_in_background:
+            def _background_execute_command() -> None:
+                def _is_timeout_error(exc: Exception) -> bool:
+                    if isinstance(exc, requests.exceptions.Timeout):
+                        return True
+                    msg = str(exc or "").lower()
+                    return "read timed out" in msg or "timed out" in msg or "timeout" in msg
+
+                with app.app_context():
+                    try:
+                        if action_seq is not None and not _command_stop_action_is_current(sid, action_seq):
+                            _log_dm_event(
+                                sid=sid,
+                                level="info",
+                                category="cmdrec",
+                                event="command_start_cancelled",
+                                source=source,
+                                message=f"Continuous command start skipped after stop: {cmd.label}",
+                                request_id=request_id,
+                                data={
+                                    "command": cmd.label,
+                                    "origin": "manual_execute",
+                                    "non_blocking": True,
+                                },
+                            )
+                            return
+                        _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
+                    except Exception as exc:
+                        if _is_timeout_error(exc):
+                            _log_dm_event(
+                                sid=sid,
+                                level="warning",
+                                category="cmdrec",
+                                event="command_start_unconfirmed",
+                                source=source,
+                                message=f"Continuous command start not confirmed before timeout: {cmd.label}",
+                                request_id=request_id,
+                                data={
+                                    "command": cmd.label,
+                                    "error": str(exc),
+                                    "type": exc.__class__.__name__,
+                                    "origin": "manual_execute",
+                                    "non_blocking": True,
+                                },
+                            )
+                            return
+                        action_is_current = action_seq is not None and _command_stop_action_is_current(sid, action_seq)
+                        if action_is_current:
+                            _clear_command_stop_available(sid, seq=action_seq)
+                            _set_cmd_state(
+                                sid,
+                                state,
+                                mode="DIALOG",
+                                active_behavior=None,
+                                reason="command_start_failed",
+                                command_label=cmd.label,
+                                text=cmd.raw_text,
+                                confidence=cmd.confidence,
+                                source=source,
+                                request_id=request_id,
+                            )
+                            if lock_mode:
+                                _release_custom_life_lock(sid, runtime_cfg, source=source, request_id=request_id)
+                        _log_dm_event(
+                            sid=sid,
+                            level="error",
+                            category="cmdrec",
+                            event="command_execute_error",
+                            source=source,
+                            message=f"Manual command failed: {cmd.label}",
+                            request_id=request_id,
+                            data={
+                                "command": cmd.label,
+                                "error": str(exc),
+                                "type": exc.__class__.__name__,
+                                "origin": "manual_execute",
+                                "non_blocking": True,
+                            },
+                        )
+                        return
+                    if action_seq is None or _command_stop_action_is_current(sid, action_seq):
+                        _set_cmd_state(
+                            sid,
+                            state,
+                            mode="PERFORMING",
+                            active_behavior=cmd.label,
+                            reason="command_executed",
+                            command_label=cmd.label,
+                            text=cmd.raw_text,
+                            confidence=cmd.confidence,
+                            source=source,
+                            request_id=request_id,
+                        )
+                    _log_dm_event(
+                        sid=sid,
+                        level="info",
+                        category="cmdrec",
+                        event="command_executed",
+                        source=source,
+                        message=f"Manual command executed: {cmd.label}",
+                        request_id=request_id,
+                        data={
+                            "command": cmd.label,
+                            "resolved": cmd.resolved or {},
+                            "origin": "manual_execute",
+                            "non_blocking": True,
+                        },
+                    )
+
+            t = threading.Thread(
+                target=_background_execute_command,
+                name=f"dm-command-{normalized_label.lower()}",
+                daemon=True,
+            )
+            t.start()
+            _touch_activity()
+            out = {"ok": True, "status": "started_async"}
+            _attach_command_stop_payload(sid, out)
+            _log_dm_event(
+                sid=sid,
+                level="info",
+                category="cmdrec",
+                event="command_started_async",
+                source=source,
+                message=f"Continuous command started asynchronously: {cmd.label}",
+                request_id=request_id,
+                data={
+                    "command": cmd.label,
+                    "resolved": cmd.resolved or {},
+                    "origin": "manual_execute",
+                    "non_blocking": True,
+                },
+            )
+            return out, 200
         try:
             _execute_command_with_dm_awake_helper(runtime_cfg, behavior_executor, cmd)
         except Exception as exc:
@@ -11206,9 +11346,16 @@ def create_app(
                 command_payload,
                 source=source,
                 request_id=request_id,
+                non_blocking=True,
             )
             if status_code != 200:
                 return _error_response(out, status_code)
+            if isinstance(out, dict):
+                if out.get("status"):
+                    result_payload["status"] = out.get("status")
+                for key in ("command_stop_available", "command_stop_label"):
+                    if key in out:
+                        result_payload[key] = out[key]
         elif mode == "dance":
             dance_key = str(payload.get("dance_key") or "").strip()
             if not dance_key:
