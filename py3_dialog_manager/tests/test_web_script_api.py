@@ -29,13 +29,14 @@ class StubOutput:
     def __init__(self) -> None:
         self.emitted: list[str] = []
         self.preloaded: list[bytes] = []
+        self.preloaded_result = True
 
     def emit(self, text: str) -> None:
         self.emitted.append(text)
 
     def emit_preloaded_wav_bytes(self, wav_bytes: bytes, *, filename: str = "preloaded.wav") -> bool:
         self.preloaded.append(bytes(wav_bytes))
-        return True
+        return self.preloaded_result
 
 
 class StubExecutor:
@@ -176,6 +177,32 @@ def test_script_say_uses_preloaded_audio_when_provided(monkeypatch):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["preloaded_audio"] is True
+    assert output.preloaded == [b"RIFF"]
+    assert output.emitted == []
+
+
+def test_script_say_does_not_live_fallback_after_preloaded_playback_failure(monkeypatch):
+    output = StubOutput()
+    output.preloaded_result = False
+    app, _ = _make_app(monkeypatch, output=output)
+    client = app.test_client()
+
+    cfg_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"output_target": "server", "tts_engine": "azure"}},
+    )
+    assert cfg_resp.status_code == 200
+
+    resp = client.post(
+        "/api/script/say",
+        json={
+            "text": "Deze tekst mag niet nogmaals live worden uitgesproken",
+            "preloaded_audio_b64": "UklGRg==",
+            "preloaded_audio_format": "wav",
+        },
+    )
+
+    assert resp.status_code == 200
     assert output.preloaded == [b"RIFF"]
     assert output.emitted == []
 

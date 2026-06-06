@@ -83,6 +83,8 @@ class OutputRouterBackend(OutputBackend):
         self._nao = NaoTTSOutputBackend(api_router=api_router, timeout=timeout or 5.0)
         self._api_router = api_router
         self._timeout = float(timeout) if timeout else 5.0
+        self._audio_timeout_margin_s = 5.0
+        self._audio_timeout_cap_s = 30.0
         self._warned = False
         self._last_error_message = ""
         self._stream_failures = 0
@@ -204,6 +206,26 @@ class OutputRouterBackend(OutputBackend):
         sd.play(audio, samplerate=sample_rate, device=self.output_device)
         sd.wait()
 
+    def _audio_request_timeout_s(self, *, sample_count: int = 0, sample_rate: int = 0) -> float:
+        try:
+            duration_s = float(sample_count) / float(sample_rate) if sample_count > 0 and sample_rate > 0 else 0.0
+        except Exception:
+            duration_s = 0.0
+        if duration_s <= 0.0:
+            return self._timeout
+        timeout_s = max(self._timeout, duration_s + self._audio_timeout_margin_s)
+        return min(timeout_s, self._audio_timeout_cap_s)
+
+    def _wav_request_timeout_s(self, wav_bytes: bytes) -> float:
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                return self._audio_request_timeout_s(
+                    sample_count=int(wf.getnframes()),
+                    sample_rate=int(wf.getframerate()),
+                )
+        except Exception:
+            return self._timeout
+
     def _send_wav_to_nao(self, wav_bytes: bytes, filename: str = "piper.wav") -> bool:
         if self._api_router is None:
             self._warn("[output] NAO router ontbreekt; kan audio niet sturen.")
@@ -211,7 +233,7 @@ class OutputRouterBackend(OutputBackend):
         files = {"file": (filename, wav_bytes, "audio/wav")}
         data = {"filename": filename}
         try:
-            resp = self._api_router.post("/play_audio", files=files, data=data, timeout=self._timeout)
+            resp = self._api_router.post("/play_audio", files=files, data=data, timeout=self._wav_request_timeout_s(wav_bytes))
         except requests.RequestException as exc:
             self._warn(f"[output] NAO play_audio failed: {exc}")
             return False
@@ -317,7 +339,7 @@ class OutputRouterBackend(OutputBackend):
                 data=audio.tobytes(),
                 headers={"Content-Type": "application/octet-stream"},
                 params={"sample_rate": int(sample_rate)},
-                timeout=self._timeout,
+                timeout=self._audio_request_timeout_s(sample_count=int(audio.size), sample_rate=int(sample_rate)),
             )
         except requests.Timeout as exc:
             self._stream_failures += 1

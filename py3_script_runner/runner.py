@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ import threading
 import sys
 import time
 import uuid
+import wave
 
 from .client import DMClient
 from .ppt_controller import ComPptController, PPTControllerError, PptControllerProtocol
@@ -177,6 +179,23 @@ class ScriptRunner:
         if raw in allowed:
             return raw
         return str(default)
+
+    @staticmethod
+    def _wav_duration_s(wav_bytes: bytes) -> float:
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                sample_rate = float(wf.getframerate())
+                if sample_rate <= 0:
+                    return 0.0
+                return float(wf.getnframes()) / sample_rate
+        except Exception:
+            return 0.0
+
+    def _preloaded_say_timeout_s(self, clip_bytes: bytes, fallback_timeout_s: float) -> float:
+        duration_s = self._wav_duration_s(clip_bytes)
+        if duration_s <= 0.0:
+            return float(fallback_timeout_s)
+        return max(float(fallback_timeout_s), min(duration_s + 5.0, 30.0))
 
     @staticmethod
     def _normalize_position(raw: Dict[str, Any]) -> Dict[str, int]:
@@ -1044,12 +1063,19 @@ class ScriptRunner:
                         try:
                             return client.script_say(
                                 text=text,
-                                timeout_s=timeout_s,
+                                timeout_s=self._preloaded_say_timeout_s(clip_bytes, timeout_s),
                                 preloaded_audio_b64=base64.b64encode(clip_bytes).decode("ascii"),
                                 preloaded_audio_format="wav",
                             )
                         except Exception as exc:
-                            self._log(f"[TTS preload] {step_id}: preload playback faalde -> live synthese ({exc})")
+                            self._log(f"[TTS preload] {step_id}: preload playback niet bevestigd; geen live fallback ({exc})")
+                            return {
+                                "ok": True,
+                                "status": "preloaded_playback_unconfirmed",
+                                "action": "say",
+                                "preloaded_audio": True,
+                                "warning": str(exc),
+                            }
             return client.script_say(text=text, timeout_s=timeout_s)
 
         if action_type != "do":

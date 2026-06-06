@@ -3123,7 +3123,9 @@ def create_app(
                     )
                     if emitted:
                         _touch_activity()
-                        return
+                    # Een timeout op /play_stream kan optreden terwijl NAO de stream al afspeelt.
+                    # Val dan niet door naar live TTS, want dat spreekt dezelfde tekst nogmaals uit.
+                    return
             _emit_output_with_connectivity_tracking("system", runtime_cfg, pipeline.output, spoken_text)
             _touch_activity()
         except Exception:

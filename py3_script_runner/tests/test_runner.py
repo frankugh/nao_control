@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+import io
 import threading
 import time
+import wave
 
 import pytest
 
@@ -20,6 +22,17 @@ def _script_template() -> Dict[str, Any]:
         "defaults": {"request_timeout_s": 12, "on_error": "prompt"},
         "steps": [],
     }
+
+
+def _wav_bytes(duration_s: float, sample_rate: int = 16000) -> bytes:
+    frames = b"\x00\x00" * int(float(duration_s) * int(sample_rate))
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(frames)
+    return out.getvalue()
 
 
 def test_preflight_checks_capabilities(tmp_path):
@@ -2077,7 +2090,7 @@ def test_say_step_uses_preloaded_audio_when_available(tmp_path):
     preload_root = tmp_path / "preloaded"
     clip_path = preload_root / "clips" / "fp" / "demo.wav"
     clip_path.parent.mkdir(parents=True)
-    clip_path.write_bytes(b"RIFFdemo")
+    clip_path.write_bytes(_wav_bytes(10.0))
 
     class FakeClient:
         def __init__(self, base_url: str, timeout_s: float) -> None:
@@ -2130,11 +2143,12 @@ def test_say_step_uses_preloaded_audio_when_available(tmp_path):
     assert result.completed_steps == 1
     assert len(calls) == 1
     assert calls[0]["text"] == "offline welkom"
+    assert calls[0]["timeout_s"] == 15.0
     assert calls[0]["preloaded_audio_b64"]
     assert calls[0]["preloaded_audio_format"] == "wav"
 
 
-def test_say_step_falls_back_to_live_when_preloaded_playback_fails(tmp_path):
+def test_say_step_does_not_live_fallback_when_preloaded_playback_unconfirmed(tmp_path):
     calls: List[Dict[str, Any]] = []
     preload_root = tmp_path / "preloaded"
     clip_path = preload_root / "clips" / "fp" / "demo.wav"
@@ -2185,7 +2199,4 @@ def test_say_step_falls_back_to_live_when_preloaded_playback_fails(tmp_path):
 
     result = runner.run()
     assert result.completed_steps == 1
-    assert calls == [
-        {"text": "fallback welkom", "preloaded": True},
-        {"text": "fallback welkom", "preloaded": False},
-    ]
+    assert calls == [{"text": "fallback welkom", "preloaded": True}]

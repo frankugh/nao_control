@@ -120,9 +120,11 @@ class _FakeApiRouter:
     def __init__(self, stream_response: requests.Response | Exception):
         self.stream_response = stream_response
         self.calls: list[str] = []
+        self.timeouts: list[float | None] = []
 
     def post(self, path: str, **kwargs):
         self.calls.append(path)
+        self.timeouts.append(kwargs.get("timeout"))
         if path == "/play_stream":
             if isinstance(self.stream_response, Exception):
                 raise self.stream_response
@@ -171,6 +173,23 @@ def test_output_router_falls_back_to_upload_when_stream_unsupported():
     backend.emit("kort bericht")
 
     assert fake_router.calls == ["/play_stream", "/play_audio"]
+
+
+def test_output_router_stream_timeout_scales_with_audio_duration():
+    fake_router = _FakeApiRouter(_resp(200))
+    backend = OutputRouterBackend(
+        target="nao",
+        tts_engine="piper",
+        piper_model_path="unused",
+        api_router=fake_router,
+    )
+    backend._wav_bytes_to_int16 = lambda wav_bytes: (np.zeros(160000, dtype=np.int16), 16000)  # type: ignore[method-assign]
+
+    ok = backend.emit_preloaded_wav_bytes(_make_wav(np.zeros(160000, dtype=np.int16)))
+
+    assert ok is True
+    assert fake_router.calls == ["/play_stream"]
+    assert fake_router.timeouts == [15.0]
 
 
 def test_output_router_prepends_lead_silence_for_server_tts():
