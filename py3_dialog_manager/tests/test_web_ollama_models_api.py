@@ -72,3 +72,41 @@ def test_ollama_cloud_endpoint_includes_gemini_preview_model(monkeypatch):
     assert local["ok"] is True
     assert "gemma:2b" in local["models"]
     assert "gemini-3-flash-preview" not in local["models"]
+
+
+def test_ollama_model_capabilities_endpoint_uses_gpt_oss_level_heuristic(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    def _fake_show(_host, _api_key, _model):
+        raise RuntimeError("show failed")
+
+    monkeypatch.setattr(webapp_server, "_ollama_show_model_details", _fake_show)
+
+    resp = client.get("/api/ollama_model_capabilities?llm_type=ollama_cloud&model=gpt-oss:120b-cloud")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["model"] == "gpt-oss:120b-cloud"
+    assert data["supports_thinking"] is True
+    assert data["thinking_mode_type"] == "levels"
+
+
+def test_ollama_model_capabilities_endpoint_maps_show_thinking_to_boolean(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    monkeypatch.setattr(
+        webapp_server,
+        "_ollama_show_model_details",
+        lambda _host, _api_key, _model: {"capabilities": ["thinking", "vision"]},
+    )
+
+    resp = client.get("/api/ollama_model_capabilities?llm_type=ollama_cloud&model=gemini-3-flash-preview")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["model"] == "gemini-3-flash-preview"
+    assert data["supports_thinking"] is True
+    assert data["thinking_mode_type"] == "boolean"
+    assert "thinking" in data["capabilities"]

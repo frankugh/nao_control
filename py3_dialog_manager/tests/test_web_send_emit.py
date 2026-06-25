@@ -24,6 +24,14 @@ class StubLLMBackend:
         return LLMResult(reply=self._reply, messages=list(messages))
 
 
+class FailingLLMBackend:
+    def generate(self, messages):
+        del messages
+        exc = RuntimeError("upstream 500")
+        exc.status_code = 500
+        raise exc
+
+
 class StubSTTBackend:
     def transcribe(self, audio):  # pragma: no cover
         raise AssertionError("STT not used in these tests")
@@ -90,6 +98,53 @@ def test_web_send_emit_pipeline_calls_output(monkeypatch):
     assert data["ok"] is True
     assert data["emit_used"] == "pipeline"
     assert spy.calls == ["hi"]
+
+
+def test_web_send_logs_cloud_llm_context_on_backend_exception(monkeypatch):
+    base_pipeline = SimpleNamespace(
+        llm=FailingLLMBackend(),
+        output=SpyOutputBackend(),
+        status_to_console=True,
+        system_prompt="SYSTEM",
+        log_messages_path=None,
+        log_meta={},
+        max_history_turns=None,
+    )
+    monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
+    monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
+
+    app, _, _ = webapp_server.create_app(
+        cfg={
+            "llm": {
+                "type": "ollama_cloud",
+                "params": {
+                    "model": "mistral-large-3:675b-cloud",
+                    "api_key": "test-key",
+                },
+            },
+            "output": {"type": "console"},
+        },
+        config_path="<memory>",
+    )
+    client = app.test_client()
+    logged_messages: list[str] = []
+
+    def fake_logger_exception(msg, *args, **kwargs):
+        del kwargs
+        logged_messages.append(msg % args)
+
+    monkeypatch.setattr(app.logger, "exception", fake_logger_exception)
+
+    resp = client.post("/api/send", json={"text": "hello", "emit": "none"})
+    assert resp.status_code == 500
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert len(logged_messages) == 1
+    assert "Cloud LLM backend exception" in logged_messages[0]
+    assert "llm_model=mistral-large-3:675b-cloud" in logged_messages[0]
+    assert "llm_host=https://ollama.com" in logged_messages[0]
+    assert "detail=upstream 500" in logged_messages[0]
+    assert 'debug={"args": ["upstream 500"], "status_code": 500}' in logged_messages[0]
 
 
 def test_web_send_commits_history_before_pipeline_output_finishes(monkeypatch):

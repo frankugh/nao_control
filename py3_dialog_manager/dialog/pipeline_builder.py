@@ -369,6 +369,24 @@ def _extract_ollama_options(params: JsonLike) -> Optional[JsonLike]:
     return out or None
 
 
+def _extract_ollama_think(params: JsonLike) -> Optional[Any]:
+    raw = params.get("think")
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    if text in {"true", "on"}:
+        return True
+    if text in {"false", "off"}:
+        return False
+    if text in {"low", "medium", "high"}:
+        return text
+    raise ValueError("llm.params.think moet true/false of low/medium/high zijn.")
+
+
 def make_stt_backend_from_config(cfg: JsonLike):
     """
     Factory for "just the STT backend" from a full run config.
@@ -412,6 +430,7 @@ def _make_llm(cfg: JsonLike):
     t = _req(llm_cfg, "type").lower()
     p = llm_cfg.get("params", {}) or {}
     options = _extract_ollama_options(p)
+    think = _extract_ollama_think(p)
 
     if t == "echo":
         return EchoLLMBackend()
@@ -423,7 +442,7 @@ def _make_llm(cfg: JsonLike):
         host = p.get("host", "http://localhost:11434")
         model = p.get("model", "llama3.1:8b")
         api_key = p.get("api_key", None)
-        client = OllamaClient(model=model, host=host, api_key=api_key, options=options)
+        client = OllamaClient(model=model, host=host, api_key=api_key, options=options, think=think)
         return OllamaLLMBackend(client)
 
     if t in ("ollama", "ollama_cloud"):
@@ -433,7 +452,7 @@ def _make_llm(cfg: JsonLike):
 
         host = p.get("host", os.environ.get("OLLAMA_HOST", "https://ollama.com"))
         model = p.get("model", os.environ.get("OLLAMA_MODEL", "gpt-oss:120b"))
-        client = OllamaClient(model=model, host=host, api_key=api_key, options=options)
+        client = OllamaClient(model=model, host=host, api_key=api_key, options=options, think=think)
         return OllamaLLMBackend(client)
 
     raise ValueError(f"Onbekende llm.type: {t!r}")

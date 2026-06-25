@@ -48,6 +48,7 @@ def test_runtime_config_defaults_include_ui_preferences(monkeypatch):
     assert cfg["ui_active_tab"] == "prompt"
     assert cfg["ui_show_logs_tab"] is False
     assert cfg["ui_show_active_learning_nav"] is False
+    assert cfg["llm_thinking_mode"] == "default"
     assert cfg["locomotion_frequency"] == 0.2
     assert cfg["locomotion_arms_enabled"] is True
 
@@ -138,6 +139,77 @@ def test_runtime_config_locomotion_values_are_clamped(monkeypatch):
     assert low_data["ok"] is True
     assert low_data["config"]["locomotion_frequency"] == 0.05
     assert low_data["config"]["locomotion_arms_enabled"] is True
+
+
+def test_runtime_config_llm_thinking_mode_persists_and_is_cleaned(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    set_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "low"}},
+    )
+    assert set_resp.status_code == 200
+    set_data = set_resp.get_json()
+    assert set_data["ok"] is True
+    assert set_data["config"]["llm_thinking_mode"] == "low"
+
+    clear_resp = client.post(
+        "/api/runtime_config",
+        json={"config": {"llm_thinking_mode": "wat?"}},
+    )
+    assert clear_resp.status_code == 200
+    clear_data = clear_resp.get_json()
+    assert clear_data["ok"] is True
+    assert clear_data["config"]["llm_thinking_mode"] == "default"
+
+
+def test_apply_runtime_overrides_maps_llm_thinking_mode_to_ollama_think():
+    base_cfg = {
+        "llm": {
+            "type": "ollama_cloud",
+            "params": {
+                "model": "gpt-oss:120b-cloud",
+                "system_prompt_file": "master_prompts/default.txt",
+            },
+        }
+    }
+
+    merged_default = webapp_server._apply_runtime_overrides(
+        base_cfg,
+        {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "default"},
+    )
+    assert "think" not in merged_default["llm"]["params"]
+
+    merged_on = webapp_server._apply_runtime_overrides(
+        base_cfg,
+        {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "on"},
+    )
+    assert merged_on["llm"]["params"]["think"] is True
+
+    merged_off = webapp_server._apply_runtime_overrides(
+        base_cfg,
+        {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "off"},
+    )
+    assert merged_off["llm"]["params"]["think"] is False
+
+    merged_low = webapp_server._apply_runtime_overrides(
+        base_cfg,
+        {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "low"},
+    )
+    assert merged_low["llm"]["params"]["think"] == "low"
+
+    merged_medium = webapp_server._apply_runtime_overrides(
+        base_cfg,
+        {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "medium"},
+    )
+    assert merged_medium["llm"]["params"]["think"] == "medium"
+
+    merged_high = webapp_server._apply_runtime_overrides(
+        base_cfg,
+        {"llm_type": "ollama_cloud", "llm_model": "gpt-oss:120b-cloud", "llm_thinking_mode": "high"},
+    )
+    assert merged_high["llm"]["params"]["think"] == "high"
 
 
 def test_runtime_config_defaults_read_output_router_params(monkeypatch):

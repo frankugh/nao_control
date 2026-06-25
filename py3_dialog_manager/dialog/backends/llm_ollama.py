@@ -18,6 +18,7 @@ class OllamaClient:
         host: str,
         api_key: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
+        think: Optional[Any] = None,
     ) -> None:
         headers: Dict[str, str] = {}
         if api_key:
@@ -25,9 +26,12 @@ class OllamaClient:
         self._client = OllamaHttpClient(host=host, headers=headers or None)
         self.model = model
         self.options = dict(options) if isinstance(options, dict) and options else None
+        self.think = think
 
     def chat(self, messages: History) -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {"messages": messages, "stream": False}
+        if self.think is not None:
+            kwargs["think"] = self.think
         if self.options:
             kwargs["options"] = self.options
         return self._client.chat(self.model, **kwargs)

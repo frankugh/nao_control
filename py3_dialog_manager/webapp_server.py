@@ -117,6 +117,7 @@ _WAKE_MODE_VALUES = {"never", "always", "timeout"}
 _DEFAULT_WAKE_WORDS = ["NAO", "Alex"]
 _LISTEN_MODE_VALUES = {"ptt", "continuous"}
 _CONFIRM_POLICY_VALUES = {"when_guarded", "always", "never"}
+_LLM_THINKING_MODE_VALUES = {"default", "off", "on", "low", "medium", "high"}
 _UI_ACTIVE_TAB_VALUES = {"prompt", "runtime", "commands", "camera", "review", "retrain", "logs"}
 
 
@@ -603,6 +604,102 @@ def _clean_llm_top_k(raw: Any) -> Optional[int]:
     return int(value)
 
 
+def _clean_llm_thinking_mode(raw: Any) -> str:
+    if raw is None:
+        return "default"
+    if isinstance(raw, bool):
+        return "on" if raw else "off"
+    value = str(raw or "").strip().lower()
+    if not value or value == "null":
+        return "default"
+    if value in {"true", "enabled"}:
+        return "on"
+    if value in {"false", "disabled"}:
+        return "off"
+    if value in _LLM_THINKING_MODE_VALUES:
+        return value
+    return "default"
+
+
+def _llm_think_payload(mode: str) -> Optional[Any]:
+    normalized = _clean_llm_thinking_mode(mode)
+    if normalized == "default":
+        return None
+    if normalized == "on":
+        return True
+    if normalized == "off":
+        return False
+    return normalized
+
+
+def _coerce_ollama_payload(value: Any) -> JsonLike:
+    if isinstance(value, dict):
+        return dict(value)
+    for attr in ("model_dump", "dict"):
+        fn = getattr(value, attr, None)
+        if not callable(fn):
+            continue
+        try:
+            payload = fn(mode="python")
+        except TypeError:
+            payload = fn()
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return dict(payload)
+    return {}
+
+
+def _extract_ollama_show_capabilities(show_payload: Any) -> List[str]:
+    payload = _coerce_ollama_payload(show_payload)
+    raw = payload.get("capabilities")
+    if raw is None:
+        details = payload.get("details")
+        if isinstance(details, dict):
+            raw = details.get("capabilities")
+    values: List[str] = []
+    if isinstance(raw, (list, tuple, set)):
+        values = [str(item or "").strip().lower() for item in raw]
+    elif isinstance(raw, str):
+        values = [part.strip().lower() for part in re.split(r"[\s,]+", raw) if part.strip()]
+    out: List[str] = []
+    seen: Set[str] = set()
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _describe_ollama_thinking_capability(model_name: str, capabilities: Optional[List[str]] = None) -> Dict[str, Any]:
+    normalized_model = str(model_name or "").strip().lower()
+    caps = [str(item or "").strip().lower() for item in (capabilities or []) if str(item or "").strip()]
+    supports_thinking = "thinking" in caps
+    thinking_mode_type = "none"
+    if normalized_model.startswith("gpt-oss"):
+        supports_thinking = True
+        thinking_mode_type = "levels"
+    elif supports_thinking:
+        thinking_mode_type = "boolean"
+    return {
+        "model": str(model_name or "").strip(),
+        "supports_thinking": bool(supports_thinking),
+        "thinking_mode_type": thinking_mode_type,
+        "capabilities": caps,
+    }
+
+
+def _ollama_show_model_details(host: str, api_key: Optional[str], model: str) -> JsonLike:
+    from ollama import Client as OllamaHttpClient
+
+    headers: Dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    client = OllamaHttpClient(host=host, headers=headers or None)
+    return _coerce_ollama_payload(client.show(model))
+
+
 def _clean_locomotion_frequency(raw: Any, *, default: float = _LOCOMOTION_FREQUENCY_DEFAULT) -> float:
     try:
         value = float(raw)
@@ -800,6 +897,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
     llm_temperature = llm_options.get("temperature", llm_params.get("temperature"))
     llm_top_p = llm_options.get("top_p", llm_params.get("top_p"))
     llm_top_k = llm_options.get("top_k", llm_params.get("top_k"))
+    llm_think = llm_params.get("think")
 
     output_cfg = (cfg_src.get("output", {}) or {})
     output_type = (output_cfg.get("type") or "none").lower()
@@ -860,6 +958,7 @@ def _extract_runtime_config(cfg_src: JsonLike) -> JsonLike:
         "llm_temperature": _clean_llm_temperature(llm_temperature),
         "llm_top_p": _clean_llm_top_p(llm_top_p),
         "llm_top_k": _clean_llm_top_k(llm_top_k),
+        "llm_thinking_mode": _clean_llm_thinking_mode(llm_think),
         "master_prompt_file": master_prompt_file,
         "master_prompt_text": llm_params.get("system_prompt", None),
         "output_nao_tts": output_type in ("nao_tts", "nao_py2", "nao"),
@@ -1031,9 +1130,14 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
             llm_top_k = _clean_llm_top_k(runtime_cfg.get("llm_top_k"))
         else:
             llm_top_k = _clean_llm_top_k(llm_options.get("top_k", llm_params.get("top_k")))
+        if "llm_thinking_mode" in runtime_cfg:
+            llm_thinking_mode = _clean_llm_thinking_mode(runtime_cfg.get("llm_thinking_mode"))
+        else:
+            llm_thinking_mode = _clean_llm_thinking_mode(llm_params.get("think"))
         llm_params.pop("temperature", None)
         llm_params.pop("top_p", None)
         llm_params.pop("top_k", None)
+        llm_params.pop("think", None)
         if llm_temperature is not None:
             llm_options["temperature"] = llm_temperature
         else:
@@ -1046,6 +1150,9 @@ def _apply_runtime_overrides(cfg_src: JsonLike, runtime_cfg: JsonLike) -> JsonLi
             llm_options["top_k"] = llm_top_k
         else:
             llm_options.pop("top_k", None)
+        think_value = _llm_think_payload(llm_thinking_mode)
+        if think_value is not None:
+            llm_params["think"] = think_value
         if llm_options:
             llm_params["options"] = llm_options
         else:
@@ -1296,6 +1403,7 @@ def create_app(
         cfg_obj["llm_temperature"] = _clean_llm_temperature(cfg_obj.get("llm_temperature"))
         cfg_obj["llm_top_p"] = _clean_llm_top_p(cfg_obj.get("llm_top_p"))
         cfg_obj["llm_top_k"] = _clean_llm_top_k(cfg_obj.get("llm_top_k"))
+        cfg_obj["llm_thinking_mode"] = _clean_llm_thinking_mode(cfg_obj.get("llm_thinking_mode"))
         cfg_obj["server_tts_lead_silence_ms"] = _clean_nonnegative_int_or_none(
             cfg_obj.get("server_tts_lead_silence_ms")
         )
@@ -1622,6 +1730,49 @@ def create_app(
         if cleaned_detail:
             return f"{label} mislukt: {cleaned_detail}"
         return f"{label} mislukt."
+
+    def _cloud_llm_host(runtime_cfg_local: JsonLike) -> str:
+        llm_type = str(runtime_cfg_local.get("llm_type") or "").strip().lower()
+        default_host = "https://ollama.com" if llm_type in {"ollama", "ollama_cloud"} else "http://localhost:11434"
+        return str(runtime_cfg_local.get("llm_host") or os.environ.get("OLLAMA_HOST") or default_host).strip()
+
+    def _cloud_llm_exception_debug(exc: Exception) -> str:
+        debug_fields: Dict[str, Any] = {}
+        for attr_name in ("status_code", "status", "error"):
+            value = getattr(exc, attr_name, None)
+            if value not in (None, ""):
+                debug_fields[attr_name] = value
+        if exc.args:
+            debug_fields["args"] = [str(item) for item in exc.args[:3]]
+        if exc.__cause__ is not None:
+            debug_fields["cause"] = repr(exc.__cause__)
+        if not debug_fields:
+            return ""
+        try:
+            return json.dumps(debug_fields, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return repr(debug_fields)
+
+    def _log_cloud_llm_exception(sid: str, runtime_cfg_local: JsonLike, exc: Exception) -> None:
+        request_id = _get_request_id() if has_request_context() else ""
+        endpoint = str(request.path or "") if has_request_context() else ""
+        llm_type = str(runtime_cfg_local.get("llm_type") or "").strip().lower() or "unknown"
+        llm_model = str(runtime_cfg_local.get("llm_model") or "").strip()
+        llm_host = _cloud_llm_host(runtime_cfg_local)
+        exc_debug = _cloud_llm_exception_debug(exc)
+        debug_suffix = f" debug={exc_debug}" if exc_debug else ""
+        app.logger.exception(
+            "Cloud LLM backend exception sid=%s request_id=%s endpoint=%s llm_type=%s llm_model=%s llm_host=%s exc_type=%s detail=%s%s",
+            str(sid or "system"),
+            request_id,
+            endpoint,
+            llm_type,
+            llm_model,
+            llm_host,
+            exc.__class__.__name__,
+            str(exc),
+            debug_suffix,
+        )
 
     def _mark_cloud_connectivity_issue(runtime_cfg_local: JsonLike, kind: str, detail: str) -> None:
         source = _cloud_connectivity_issue_source(runtime_cfg_local, kind)
@@ -2848,6 +2999,7 @@ def create_app(
             try:
                 result = self._backend.generate(messages)
             except Exception as exc:
+                _log_cloud_llm_exception(self._sid, self._runtime_cfg, exc)
                 _mark_cloud_connectivity_issue(self._runtime_cfg, "llm", str(exc))
                 raise
             _clear_cloud_connectivity_issue(self._runtime_cfg, "llm")
@@ -7135,6 +7287,45 @@ def create_app(
             payload["error"] = err
         return jsonify(payload)
 
+    @app.get("/api/ollama_model_capabilities")
+    def api_ollama_model_capabilities():
+        llm_type = str(request.args.get("llm_type") or "").strip().lower()
+        model = str(request.args.get("model") or "").strip()
+        empty_payload = {
+            "ok": True,
+            "model": model,
+            "supports_thinking": False,
+            "thinking_mode_type": "none",
+            "capabilities": [],
+        }
+        if llm_type not in {"ollama_local", "ollama_cloud", "ollama"} or not model:
+            return jsonify(empty_payload)
+
+        runtime_probe = _runtime_cfg_snapshot()
+        runtime_probe["llm_type"] = "ollama_cloud" if llm_type == "ollama" else llm_type
+        runtime_probe["llm_model"] = model
+        merged = _apply_runtime_overrides(base_cfg, runtime_probe)
+        llm_cfg = (merged.get("llm", {}) or {})
+        llm_params = (llm_cfg.get("params", {}) or {})
+        if llm_type == "ollama_local":
+            host = str(llm_params.get("host") or "http://localhost:11434").strip()
+            api_key = llm_params.get("api_key") or None
+        else:
+            host = str(llm_params.get("host") or os.environ.get("OLLAMA_HOST") or "https://ollama.com").strip()
+            api_key = llm_params.get("api_key") or os.environ.get("OLLAMA_API_KEY")
+
+        capabilities: List[str] = []
+        error: Optional[str] = None
+        try:
+            show_payload = _ollama_show_model_details(host, api_key, model)
+            capabilities = _extract_ollama_show_capabilities(show_payload)
+        except Exception as exc:
+            error = str(exc)
+        payload = {"ok": True, **_describe_ollama_thinking_capability(model, capabilities)}
+        if error:
+            payload["error"] = error
+        return jsonify(payload)
+
     @app.get("/api/runtime_config")
     def api_runtime_config():
         sid = _get_sid()
@@ -8147,6 +8338,7 @@ def create_app(
                     "ui_color_scheme": "default",
                     "ui_show_logs_tab": False,
                     "ui_show_active_learning_nav": False,
+                    "llm_thinking_mode": "default",
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,
@@ -8169,6 +8361,7 @@ def create_app(
                     "ui_color_scheme": "default",
                     "ui_show_logs_tab": False,
                     "ui_show_active_learning_nav": False,
+                    "llm_thinking_mode": "default",
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,
@@ -8191,6 +8384,7 @@ def create_app(
                     "ui_color_scheme": "default",
                     "ui_show_logs_tab": False,
                     "ui_show_active_learning_nav": False,
+                    "llm_thinking_mode": "default",
                     "llm_temperature": None,
                     "llm_top_p": None,
                     "llm_top_k": None,

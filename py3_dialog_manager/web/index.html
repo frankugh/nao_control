@@ -485,6 +485,21 @@
       .connectivity-banner-close { padding: 4px 8px; font-size: 12px; min-height: 30px; }
       .connectivity-banner-lines { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
       .connectivity-banner-line { white-space: pre-wrap; }
+      .connectivity-banner-suggestion {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 2px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(139, 66, 44, 0.22);
+      }
+      .connectivity-banner-action {
+        padding: 4px 10px;
+        font-size: 12px;
+        min-height: 30px;
+      }
 
       .chat { flex: 0 0 auto; height: clamp(200px, 36vh, 460px); min-height: 170px; max-height: 62vh; resize: vertical; overflow: auto; padding: 10px; background: var(--panel-soft); border: 1px solid var(--border-soft); border-radius: 12px; }
       .composer { margin-top: 10px; }
@@ -626,6 +641,11 @@
         border-color: rgba(214, 140, 116, 0.62);
         background: rgba(78, 36, 27, 0.92);
         color: #ffd8ca;
+      }
+      body[data-color-scheme="night_blue"] .connectivity-banner-suggestion,
+      body[data-color-scheme="night_brown"] .connectivity-banner-suggestion,
+      body[data-color-scheme="night_teal"] .connectivity-banner-suggestion {
+        border-top-color: rgba(255, 216, 202, 0.22);
       }
       body[data-color-scheme="night_blue"] .confirm-meta,
       body[data-color-scheme="night_brown"] .confirm-meta,
@@ -1552,8 +1572,14 @@
               </div>
               <div>
                 <label>Model naam</label>
-                <select id="cfgLlmModel" title="Model selectie op basis van ollama list">
-                  <option value="">-- kies model --</option>
+                  <select id="cfgLlmModel" data-cloud-llm-model-control title="Model selectie op basis van ollama list">
+                    <option value="">-- kies model --</option>
+                  </select>
+              </div>
+              <div id="cfgLlmThinkingRow" hidden>
+                <label>Thinking</label>
+                <select id="cfgLlmThinking" title="Provider default gebruikt de standaard thinking-instelling van het gekozen model.">
+                  <option value="default">Provider default</option>
                 </select>
               </div>
               <div>
@@ -1828,6 +1854,8 @@
       const cfgConfirmPolicy = document.getElementById('cfgConfirmPolicy');
       const cfgLlmType = document.getElementById('cfgLlmType');
       const cfgLlmModel = document.getElementById('cfgLlmModel');
+      const cfgLlmThinkingRow = document.getElementById('cfgLlmThinkingRow');
+      const cfgLlmThinking = document.getElementById('cfgLlmThinking');
       const cfgLlmTemperature = document.getElementById('cfgLlmTemperature');
       const cfgLlmTopP = document.getElementById('cfgLlmTopP');
       const cfgLlmTopK = document.getElementById('cfgLlmTopK');
@@ -1892,6 +1920,8 @@
       let ollamaLocalModels = [];
       let ollamaCloudModels = [];
       let desiredLlmModel = '';
+      let desiredLlmThinkingMode = 'default';
+      let llmThinkingCapabilityToken = 0;
       let piperDefaultsByPath = {};
       let lastPiperDefaults = null;
       let lastTtsEngineValue = null;
@@ -1929,6 +1959,7 @@
         'nao_auto_rest_after_s',
         'llm_type',
         'llm_model',
+        'llm_thinking_mode',
         'llm_temperature',
         'llm_top_p',
         'llm_top_k',
@@ -1995,6 +2026,7 @@
           'confirm_policy',
           'llm_type',
           'llm_model',
+          'llm_thinking_mode',
           'llm_temperature',
           'llm_top_p',
           'llm_top_k',
@@ -6199,6 +6231,7 @@
           const llmTemperature = readFloatOrNull(cfgLlmTemperature ? cfgLlmTemperature.value : '');
           const llmTopP = readFloatOrNull(cfgLlmTopP ? cfgLlmTopP.value : '');
           const llmTopK = readIntOrNull(cfgLlmTopK ? cfgLlmTopK.value : '');
+          const llmThinkingMode = normalizeLlmThinkingMode(cfgLlmThinking ? cfgLlmThinking.value : 'default');
           return {
             robot_name: uiSettingsState.robot_name,
             ui_color_scheme: uiSettingsState.ui_color_scheme,
@@ -6248,6 +6281,7 @@
             azure_tts_volume_db: azureVolume,
             llm_type: cfgLlmType.value,
             llm_model: (cfgLlmModel.value || '').trim(),
+            llm_thinking_mode: llmThinkingMode,
             llm_temperature: llmTemperature,
             llm_top_p: llmTopP,
             llm_top_k: llmTopK,
@@ -6312,8 +6346,13 @@
         cfgConfirmPolicy.value = cfg.confirm_policy || 'when_guarded';
         cfgLlmType.value = cfg.llm_type || 'echo';
         desiredLlmModel = String(cfg.llm_model || '').trim();
+        desiredLlmThinkingMode = normalizeLlmThinkingMode(cfg.llm_thinking_mode || 'default');
         cfgLlmModel.value = desiredLlmModel;
         cfgLlmModel.classList.toggle('dirty', false);
+        if (cfgLlmThinking) {
+          cfgLlmThinking.value = desiredLlmThinkingMode;
+        }
+        refreshLlmThinkingCapability().catch(() => {});
         if (cfgLlmTemperature) {
           cfgLlmTemperature.value = cfg.llm_temperature == null ? '' : String(cfg.llm_temperature);
           cfgLlmTemperature.classList.toggle('dirty', false);
@@ -6966,6 +7005,76 @@
         return out;
       }
 
+      function normalizeLlmThinkingMode(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized || normalized === 'null') return 'default';
+        if (normalized === 'true' || normalized === 'enabled') return 'on';
+        if (normalized === 'false' || normalized === 'disabled') return 'off';
+        return ['default', 'off', 'on', 'low', 'medium', 'high'].includes(normalized) ? normalized : 'default';
+      }
+
+      function allowedLlmThinkingModes(modeType) {
+        if (modeType === 'levels') return ['default', 'low', 'medium', 'high'];
+        if (modeType === 'boolean') return ['default', 'off', 'on'];
+        return ['default'];
+      }
+
+      function renderLlmThinkingControl(modeType, preferredMode) {
+        if (!cfgLlmThinking || !cfgLlmThinkingRow) return;
+        const normalizedType = modeType === 'levels' ? 'levels' : (modeType === 'boolean' ? 'boolean' : 'none');
+        const options = normalizedType === 'levels'
+          ? [
+              ['default', 'Provider default'],
+              ['low', 'Low'],
+              ['medium', 'Medium'],
+              ['high', 'High'],
+            ]
+          : normalizedType === 'boolean'
+            ? [
+                ['default', 'Provider default'],
+                ['off', 'Uit'],
+                ['on', 'Aan'],
+              ]
+            : [['default', 'Provider default']];
+        const normalizedPreferred = normalizeLlmThinkingMode(preferredMode);
+        const allowed = allowedLlmThinkingModes(normalizedType);
+        cfgLlmThinking.innerHTML = '';
+        options.forEach(([value, label]) => {
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = label;
+          cfgLlmThinking.appendChild(opt);
+        });
+        const selected = allowed.includes(normalizedPreferred) ? normalizedPreferred : 'default';
+        cfgLlmThinking.value = selected;
+        desiredLlmThinkingMode = selected;
+        cfgLlmThinking.disabled = normalizedType === 'none' || cfgLlmType.value === 'echo';
+        cfgLlmThinkingRow.hidden = normalizedType === 'none' || cfgLlmType.value === 'echo';
+      }
+
+      async function refreshLlmThinkingCapability() {
+        if (!cfgLlmThinking || !cfgLlmThinkingRow) return;
+        const llmType = String(cfgLlmType.value || '').trim().toLowerCase();
+        const model = String(cfgLlmModel.value || '').trim();
+        const isOllama = llmType === 'ollama_local' || llmType === 'ollama_cloud';
+        if (!isOllama || !model) {
+          renderLlmThinkingControl('none', desiredLlmThinkingMode);
+          return;
+        }
+        const token = ++llmThinkingCapabilityToken;
+        try {
+          const params = new URLSearchParams({ llm_type: llmType, model });
+          const r = await fetch(`/api/ollama_model_capabilities?${params.toString()}`);
+          const j = await r.json();
+          if (token !== llmThinkingCapabilityToken) return;
+          const modeType = (j && j.ok && j.supports_thinking) ? (j.thinking_mode_type || 'none') : 'none';
+          renderLlmThinkingControl(modeType, desiredLlmThinkingMode);
+        } catch (_) {
+          if (token !== llmThinkingCapabilityToken) return;
+          renderLlmThinkingControl('none', desiredLlmThinkingMode);
+        }
+      }
+
       async function loadOllamaModels(kind) {
         const endpoint = kind === 'local' ? '/api/ollama_models_local' : '/api/ollama_models_cloud';
         let j = { ok: false, models: [] };
@@ -7011,6 +7120,7 @@
           cfgLlmModel.value = '';
         }
         updateLlmConfigAvailability();
+        refreshLlmThinkingCapability().catch(() => {});
       }
 
       function updateLlmConfigAvailability() {
@@ -7018,6 +7128,10 @@
         const hasChoices = cfgLlmModel.options.length > 1;
         cfgLlmModel.disabled = echoMode || !hasChoices;
         if (cfgMasterPrompt) cfgMasterPrompt.disabled = echoMode;
+        if (cfgLlmThinking && cfgLlmThinkingRow && echoMode) {
+          cfgLlmThinking.disabled = true;
+          cfgLlmThinkingRow.hidden = true;
+        }
         [cfgLlmTemperature, cfgLlmTopP, cfgLlmTopK].forEach((el) => {
           if (!el) return;
           el.disabled = echoMode;
@@ -7120,6 +7234,41 @@
         }
       }
 
+      function focusCloudLlmModelControl() {
+        const target = document.querySelector('[data-cloud-llm-model-control]') || cfgLlmModel || cfgLlmType;
+        if (!(target instanceof HTMLElement)) return;
+        try {
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        } catch (_) {
+          target.scrollIntoView();
+        }
+        window.setTimeout(() => {
+          try {
+            target.focus({ preventScroll: true });
+          } catch (_) {
+            try {
+              target.focus();
+            } catch (_) {}
+          }
+        }, 0);
+      }
+
+      function openCloudLlmModelPicker() {
+        if (!isServerUi()) return;
+        const settingsReasoningSection = settingsModal instanceof HTMLElement
+          ? settingsModal.querySelector('[data-settings-section="reasoning"]')
+          : null;
+        if (settingsReasoningSection instanceof HTMLElement && !btnOpenSettings.hidden) {
+          openSettingsModal();
+          settingsReasoningSection.click();
+          focusCloudLlmModelControl();
+          return;
+        }
+        setTab('runtime');
+        setConfigTab('reasoning');
+        focusCloudLlmModelControl();
+      }
+
       function renderConnectivityBanner(issues) {
         if (
           !(connectivityBanner instanceof HTMLElement) ||
@@ -7144,6 +7293,23 @@
           line.textContent = `${prefix}: ${issue.message || issue.issue_key}`;
           return line;
         });
+        const cloudLlmIssue = issues.find((issue) =>
+          issue.issue_type === 'cloud' && String(issue.source || '').startsWith('llm.')
+        );
+        if (cloudLlmIssue && isServerUi()) {
+          const suggestion = document.createElement('div');
+          suggestion.className = 'connectivity-banner-suggestion';
+          const text = document.createElement('div');
+          text.className = 'connectivity-banner-line';
+          text.textContent = 'Overweeg tijdelijk een ander cloudmodel.';
+          const action = document.createElement('button');
+          action.type = 'button';
+          action.className = 'connectivity-banner-action';
+          action.textContent = 'Open modelkeuze';
+          action.addEventListener('click', openCloudLlmModelPicker);
+          suggestion.append(text, action);
+          lines.push(suggestion);
+        }
         connectivityBannerLines.replaceChildren(...lines);
         connectivityBanner.classList.remove('hidden');
       }
@@ -8376,14 +8542,17 @@
         updateLlmConfigAvailability();
         if (cfgLlmType.value === 'echo') {
           desiredLlmModel = '';
+          desiredLlmThinkingMode = 'default';
           cfgLlmModel.value = '';
           cfgLlmModel.classList.remove('dirty');
           cfgLlmModel.dispatchEvent(new Event('input'));
+          renderLlmThinkingControl('none', desiredLlmThinkingMode);
           cfgStatus.textContent = '';
           cfgMasterPrompt.value = '';
           applyRuntimeConfig(getConfigFromForm(), false, false);
           return;
         }
+        desiredLlmThinkingMode = 'default';
         if (cfgLlmType.value === 'ollama_local') {
           loadOllamaModels('local').catch(() => {});
         } else if (cfgLlmType.value === 'ollama_cloud') {
@@ -8772,12 +8941,20 @@
         cfgStatus.textContent = 'Vul een LLM model in';
         return Promise.resolve(false);
       };
+      const applyLlmThinkingNow = () => applyRuntimeConfig(getConfigFromForm(), false, false);
       const applyLlmAdvancedNow = () => applyRuntimeConfig(getConfigFromForm(), false, false);
 
-      cfgLlmModel.addEventListener('change', () => {
+      cfgLlmModel.addEventListener('change', async () => {
         desiredLlmModel = String(cfgLlmModel.value || '').trim();
+        await refreshLlmThinkingCapability();
         applyLlmModelNow();
       });
+      if (cfgLlmThinking) {
+        cfgLlmThinking.addEventListener('change', () => {
+          desiredLlmThinkingMode = normalizeLlmThinkingMode(cfgLlmThinking.value);
+          applyLlmThinkingNow();
+        });
+      }
       if (cfgLlmTemperature) {
         cfgLlmTemperature.addEventListener('change', () => applyLlmAdvancedNow());
       }

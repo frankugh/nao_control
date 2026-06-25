@@ -200,6 +200,63 @@ def test_connectivity_polling_stays_fast_while_active_issues_exist(monkeypatch):
 
 
 @pytest.mark.ui_contract
+def test_cloud_llm_banner_suggests_opening_model_picker(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    render_body = _extract_function_body(html, "renderConnectivityBanner")
+    focus_body = _extract_function_body(html, "focusCloudLlmModelControl")
+    picker_body = _extract_function_body(html, "openCloudLlmModelPicker")
+
+    assert "Overweeg tijdelijk een ander cloudmodel." in render_body
+    assert "Open modelkeuze" in render_body
+    assert "issue.issue_type === 'cloud' && String(issue.source || '').startsWith('llm.')" in render_body
+    assert "if (cloudLlmIssue && isServerUi()) {" in render_body
+    assert 'id="cfgLlmModel" data-cloud-llm-model-control' in html
+    assert "document.querySelector('[data-cloud-llm-model-control]') || cfgLlmModel || cfgLlmType" in focus_body
+    assert "const settingsReasoningSection = settingsModal instanceof HTMLElement" in picker_body
+    assert "settingsModal.querySelector('[data-settings-section=\"reasoning\"]')" in picker_body
+    assert "openSettingsModal();" in picker_body
+    assert "settingsReasoningSection.click();" in picker_body
+    assert "setTab('runtime');" in picker_body
+    assert "setConfigTab('reasoning');" in picker_body
+    assert "focusCloudLlmModelControl();" in picker_body
+
+
+@pytest.mark.ui_contract
+def test_reasoning_tab_exposes_model_dependent_thinking_control(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    render_body = _extract_function_body(html, "renderLlmThinkingControl")
+    refresh_body = _extract_function_body(html, "refreshLlmThinkingCapability")
+    form_body = _extract_function_body(html, "getConfigFromForm")
+
+    assert 'id="cfgLlmThinkingRow" hidden' in html
+    assert 'id="cfgLlmThinking"' in html
+    assert "function normalizeLlmThinkingMode(value)" in html
+    assert "function allowedLlmThinkingModes(modeType)" in html
+    assert "function renderLlmThinkingControl(modeType, preferredMode)" in html
+    assert "function refreshLlmThinkingCapability()" in html
+    assert "['off', 'Uit']" in render_body
+    assert "['on', 'Aan']" in render_body
+    assert "['low', 'Low']" in render_body
+    assert "['medium', 'Medium']" in render_body
+    assert "['high', 'High']" in render_body
+    assert "cfgLlmThinkingRow.hidden = normalizedType === 'none' || cfgLlmType.value === 'echo';" in render_body
+    assert "fetch(`/api/ollama_model_capabilities?${params.toString()}`)" in refresh_body
+    assert "llm_thinking_mode: llmThinkingMode" in form_body
+    assert "desiredLlmThinkingMode = normalizeLlmThinkingMode(cfg.llm_thinking_mode || 'default');" in html
+    assert "cfgLlmThinking.addEventListener('change'" in html
+
+
+@pytest.mark.ui_contract
 def test_manual_process_start_is_not_blocked_by_last_nao_health_snapshot(monkeypatch):
     app = _make_app(monkeypatch)
     client = app.test_client()
