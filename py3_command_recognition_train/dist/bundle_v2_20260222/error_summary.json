@@ -1,0 +1,174 @@
+{
+  "true_label_counts": {
+    "BOX": 7,
+    "DANCE": 15,
+    "HIGH\\_FIVE": 3,
+    "NONE": 87,
+    "REST": 11,
+    "SITDOWN": 5,
+    "STAND\\_UP": 5,
+    "STOP": 19,
+    "TURN\\_LEFT": 2,
+    "TURN\\_RIGHT": 2,
+    "WALK\\_BACKWARD": 4,
+    "WALK\\_FORWARD": 6,
+    "WALK\\_LEFT": 2,
+    "WALK\\_RIGHT": 2,
+    "WALK\\_WITH\\_ME": 7,
+    "WAVE": 6
+  },
+  "ml_pred_label_counts": {
+    "BOX": 6,
+    "NONE": 95,
+    "DANCE": 15,
+    "HIGH\\_FIVE": 3,
+    "WAVE": 6,
+    "REST": 11,
+    "SITDOWN": 4,
+    "STAND\\_UP": 5,
+    "STOP": 14,
+    "TURN\\_LEFT": 2,
+    "TURN\\_RIGHT": 2,
+    "WALK\\_BACKWARD": 4,
+    "WALK\\_FORWARD": 5,
+    "WALK\\_LEFT": 2,
+    "WALK\\_RIGHT": 2,
+    "WALK\\_WITH\\_ME": 7
+  },
+  "system_pred_label_counts": {
+    "BOX": 6,
+    "NONE": 92,
+    "DANCE": 15,
+    "HIGH\\_FIVE": 3,
+    "WAVE": 6,
+    "REST": 11,
+    "SITDOWN": 4,
+    "STAND\\_UP": 5,
+    "STOP": 17,
+    "TURN\\_LEFT": 2,
+    "TURN\\_RIGHT": 2,
+    "WALK\\_BACKWARD": 4,
+    "WALK\\_FORWARD": 5,
+    "WALK\\_LEFT": 2,
+    "WALK\\_RIGHT": 2,
+    "WALK\\_WITH\\_ME": 7
+  },
+  "ml_confusion_counts": {
+    "BOX": {
+      "BOX": 6,
+      "NONE": 1
+    },
+    "DANCE": {
+      "DANCE": 15
+    },
+    "HIGH\\_FIVE": {
+      "HIGH\\_FIVE": 3
+    },
+    "NONE": {
+      "NONE": 86,
+      "WAVE": 1
+    },
+    "REST": {
+      "REST": 11
+    },
+    "SITDOWN": {
+      "SITDOWN": 4,
+      "NONE": 1
+    },
+    "STAND\\_UP": {
+      "STAND\\_UP": 5
+    },
+    "STOP": {
+      "STOP": 14,
+      "NONE": 5
+    },
+    "TURN\\_LEFT": {
+      "TURN\\_LEFT": 2
+    },
+    "TURN\\_RIGHT": {
+      "TURN\\_RIGHT": 2
+    },
+    "WALK\\_BACKWARD": {
+      "WALK\\_BACKWARD": 4
+    },
+    "WALK\\_FORWARD": {
+      "WALK\\_FORWARD": 5,
+      "NONE": 1
+    },
+    "WALK\\_LEFT": {
+      "WALK\\_LEFT": 2
+    },
+    "WALK\\_RIGHT": {
+      "WALK\\_RIGHT": 2
+    },
+    "WALK\\_WITH\\_ME": {
+      "WALK\\_WITH\\_ME": 7
+    },
+    "WAVE": {
+      "WAVE": 5,
+      "NONE": 1
+    }
+  },
+  "system_confusion_counts": {
+    "BOX": {
+      "BOX": 6,
+      "NONE": 1
+    },
+    "DANCE": {
+      "DANCE": 15
+    },
+    "HIGH\\_FIVE": {
+      "HIGH\\_FIVE": 3
+    },
+    "NONE": {
+      "NONE": 86,
+      "WAVE": 1
+    },
+    "REST": {
+      "REST": 11
+    },
+    "SITDOWN": {
+      "SITDOWN": 4,
+      "NONE": 1
+    },
+    "STAND\\_UP": {
+      "STAND\\_UP": 5
+    },
+    "STOP": {
+      "STOP": 17,
+      "NONE": 2
+    },
+    "TURN\\_LEFT": {
+      "TURN\\_LEFT": 2
+    },
+    "TURN\\_RIGHT": {
+      "TURN\\_RIGHT": 2
+    },
+    "WALK\\_BACKWARD": {
+      "WALK\\_BACKWARD": 4
+    },
+    "WALK\\_FORWARD": {
+      "WALK\\_FORWARD": 5,
+      "NONE": 1
+    },
+    "WALK\\_LEFT": {
+      "WALK\\_LEFT": 2
+    },
+    "WALK\\_RIGHT": {
+      "WALK\\_RIGHT": 2
+    },
+    "WALK\\_WITH\\_ME": {
+      "WALK\\_WITH\\_ME": 7
+    },
+    "WAVE": {
+      "WAVE": 5,
+      "NONE": 1
+    }
+  },
+  "system_ml_disagreement_count": 3,
+  "system_ml_disagreement_breakdown": {
+    "system_better": 3,
+    "ml_better": 0,
+    "both_wrong": 0
+  }
+}

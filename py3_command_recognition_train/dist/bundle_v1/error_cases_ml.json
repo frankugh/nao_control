@@ -1,0 +1,402 @@
+[
+  {
+    "text": "ga dansen",
+    "true_label": "DANCE",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.3469234098795844,
+    "ml_true_proba": 0.3469234098795844,
+    "top3": [
+      [
+        "DANCE",
+        0.3469234098795844
+      ],
+      [
+        "REST",
+        0.15192126490715818
+      ],
+      [
+        "NONE",
+        0.09127836357358117
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "kun je dansen",
+    "true_label": "DANCE",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.5151787601083876,
+    "ml_true_proba": 0.29785569653606986,
+    "top3": [
+      [
+        "NONE",
+        0.5151787601083876
+      ],
+      [
+        "DANCE",
+        0.29785569653606986
+      ],
+      [
+        "STOP",
+        0.026065566338735923
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "Ben je in slaapstand?",
+    "true_label": "NONE",
+    "ml_pred_label": "REST",
+    "ml_pred_proba": 0.717469899524814,
+    "ml_true_proba": 0.1627733855098574,
+    "top3": [
+      [
+        "REST",
+        0.717469899524814
+      ],
+      [
+        "NONE",
+        0.1627733855098574
+      ],
+      [
+        "DANCE",
+        0.018259399890784615
+      ]
+    ],
+    "system_pred_label": "REST",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "he, ik zwaai naar je",
+    "true_label": "NONE",
+    "ml_pred_label": "WAVE",
+    "ml_pred_proba": 0.8986398052462765,
+    "ml_true_proba": 0.029585114162307604,
+    "top3": [
+      [
+        "WAVE",
+        0.8986398052462765
+      ],
+      [
+        "NONE",
+        0.029585114162307604
+      ],
+      [
+        "BOX",
+        0.010177815207489579
+      ]
+    ],
+    "system_pred_label": "WAVE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "standby",
+    "true_label": "REST",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.382645338169202,
+    "ml_true_proba": 0.382645338169202,
+    "top3": [
+      [
+        "REST",
+        0.382645338169202
+      ],
+      [
+        "NONE",
+        0.23535721733447693
+      ],
+      [
+        "STOP",
+        0.08501780160220739
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "Je mag nu gaan slapen",
+    "true_label": "REST",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.5148686496789051,
+    "ml_true_proba": 0.5148686496789051,
+    "top3": [
+      [
+        "REST",
+        0.5148686496789051
+      ],
+      [
+        "STOP",
+        0.10659024915744746
+      ],
+      [
+        "NONE",
+        0.09913222530070533
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "schakel uit",
+    "true_label": "REST",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.3674367392866465,
+    "ml_true_proba": 0.3674367392866465,
+    "top3": [
+      [
+        "REST",
+        0.3674367392866465
+      ],
+      [
+        "NONE",
+        0.3188607436623347
+      ],
+      [
+        "STOP",
+        0.06115665271002157
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "ontspan",
+    "true_label": "REST",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.48422503635348324,
+    "ml_true_proba": 0.04486697211159012,
+    "top3": [
+      [
+        "NONE",
+        0.48422503635348324
+      ],
+      [
+        "STOP",
+        0.10403324591679558
+      ],
+      [
+        "DANCE",
+        0.07818155121810791
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "doe zit",
+    "true_label": "SITDOWN",
+    "ml_pred_label": "DANCE",
+    "ml_pred_proba": 0.7584173332896444,
+    "ml_true_proba": 0.1258991924948861,
+    "top3": [
+      [
+        "DANCE",
+        0.7584173332896444
+      ],
+      [
+        "SITDOWN",
+        0.1258991924948861
+      ],
+      [
+        "WAVE",
+        0.03535804909914668
+      ]
+    ],
+    "system_pred_label": "DANCE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "wachten",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.29642422752673053,
+    "ml_true_proba": 0.29329656130082354,
+    "top3": [
+      [
+        "NONE",
+        0.29642422752673053
+      ],
+      [
+        "STOP",
+        0.29329656130082354
+      ],
+      [
+        "WALK\\_BACKWARD",
+        0.07712206936506431
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "sta stil",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.4304319544536166,
+    "ml_true_proba": 0.4304319544536166,
+    "top3": [
+      [
+        "STOP",
+        0.4304319544536166
+      ],
+      [
+        "STAND\\_UP",
+        0.298620074047709
+      ],
+      [
+        "NONE",
+        0.09758085507243318
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "niet verder lopen",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.5354098210544876,
+    "ml_true_proba": 0.5354098210544876,
+    "top3": [
+      [
+        "STOP",
+        0.5354098210544876
+      ],
+      [
+        "WALK\\_FORWARD",
+        0.22947254978940304
+      ],
+      [
+        "NONE",
+        0.08484057400341667
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "René, ga terug",
+    "true_label": "WALK\\_BACKWARD",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.5693496829271387,
+    "ml_true_proba": 0.5693496829271387,
+    "top3": [
+      [
+        "WALK\\_BACKWARD",
+        0.5693496829271387
+      ],
+      [
+        "REST",
+        0.0877538546361748
+      ],
+      [
+        "SITDOWN",
+        0.07872103657149557
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "kom, laten we lopen",
+    "true_label": "WALK\\_WITH\\_ME",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.4972897910409493,
+    "ml_true_proba": 0.4972897910409493,
+    "top3": [
+      [
+        "WALK\\_WITH\\_ME",
+        0.4972897910409493
+      ],
+      [
+        "WALK\\_FORWARD",
+        0.27105307766666786
+      ],
+      [
+        "NONE",
+        0.049424683025969224
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "groet met je hand",
+    "true_label": "WAVE",
+    "ml_pred_label": "WALK\\_WITH\\_ME",
+    "ml_pred_proba": 0.71691843785713,
+    "ml_true_proba": 0.012077762677947388,
+    "top3": [
+      [
+        "WALK\\_WITH\\_ME",
+        0.71691843785713
+      ],
+      [
+        "NONE",
+        0.11729818801009233
+      ],
+      [
+        "HIGH\\_FIVE",
+        0.025874911246023105
+      ]
+    ],
+    "system_pred_label": "WALK\\_WITH\\_ME",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  },
+  {
+    "text": "zeg hallo met je hand",
+    "true_label": "WAVE",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.4927344012116495,
+    "ml_true_proba": 0.14598921733635997,
+    "top3": [
+      [
+        "WALK\\_WITH\\_ME",
+        0.4927344012116495
+      ],
+      [
+        "WAVE",
+        0.14598921733635997
+      ],
+      [
+        "NONE",
+        0.14169048806606377
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.6000000000000001,
+    "margin": 0.05
+  }
+]

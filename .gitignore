@@ -40,6 +40,13 @@ dist/
 *.egg-info/
 review/
 
+# Command-recognition runtime bundles are required on deployed machines.
+# Keep generated experiments and historical backups local.
+!py3_command_recognition_train/dist/
+!py3_command_recognition_train/dist/**
+py3_command_recognition_train/dist/experiments/
+py3_command_recognition_train/dist/backup/
+
 # === Example/output files ===
 example_audio/*.raw
 example_audio/*.wav

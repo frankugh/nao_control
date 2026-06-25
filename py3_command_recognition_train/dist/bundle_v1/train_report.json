@@ -1,0 +1,587 @@
+{
+  "best": {
+    "vectorizer": "hybrid_word_char|ratio=8",
+    "threshold": 0.6000000000000001,
+    "margin": 0.05,
+    "score": 0.8801569021644396
+  },
+  "ml_only": {
+    "report": {
+      "BOX": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 6.0
+      },
+      "DANCE": {
+        "precision": 0.9285714285714286,
+        "recall": 0.8666666666666667,
+        "f1-score": 0.896551724137931,
+        "support": 15.0
+      },
+      "HIGH\\_FIVE": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 4.0
+      },
+      "NONE": {
+        "precision": 0.8651685393258427,
+        "recall": 0.9746835443037974,
+        "f1-score": 0.9166666666666666,
+        "support": 79.0
+      },
+      "REST": {
+        "precision": 0.8888888888888888,
+        "recall": 0.6666666666666666,
+        "f1-score": 0.7619047619047619,
+        "support": 12.0
+      },
+      "SITDOWN": {
+        "precision": 1.0,
+        "recall": 0.8,
+        "f1-score": 0.8888888888888888,
+        "support": 5.0
+      },
+      "STAND\\_UP": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 5.0
+      },
+      "STOP": {
+        "precision": 1.0,
+        "recall": 0.8421052631578947,
+        "f1-score": 0.9142857142857143,
+        "support": 19.0
+      },
+      "TURN\\_LEFT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "TURN\\_RIGHT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "WALK\\_BACKWARD": {
+        "precision": 1.0,
+        "recall": 0.75,
+        "f1-score": 0.8571428571428571,
+        "support": 4.0
+      },
+      "WALK\\_FORWARD": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 6.0
+      },
+      "WALK\\_LEFT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "WALK\\_RIGHT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "WALK\\_WITH\\_ME": {
+        "precision": 0.8571428571428571,
+        "recall": 0.8571428571428571,
+        "f1-score": 0.8571428571428571,
+        "support": 7.0
+      },
+      "WAVE": {
+        "precision": 0.8333333333333334,
+        "recall": 0.7142857142857143,
+        "f1-score": 0.7692307692307693,
+        "support": 7.0
+      },
+      "accuracy": 0.9096045197740112,
+      "macro avg": {
+        "precision": 0.960819065453897,
+        "recall": 0.9044719195139749,
+        "f1-score": 0.9288633899625278,
+        "support": 177.0
+      },
+      "weighted avg": {
+        "precision": 0.9139937064141977,
+        "recall": 0.9096045197740112,
+        "f1-score": 0.9075528785347605,
+        "support": 177.0
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "BOX",
+        "DANCE",
+        "HIGH\\_FIVE",
+        "NONE",
+        "REST",
+        "SITDOWN",
+        "STAND\\_UP",
+        "STOP",
+        "TURN\\_LEFT",
+        "TURN\\_RIGHT",
+        "WALK\\_BACKWARD",
+        "WALK\\_FORWARD",
+        "WALK\\_LEFT",
+        "WALK\\_RIGHT",
+        "WALK\\_WITH\\_ME",
+        "WAVE"
+      ],
+      "matrix": [
+        [
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          13,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          4,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          77,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          4,
+          8,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          4,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          3,
+          0,
+          0,
+          0,
+          16,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          6,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          6,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          5
+        ]
+      ]
+    }
+  },
+  "system_metrics": {
+    "system_stop_recall": 0.9473684210526315,
+    "fp_none_rate": 0.05063291139240506,
+    "fp_loco_rate": 0.0,
+    "recall_dance": 0.8666666666666667,
+    "recall_box": 1.0,
+    "macro_f1_others": 0.9296997336526354,
+    "report": {
+      "BOX": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 6.0
+      },
+      "DANCE": {
+        "precision": 0.9285714285714286,
+        "recall": 0.8666666666666667,
+        "f1-score": 0.896551724137931,
+        "support": 15.0
+      },
+      "HIGH\\_FIVE": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 4.0
+      },
+      "NONE": {
+        "precision": 0.8823529411764706,
+        "recall": 0.9493670886075949,
+        "f1-score": 0.9146341463414634,
+        "support": 79.0
+      },
+      "REST": {
+        "precision": 0.8888888888888888,
+        "recall": 0.6666666666666666,
+        "f1-score": 0.7619047619047619,
+        "support": 12.0
+      },
+      "SITDOWN": {
+        "precision": 1.0,
+        "recall": 0.8,
+        "f1-score": 0.8888888888888888,
+        "support": 5.0
+      },
+      "STAND\\_UP": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 5.0
+      },
+      "STOP": {
+        "precision": 0.9,
+        "recall": 0.9473684210526315,
+        "f1-score": 0.9230769230769231,
+        "support": 19.0
+      },
+      "TURN\\_LEFT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "TURN\\_RIGHT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "WALK\\_BACKWARD": {
+        "precision": 1.0,
+        "recall": 0.75,
+        "f1-score": 0.8571428571428571,
+        "support": 4.0
+      },
+      "WALK\\_FORWARD": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 6.0
+      },
+      "WALK\\_LEFT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "WALK\\_RIGHT": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 2.0
+      },
+      "WALK\\_WITH\\_ME": {
+        "precision": 0.8571428571428571,
+        "recall": 0.8571428571428571,
+        "f1-score": 0.8571428571428571,
+        "support": 7.0
+      },
+      "WAVE": {
+        "precision": 0.8333333333333334,
+        "recall": 0.7142857142857143,
+        "f1-score": 0.7692307692307693,
+        "support": 7.0
+      },
+      "accuracy": 0.9096045197740112,
+      "macro avg": {
+        "precision": 0.9556430905695612,
+        "recall": 0.9094685884013832,
+        "f1-score": 0.9292858079916533,
+        "support": 177.0
+      },
+      "weighted avg": {
+        "precision": 0.9109291174096757,
+        "recall": 0.9096045197740112,
+        "f1-score": 0.9075893975253928,
+        "support": 177.0
+      }
+    },
+    "fp_none_rate_hard": 0.0,
+    "fp_none_rate_easy": 0.0
+  },
+  "data": {
+    "commands": 394,
+    "none": 3152,
+    "total": 3546,
+    "gold": 177,
+    "none_external_path": "data\\none_external.jsonl",
+    "none_ratio": 8,
+    "train_label_counts": {
+      "BOX": 25,
+      "DANCE": 61,
+      "HIGH\\_FIVE": 15,
+      "REST": 47,
+      "SITDOWN": 20,
+      "STAND\\_UP": 22,
+      "STOP": 77,
+      "TURN\\_LEFT": 10,
+      "TURN\\_RIGHT": 10,
+      "WALK\\_BACKWARD": 14,
+      "WALK\\_FORWARD": 23,
+      "WALK\\_LEFT": 8,
+      "WALK\\_RIGHT": 8,
+      "WALK\\_WITH\\_ME": 27,
+      "WAVE": 27,
+      "NONE": 3152
+    }
+  },
+  "constraints": {
+    "system_stop_recall": 0.95,
+    "fp_none_rate": 0.05
+  },
+  "ml_error_count": 16,
+  "system_error_count": 16,
+  "error_cases_ml_path": "dist\\bundle_v19\\error_cases_ml.json",
+  "error_cases_system_path": "dist\\bundle_v19\\error_cases_system.json",
+  "error_summary_path": "dist\\bundle_v19\\error_summary.json"
+}

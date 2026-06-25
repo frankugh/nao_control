@@ -1,0 +1,252 @@
+[
+  {
+    "text": "tik m'n vuist",
+    "true_label": "BOX",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.443115395598052,
+    "ml_true_proba": 0.443115395598052,
+    "top3": [
+      [
+        "BOX",
+        0.443115395598052
+      ],
+      [
+        "NONE",
+        0.12396949521600643
+      ],
+      [
+        "WALK\\_WITH\\_ME",
+        0.11642693786798498
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "kan die zwaaien",
+    "true_label": "NONE",
+    "ml_pred_label": "WAVE",
+    "ml_pred_proba": 0.6645229746016953,
+    "ml_true_proba": 0.15604471595958783,
+    "top3": [
+      [
+        "WAVE",
+        0.6645229746016953
+      ],
+      [
+        "NONE",
+        0.15604471595958783
+      ],
+      [
+        "DANCE",
+        0.030122508681575406
+      ]
+    ],
+    "system_pred_label": "WAVE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "René, zit",
+    "true_label": "SITDOWN",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.25168727144691966,
+    "ml_true_proba": 0.25168727144691966,
+    "top3": [
+      [
+        "SITDOWN",
+        0.25168727144691966
+      ],
+      [
+        "NONE",
+        0.1115173244703785
+      ],
+      [
+        "WALK\\_FORWARD",
+        0.087940197527236
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "pauzeer even",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.33543266634264973,
+    "ml_true_proba": 0.33543266634264973,
+    "top3": [
+      [
+        "STOP",
+        0.33543266634264973
+      ],
+      [
+        "NONE",
+        0.2027194076511678
+      ],
+      [
+        "DANCE",
+        0.07957311775861801
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "ophouden",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.4880271056696339,
+    "ml_true_proba": 0.4880271056696339,
+    "top3": [
+      [
+        "STOP",
+        0.4880271056696339
+      ],
+      [
+        "NONE",
+        0.19194200990095955
+      ],
+      [
+        "DANCE",
+        0.05295313385703062
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "houd op",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.40005850813028926,
+    "ml_true_proba": 0.40005850813028926,
+    "top3": [
+      [
+        "STOP",
+        0.40005850813028926
+      ],
+      [
+        "NONE",
+        0.17872405502560446
+      ],
+      [
+        "WALK\\_WITH\\_ME",
+        0.08705374413977476
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "wacht even",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.48250514878474804,
+    "ml_true_proba": 0.48250514878474804,
+    "top3": [
+      [
+        "STOP",
+        0.48250514878474804
+      ],
+      [
+        "NONE",
+        0.13158966889513027
+      ],
+      [
+        "STAND\\_UP",
+        0.06923121213771753
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "ga niet verder",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.45262644262647206,
+    "ml_true_proba": 0.45262644262647206,
+    "top3": [
+      [
+        "STOP",
+        0.45262644262647206
+      ],
+      [
+        "NONE",
+        0.18828468593932388
+      ],
+      [
+        "REST",
+        0.0896000067559068
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "loop zelfstandig",
+    "true_label": "WALK\\_FORWARD",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.1999205841579212,
+    "ml_true_proba": 0.1455389947451197,
+    "top3": [
+      [
+        "NONE",
+        0.1999205841579212
+      ],
+      [
+        "WALK\\_FORWARD",
+        0.1455389947451197
+      ],
+      [
+        "WALK\\_WITH\\_ME",
+        0.1316747723961499
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  },
+  {
+    "text": "zeg even hallo",
+    "true_label": "WAVE",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.26193930047291253,
+    "ml_true_proba": 0.09251500619231107,
+    "top3": [
+      [
+        "NONE",
+        0.26193930047291253
+      ],
+      [
+        "STOP",
+        0.14771581462208358
+      ],
+      [
+        "DANCE",
+        0.10929282371249127
+      ]
+    ],
+    "system_pred_label": "NONE",
+    "stop_rule_hit": false,
+    "threshold": 0.5,
+    "margin": 0.25
+  }
+]

@@ -1,0 +1,78 @@
+{
+  "threshold": 0.5,
+  "margin": 0.25,
+  "stop_rule_mode": "preemptive",
+  "labels": [
+    "BOX",
+    "DANCE",
+    "HIGH\\_FIVE",
+    "NONE",
+    "REST",
+    "SITDOWN",
+    "STAND\\_UP",
+    "STOP",
+    "TURN\\_LEFT",
+    "TURN\\_RIGHT",
+    "WALK\\_BACKWARD",
+    "WALK\\_FORWARD",
+    "WALK\\_LEFT",
+    "WALK\\_RIGHT",
+    "WALK\\_WITH\\_ME",
+    "WAVE"
+  ],
+  "stop_rules": [
+    "\\bhou\\s+op\\b",
+    "\\bstop\\s+ermee\\b",
+    "\\bsta\\s+stil\\b",
+    "^\\s*blijf\\s+staan(?:\\s+(?:nu|graag|alsjeblieft|aub))?\\s*[.!?]*\\s*$",
+    "\\bkap\\s+ermee\\b",
+    "\\bannuleer\\b",
+    "\\bniet\\s+doen\\b",
+    "\\bga\\s+niet\\s+verder\\b",
+    "\\bniet\\s+verder\\b",
+    "\\bho\\s+nee\\b",
+    "\\bkappen\\s+nu\\b",
+    "\\bkappen\\s*,?\\s*snel\\s+nu\\b",
+    "\\bstop\\b",
+    "\\bhalt\\b",
+    "^\\s*ho(?:\\s+nu)?\\s*[.!?]*\\s*$",
+    "\\bpauze\\b",
+    "\\bpauzeer\\b",
+    "\\bophouden\\b",
+    "\\bkappen\\b",
+    "\\bhelp\\b(?:\\W+\\w+){0,3}\\W+\\bstop\\b",
+    "\\boeps\\b(?:\\W+\\w+){0,3}\\W+\\bstop\\b",
+    "\\b(shit|kut|fuck)\\b(?:\\W+\\w+){0,3}\\W+\\b(stop|kappen|hou\\s+op|niet\\s+doen)\\b",
+    "\\b(stop|kappen|hou\\s+op|niet\\s+doen)\\b(?:\\W+\\w+){0,3}\\W+\\b(shit|kut|fuck)\\b"
+  ],
+  "constraints": {
+    "system_stop_max_misses": 2,
+    "fp_none_rate": 0.05
+  },
+  "vectorizer": "char_wb_2_5|ratio=8",
+  "vectorizer_config": {
+    "type": "tfidf",
+    "analyzer": "char_wb",
+    "ngram_range": [
+      2,
+      5
+    ]
+  },
+  "guard": {
+    "default": true,
+    "unguarded_labels": [
+      "BOX",
+      "HIGH_FIVE",
+      "STOP",
+      "WAVE",
+      "SITDOWN",
+      "STAND_UP",
+      "REST"
+    ],
+    "guarded_labels": [
+      "DANCE",
+      "WALK_WITH_ME",
+      "LOCOMOTION_REQUEST"
+    ]
+  }
+}

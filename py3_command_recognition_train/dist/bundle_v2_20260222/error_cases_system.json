@@ -1,0 +1,89 @@
+[
+  {
+    "text": "pauzeer even",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.33543266634264973,
+    "ml_true_proba": 0.33543266634264973,
+    "top3": [
+      [
+        "STOP",
+        0.33543266634264973
+      ],
+      [
+        "NONE",
+        0.2027194076511678
+      ],
+      [
+        "DANCE",
+        0.07957311775861801
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.5,
+    "margin": 0.25,
+    "ml_correct": false,
+    "system_correct": true,
+    "comparison_outcome": "system_fixed_ml_error",
+    "comparison_reason": "stop_rule_override"
+  },
+  {
+    "text": "ophouden",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.4880271056696339,
+    "ml_true_proba": 0.4880271056696339,
+    "top3": [
+      [
+        "STOP",
+        0.4880271056696339
+      ],
+      [
+        "NONE",
+        0.19194200990095955
+      ],
+      [
+        "DANCE",
+        0.05295313385703062
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.5,
+    "margin": 0.25,
+    "ml_correct": false,
+    "system_correct": true,
+    "comparison_outcome": "system_fixed_ml_error",
+    "comparison_reason": "stop_rule_override"
+  },
+  {
+    "text": "ga niet verder",
+    "true_label": "STOP",
+    "ml_pred_label": "NONE",
+    "ml_pred_proba": 0.45262644262647206,
+    "ml_true_proba": 0.45262644262647206,
+    "top3": [
+      [
+        "STOP",
+        0.45262644262647206
+      ],
+      [
+        "NONE",
+        0.18828468593932388
+      ],
+      [
+        "REST",
+        0.0896000067559068
+      ]
+    ],
+    "system_pred_label": "STOP",
+    "stop_rule_hit": true,
+    "threshold": 0.5,
+    "margin": 0.25,
+    "ml_correct": false,
+    "system_correct": true,
+    "comparison_outcome": "system_fixed_ml_error",
+    "comparison_reason": "stop_rule_override"
+  }
+]
