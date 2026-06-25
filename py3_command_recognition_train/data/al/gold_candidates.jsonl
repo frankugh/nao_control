@@ -95,3 +95,5 @@
 {"text": "Ga maar zitten, hoor.", "label": "SITDOWN", "source": "al_gold_candidate"}
 {"text": "Hoe kwam dat dan dat Mensen een AI elkaar niet vertrouwden?", "label": "NONE", "source": "al_gold_candidate"}
 {"text": "Sta maar op.", "label": "STAND\\_UP", "source": "al_gold_candidate"}
+{"text": "Dance happy.", "label": "DANCE", "source": "al_gold_candidate"}
+{"text": "OK dan mag je weer uitrusten.", "label": "REST", "source": "al_gold_candidate"}

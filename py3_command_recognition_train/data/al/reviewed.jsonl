@@ -191,3 +191,4 @@
 {"text": "Sta maar op.", "label": "STAND\\_UP", "source": "al_reviewed"}
 {"text": "Hebben we er zin in vandaag?", "label": "NONE", "source": "al_reviewed"}
 {"text": "Wat voor fouten waren dat dan?", "label": "NONE", "source": "al_reviewed"}
+{"text": "OK dan mag je weer uitrusten.", "label": "REST", "source": "ui_review"}
