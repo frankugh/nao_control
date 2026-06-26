@@ -1575,6 +1575,7 @@
                   <select id="cfgLlmModel" data-cloud-llm-model-control title="Model selectie op basis van ollama list">
                     <option value="">-- kies model --</option>
                   </select>
+                  <input id="cfgLlmModelCustom" type="text" placeholder="Typ modelnaam" title="Gebruik een modelnaam die niet in de lijst staat, bijvoorbeeld uit de Ollama app." hidden />
               </div>
               <div id="cfgLlmThinkingRow" hidden>
                 <label>Thinking</label>
@@ -1854,6 +1855,7 @@
       const cfgConfirmPolicy = document.getElementById('cfgConfirmPolicy');
       const cfgLlmType = document.getElementById('cfgLlmType');
       const cfgLlmModel = document.getElementById('cfgLlmModel');
+      const cfgLlmModelCustom = document.getElementById('cfgLlmModelCustom');
       const cfgLlmThinkingRow = document.getElementById('cfgLlmThinkingRow');
       const cfgLlmThinking = document.getElementById('cfgLlmThinking');
       const cfgLlmTemperature = document.getElementById('cfgLlmTemperature');
@@ -6280,7 +6282,7 @@
             azure_tts_pitch: azurePitch,
             azure_tts_volume_db: azureVolume,
             llm_type: cfgLlmType.value,
-            llm_model: (cfgLlmModel.value || '').trim(),
+            llm_model: getSelectedLlmModel(),
             llm_thinking_mode: llmThinkingMode,
             llm_temperature: llmTemperature,
             llm_top_p: llmTopP,
@@ -6616,6 +6618,12 @@
         const j = await r.json();
         if (!j.ok) {
           cfgAzureVoice.innerHTML = '';
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = j.error || 'Azure voices niet beschikbaar';
+          opt.disabled = true;
+          opt.selected = true;
+          cfgAzureVoice.appendChild(opt);
           if (cfgAzureTtsNote) {
             cfgAzureTtsNote.textContent = j.error || 'Azure key/region ontbreekt.';
           }
@@ -6633,6 +6641,16 @@
           opt.textContent = meta.length ? `${v.short_name} (${meta.join(', ')})` : v.short_name;
           cfgAzureVoice.appendChild(opt);
         });
+        if (!cfgAzureVoice.options.length) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'Geen Azure voices gevonden';
+          opt.disabled = true;
+          opt.selected = true;
+          cfgAzureVoice.appendChild(opt);
+          if (cfgAzureTtsNote) cfgAzureTtsNote.textContent = 'Geen Azure voices gevonden.';
+          return;
+        }
         const desired = current || lastAzureVoiceValue || j.default_voice;
         if (desired && [...cfgAzureVoice.options].some(o => o.value === desired)) {
           cfgAzureVoice.value = desired;
@@ -7019,6 +7037,25 @@
         return ['default'];
       }
 
+      function isCustomLlmModelSelected() {
+        return cfgLlmType.value === 'ollama_cloud' && cfgLlmModel && cfgLlmModel.value === '__custom__';
+      }
+
+      function getSelectedLlmModel() {
+        if (isCustomLlmModelSelected()) {
+          return String((cfgLlmModelCustom && cfgLlmModelCustom.value) || '').trim();
+        }
+        return String((cfgLlmModel && cfgLlmModel.value) || '').trim();
+      }
+
+      function syncLlmModelCustomVisibility() {
+        if (!cfgLlmModelCustom) return;
+        const echoMode = cfgLlmType.value === 'echo';
+        const custom = isCustomLlmModelSelected();
+        cfgLlmModelCustom.hidden = echoMode || !custom;
+        cfgLlmModelCustom.disabled = echoMode || !custom;
+      }
+
       function renderLlmThinkingControl(modeType, preferredMode) {
         if (!cfgLlmThinking || !cfgLlmThinkingRow) return;
         const normalizedType = modeType === 'levels' ? 'levels' : (modeType === 'boolean' ? 'boolean' : 'none');
@@ -7055,7 +7092,7 @@
       async function refreshLlmThinkingCapability() {
         if (!cfgLlmThinking || !cfgLlmThinkingRow) return;
         const llmType = String(cfgLlmType.value || '').trim().toLowerCase();
-        const model = String(cfgLlmModel.value || '').trim();
+        const model = getSelectedLlmModel();
         const isOllama = llmType === 'ollama_local' || llmType === 'ollama_cloud';
         if (!isOllama || !model) {
           renderLlmThinkingControl('none', desiredLlmThinkingMode);
@@ -7112,21 +7149,34 @@
           opt.textContent = name;
           cfgLlmModel.appendChild(opt);
         });
+        if (kind === 'cloud') {
+          const customOpt = document.createElement('option');
+          customOpt.value = '__custom__';
+          customOpt.textContent = 'Custom modelnaam...';
+          cfgLlmModel.appendChild(customOpt);
+        }
         const target = desired || existing;
         if (target && models.includes(target)) {
           cfgLlmModel.value = target;
+          if (cfgLlmModelCustom) cfgLlmModelCustom.value = '';
+          desiredLlmModel = '';
+        } else if (target && kind === 'cloud') {
+          cfgLlmModel.value = '__custom__';
+          if (cfgLlmModelCustom) cfgLlmModelCustom.value = target;
           desiredLlmModel = '';
         } else {
           cfgLlmModel.value = '';
+          if (cfgLlmModelCustom) cfgLlmModelCustom.value = '';
         }
+        syncLlmModelCustomVisibility();
         updateLlmConfigAvailability();
         refreshLlmThinkingCapability().catch(() => {});
       }
 
       function updateLlmConfigAvailability() {
         const echoMode = cfgLlmType.value === 'echo';
-        const hasChoices = cfgLlmModel.options.length > 1;
-        cfgLlmModel.disabled = echoMode || !hasChoices;
+        cfgLlmModel.disabled = echoMode;
+        syncLlmModelCustomVisibility();
         if (cfgMasterPrompt) cfgMasterPrompt.disabled = echoMode;
         if (cfgLlmThinking && cfgLlmThinkingRow && echoMode) {
           cfgLlmThinking.disabled = true;
@@ -8219,7 +8269,11 @@
           if (cmdNaoHealthAvailable) {
             scheduleCmdNaoRefresh(150, false);
           }
-          if (j.emit_used === 'pipeline' && (j.reply || '').trim()) {
+          const serverAudioFailed = j.emit_used === 'pipeline' && j.output_audio_started === false;
+          if (serverAudioFailed) {
+            const audioError = String(j.output_audio_error || '').trim();
+            setStatus(audioError ? `Antwoord klaar, maar audio faalde: ${audioError}` : 'Antwoord klaar, maar audio is niet gestart.');
+          } else if (j.emit_used === 'pipeline' && (j.reply || '').trim()) {
             speakingWindowStarted = startSpeakingWindow(j.reply || '');
           } else if (clientOutputMode === 'client' && (j.reply || '').trim()) {
             speakingWindowStarted = startClientSpeaking(j.reply || '');
@@ -8544,6 +8598,8 @@
           desiredLlmModel = '';
           desiredLlmThinkingMode = 'default';
           cfgLlmModel.value = '';
+          if (cfgLlmModelCustom) cfgLlmModelCustom.value = '';
+          syncLlmModelCustomVisibility();
           cfgLlmModel.classList.remove('dirty');
           cfgLlmModel.dispatchEvent(new Event('input'));
           renderLlmThinkingControl('none', desiredLlmThinkingMode);
@@ -8560,6 +8616,8 @@
         }
         desiredLlmModel = '';
         cfgLlmModel.value = '';
+        if (cfgLlmModelCustom) cfgLlmModelCustom.value = '';
+        syncLlmModelCustomVisibility();
         cfgLlmModel.classList.add('dirty');
         cfgLlmModel.dispatchEvent(new Event('input'));
         cfgStatus.textContent = 'Vul een LLM model in';
@@ -8945,10 +9003,20 @@
       const applyLlmAdvancedNow = () => applyRuntimeConfig(getConfigFromForm(), false, false);
 
       cfgLlmModel.addEventListener('change', async () => {
-        desiredLlmModel = String(cfgLlmModel.value || '').trim();
+        syncLlmModelCustomVisibility();
+        desiredLlmModel = getSelectedLlmModel();
         await refreshLlmThinkingCapability();
         applyLlmModelNow();
       });
+      if (cfgLlmModelCustom) {
+        cfgLlmModelCustom.addEventListener('input', async () => {
+          if (!isCustomLlmModelSelected()) return;
+          desiredLlmModel = getSelectedLlmModel();
+          cfgLlmModel.classList.toggle('dirty', !desiredLlmModel);
+          await refreshLlmThinkingCapability();
+          applyLlmModelNow();
+        });
+      }
       if (cfgLlmThinking) {
         cfgLlmThinking.addEventListener('change', () => {
           desiredLlmThinkingMode = normalizeLlmThinkingMode(cfgLlmThinking.value);

@@ -19,6 +19,18 @@ def _resp(status: int) -> requests.Response:
     return r
 
 
+def test_output_router_warn_redacts_secret_header_values(monkeypatch):
+    backend = OutputRouterBackend(target="none", tts_engine="none")
+    emitted: list[str] = []
+    monkeypatch.setattr(backend._console, "emit", emitted.append)
+
+    backend._warn("[output] Azure TTS canceled: Error (header value: '\\nsecret-azure-key')")
+
+    assert "secret-azure-key" not in backend.last_error_message()
+    assert "secret-azure-key" not in emitted[0]
+    assert "<redacted>" in emitted[0]
+
+
 def test_nao_router_no_fallback_on_side_effect_timeout(monkeypatch):
     router = NaoApiRouter(
         primary_base_url="http://primary",

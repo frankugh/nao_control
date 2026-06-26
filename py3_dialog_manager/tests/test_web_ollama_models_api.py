@@ -74,6 +74,26 @@ def test_ollama_cloud_endpoint_includes_gemini_preview_model(monkeypatch):
     assert "gemini-3-flash-preview" not in local["models"]
 
 
+def test_ollama_cloud_endpoint_includes_default_cloud_models_when_cli_is_empty(monkeypatch):
+    app = _make_app(monkeypatch)
+    client = app.test_client()
+
+    monkeypatch.setattr(webapp_server.shutil, "which", lambda _cmd: "ollama")
+
+    def _fake_run(cmd, stdout=None, stderr=None, text=None, check=None):
+        assert cmd == ["ollama", "list"]
+        return _Proc("NAME ID SIZE MODIFIED\n")
+
+    monkeypatch.setattr(webapp_server.subprocess, "run", _fake_run)
+
+    resp = client.get("/api/ollama_models_cloud")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert "gpt-oss:20b-cloud" in data["models"]
+    assert "gpt-oss:120b-cloud" in data["models"]
+
+
 def test_ollama_model_capabilities_endpoint_uses_gpt_oss_level_heuristic(monkeypatch):
     app = _make_app(monkeypatch)
     client = app.test_client()

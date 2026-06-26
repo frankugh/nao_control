@@ -1,10 +1,28 @@
 # app/dialog/backends/llm_ollama.py
 
+import os
 from typing import Dict, Any, Optional
 
 from ollama import Client as OllamaHttpClient
 
 from dialog.interfaces import LLMBackend, LLMResult, History, ChatMessage
+
+
+def normalize_ollama_api_key(api_key: Optional[str]) -> Optional[str]:
+    value = str(api_key or "").strip()
+    return value or None
+
+
+def _make_ollama_http_client(host: str, headers: Dict[str, str], *, use_env_api_key: bool) -> OllamaHttpClient:
+    if use_env_api_key or headers:
+        return OllamaHttpClient(host=host, headers=headers or None)
+
+    previous = os.environ.pop("OLLAMA_API_KEY", None)
+    try:
+        return OllamaHttpClient(host=host, headers=None)
+    finally:
+        if previous is not None:
+            os.environ["OLLAMA_API_KEY"] = previous
 
 
 class OllamaClient:
@@ -19,11 +37,13 @@ class OllamaClient:
         api_key: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
         think: Optional[Any] = None,
+        use_env_api_key: bool = True,
     ) -> None:
         headers: Dict[str, str] = {}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        self._client = OllamaHttpClient(host=host, headers=headers or None)
+        clean_api_key = normalize_ollama_api_key(api_key)
+        if clean_api_key:
+            headers["Authorization"] = f"Bearer {clean_api_key}"
+        self._client = _make_ollama_http_client(host, headers, use_env_api_key=use_env_api_key)
         self.model = model
         self.options = dict(options) if isinstance(options, dict) and options else None
         self.think = think

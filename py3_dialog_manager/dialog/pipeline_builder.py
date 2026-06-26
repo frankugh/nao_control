@@ -442,7 +442,7 @@ def _make_llm(cfg: JsonLike):
         host = p.get("host", "http://localhost:11434")
         model = p.get("model", "llama3.1:8b")
         api_key = p.get("api_key", None)
-        client = OllamaClient(model=model, host=host, api_key=api_key, options=options, think=think)
+        client = OllamaClient(model=model, host=host, api_key=api_key, options=options, think=think, use_env_api_key=False)
         return OllamaLLMBackend(client)
 
     if t in ("ollama", "ollama_cloud"):

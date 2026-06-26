@@ -3,10 +3,36 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dialog.interfaces import CommandDecision, ICommandRecognizer, RouteDecision, parse_cmdrec_bundle
+
+
+def _ensure_cmdrec_src_on_path() -> None:
+    dm_root = Path(__file__).resolve().parents[1]
+    repo_root = dm_root.parent
+    src_path = repo_root / "py3_command_recognition_train" / "src"
+    if src_path.is_dir():
+        src_value = str(src_path)
+        if src_value not in sys.path:
+            sys.path.insert(0, src_value)
+
+
+def _load_cmdrec_bundle(bundle_path: Path) -> tuple[Any, dict[str, Any], list[str]]:
+    _ensure_cmdrec_src_on_path()
+    from cmdrec.predict import load_bundle
+
+    try:
+        from sklearn.exceptions import InconsistentVersionWarning
+    except Exception:
+        return load_bundle(bundle_path)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+        return load_bundle(bundle_path)
 
 
 def _resolve_existing_dir(path_str: str, candidates: list[Path]) -> Optional[Path]:
@@ -130,9 +156,7 @@ class CmdRecRecognizer(ICommandRecognizer):
             return
         if not self._bundle_path:
             raise RuntimeError("cmdrec bundle path ontbreekt; init eerst correct.")
-        from cmdrec.predict import load_bundle
-
-        self._model, self._decision_policy, self._labels = load_bundle(self._bundle_path)
+        self._model, self._decision_policy, self._labels = _load_cmdrec_bundle(self._bundle_path)
 
     def get_labels(self) -> list[str]:
         if self._disabled:
@@ -143,6 +167,7 @@ class CmdRecRecognizer(ICommandRecognizer):
     def get_dance_catalog(self) -> list[dict[str, Any]]:
         if self._disabled or not self._bundle_path:
             return []
+        _ensure_cmdrec_src_on_path()
         from cmdrec.resolvers import load_dance_catalog
 
         catalog_path = self._bundle_path / "dance_catalog.json"
@@ -160,6 +185,7 @@ class CmdRecRecognizer(ICommandRecognizer):
         if self._disabled:
             return False
         self._ensure_bundle_loaded()
+        _ensure_cmdrec_src_on_path()
         from cmdrec.guard import is_guarded
 
         policy = self._decision_policy or {}
@@ -179,6 +205,7 @@ class CmdRecRecognizer(ICommandRecognizer):
         assert self._decision_policy is not None
         assert self._labels is not None
 
+        _ensure_cmdrec_src_on_path()
         from cmdrec.predict import classify_text
 
         classification = classify_text(self._model, self._decision_policy, self._labels, text, k=3)

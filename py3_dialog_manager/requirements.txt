@@ -3,6 +3,8 @@ requests>=2.31.0
 paramiko
 faster-whisper
 numpy
+joblib>=1.2
+scikit-learn>=1.2
 vosk
 sounddevice
 ollama

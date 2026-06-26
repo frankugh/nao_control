@@ -42,7 +42,7 @@ REPO_ROOT = MODULE_DIR.parent
 WEB_ROOT = MODULE_DIR / "script_builder_web"
 SCRIPTS_DIR = MODULE_DIR / "scripts"
 DM_DIR = REPO_ROOT / "py3_dialog_manager"
-DM_PYTHON = DM_DIR / "venv" / "Scripts" / "python.exe"
+DM_PYTHON = DM_DIR / "venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 DM_WEBAPP = DM_DIR / "webapp_server.py"
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
 EXAMPLE_FILES = {
@@ -82,7 +82,7 @@ def _dm_launcher_prereq_error() -> str:
     if not DM_DIR.exists():
         return f"DM map niet gevonden: {DM_DIR}"
     if not DM_PYTHON.exists():
-        return f"DM venv python.exe niet gevonden: {DM_PYTHON}"
+        return f"DM venv python niet gevonden: {DM_PYTHON}"
     if not DM_WEBAPP.exists():
         return f"DM webapp_server.py niet gevonden: {DM_WEBAPP}"
     return ""
@@ -140,14 +140,16 @@ def _build_dm_launch_command(spec: DmLaunchSpec) -> List[str]:
     python_cmd = [str(DM_PYTHON), str(DM_WEBAPP), "--host", spec.bind_host, "--port", str(spec.port)]
     if spec.preset:
         python_cmd.extend(["--preset", spec.preset])
-    return ["cmd.exe", "/k", subprocess.list2cmdline(python_cmd)]
+    if sys.platform == "win32":
+        return ["cmd.exe", "/k", subprocess.list2cmdline(python_cmd)]
+    return python_cmd
 
 
 def _build_dm_launch_env() -> Dict[str, str]:
     env = dict(os.environ)
     python_dir = DM_PYTHON.parent
     scripts_dir = str(python_dir)
-    venv_dir = str(python_dir.parent if python_dir.name.lower() == "scripts" else python_dir)
+    venv_dir = str(python_dir.parent if python_dir.name.lower() in ("scripts", "bin") else python_dir)
     path_parts = [scripts_dir]
     current_path = str(env.get("PATH") or "")
     if current_path:
@@ -182,14 +184,17 @@ def _occupied_local_target_message(spec: DmLaunchSpec) -> str:
 
 def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
     cmd = _build_dm_launch_command(spec)
+    popen_kwargs: Dict[str, Any] = dict(
+        cwd=str(DM_DIR),
+        env=_build_dm_launch_env(),
+    )
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = CREATE_NEW_CONSOLE
+    else:
+        popen_kwargs["start_new_session"] = True
     try:
-        subprocess.Popen(
-            cmd,
-            cwd=str(DM_DIR),
-            env=_build_dm_launch_env(),
-            creationflags=CREATE_NEW_CONSOLE,
-        )
-    except OSError as exc:
+        subprocess.Popen(cmd, **popen_kwargs)
+    except (OSError, ValueError) as exc:
         return _dm_launch_result(
             robot_id=spec.robot_id,
             dm_url=spec.dm_url,
@@ -203,7 +208,7 @@ def _start_dm_process(spec: DmLaunchSpec) -> Dict[str, Any]:
         dm_url=spec.dm_url,
         preset=spec.preset,
         started=True,
-        message="DM gestart in een nieuw cmd-venster.",
+        message="DM gestart op de achtergrond.",
         port=spec.port,
     )
 

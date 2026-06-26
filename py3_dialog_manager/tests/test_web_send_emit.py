@@ -16,6 +16,19 @@ class SpyOutputBackend:
         self.calls.append(text)
 
 
+class FailingAudioOutputBackend:
+    def __init__(self, error: str = "[output] Azure TTS mist AZURE_SPEECH_KEY/REGION.") -> None:
+        self.error = error
+        self.calls: list[str] = []
+
+    def emit(self, text: str) -> bool:
+        self.calls.append(text)
+        return False
+
+    def last_error_message(self) -> str:
+        return self.error
+
+
 class StubLLMBackend:
     def __init__(self, reply: str) -> None:
         self._reply = reply
@@ -30,6 +43,12 @@ class FailingLLMBackend:
         exc = RuntimeError("upstream 500")
         exc.status_code = 500
         raise exc
+
+
+class FailingSensitiveLLMBackend:
+    def generate(self, messages):
+        del messages
+        raise RuntimeError("Illegal header value b'Bearer \\nsecret-token'")
 
 
 class StubSTTBackend:
@@ -98,6 +117,55 @@ def test_web_send_emit_pipeline_calls_output(monkeypatch):
     assert data["ok"] is True
     assert data["emit_used"] == "pipeline"
     assert spy.calls == ["hi"]
+    assert data["output_audio_started"] is True
+
+
+def test_web_send_reports_output_audio_failure_without_failing_turn(monkeypatch):
+    output = FailingAudioOutputBackend()
+    base_pipeline = SimpleNamespace(
+        llm=StubLLMBackend("hi"),
+        output=output,
+        status_to_console=True,
+        system_prompt="SYSTEM",
+        log_messages_path=None,
+        log_meta={},
+        max_history_turns=None,
+    )
+    monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
+    monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
+    app, _, _ = webapp_server.create_app(
+        cfg={"output": {"type": "console"}},
+        config_path="<memory>",
+    )
+    client = app.test_client()
+
+    resp = client.post("/api/send", json={"text": "hello", "emit": "pipeline"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["reply"] == "hi"
+    assert data["output_audio_started"] is False
+    assert data["output_audio_error"] == "Azure TTS mist AZURE_SPEECH_KEY/REGION."
+    assert output.calls == ["hi"]
+
+
+def test_azure_voices_redacts_header_value_errors(monkeypatch):
+    app, _, _ = _make_app_with_spy(monkeypatch, reply="hi")
+    client = app.test_client()
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "\nsecret-azure-key")
+    monkeypatch.setenv("AZURE_SPEECH_REGION", "westeurope")
+
+    def fake_get(*_args, **_kwargs):
+        raise webapp_server.requests.RequestException("Invalid leading whitespace in header value: '\\nsecret-azure-key'")
+
+    monkeypatch.setattr(webapp_server.requests, "get", fake_get)
+
+    resp = client.get("/api/azure_voices")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["error"]
+    assert "secret-azure-key" not in data["error"]
+    assert "<redacted>" in data["error"]
 
 
 def test_web_send_logs_cloud_llm_context_on_backend_exception(monkeypatch):
@@ -129,11 +197,15 @@ def test_web_send_logs_cloud_llm_context_on_backend_exception(monkeypatch):
     client = app.test_client()
     logged_messages: list[str] = []
 
-    def fake_logger_exception(msg, *args, **kwargs):
+    def fake_logger_error(msg, *args, **kwargs):
         del kwargs
         logged_messages.append(msg % args)
 
-    monkeypatch.setattr(app.logger, "exception", fake_logger_exception)
+    def fail_logger_exception(*_args, **_kwargs):
+        raise AssertionError("cloud LLM errors must not use logger.exception")
+
+    monkeypatch.setattr(app.logger, "error", fake_logger_error)
+    monkeypatch.setattr(app.logger, "exception", fail_logger_exception)
 
     resp = client.post("/api/send", json={"text": "hello", "emit": "none"})
     assert resp.status_code == 500
@@ -145,6 +217,52 @@ def test_web_send_logs_cloud_llm_context_on_backend_exception(monkeypatch):
     assert "llm_host=https://ollama.com" in logged_messages[0]
     assert "detail=upstream 500" in logged_messages[0]
     assert 'debug={"args": ["upstream 500"], "status_code": 500}' in logged_messages[0]
+
+
+def test_web_send_redacts_cloud_llm_bearer_token_in_logs(monkeypatch):
+    base_pipeline = SimpleNamespace(
+        llm=FailingSensitiveLLMBackend(),
+        output=SpyOutputBackend(),
+        status_to_console=True,
+        system_prompt="SYSTEM",
+        log_messages_path=None,
+        log_meta={},
+        max_history_turns=None,
+    )
+    monkeypatch.setattr(webapp_server, "build_pipeline_from_config", lambda *_a, **_k: base_pipeline)
+    monkeypatch.setattr(webapp_server, "make_stt_backend_from_config", lambda *_a, **_k: StubSTTBackend())
+
+    app, _, _ = webapp_server.create_app(
+        cfg={
+            "llm": {
+                "type": "ollama_cloud",
+                "params": {
+                    "model": "mistral-large-3:675b-cloud",
+                    "api_key": "test-key",
+                },
+            },
+            "output": {"type": "console"},
+        },
+        config_path="<memory>",
+    )
+    client = app.test_client()
+    logged_messages: list[str] = []
+
+    def fake_logger_error(msg, *args, **kwargs):
+        del kwargs
+        logged_messages.append(msg % args)
+
+    def fail_logger_exception(*_args, **_kwargs):
+        raise AssertionError("cloud LLM errors must not use logger.exception")
+
+    monkeypatch.setattr(app.logger, "error", fake_logger_error)
+    monkeypatch.setattr(app.logger, "exception", fail_logger_exception)
+
+    resp = client.post("/api/send", json={"text": "hello", "emit": "none"})
+    assert resp.status_code == 500
+    assert len(logged_messages) == 1
+    assert "secret-token" not in logged_messages[0]
+    assert "<redacted>" in logged_messages[0]
 
 
 def test_web_send_commits_history_before_pipeline_output_finishes(monkeypatch):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import io
@@ -26,6 +27,26 @@ from dialog.backends.output_nao import NaoTTSOutputBackend
 from dialog.backends.output_none import NoOpOutputBackend
 from dialog.interfaces import OutputBackend
 from dialog.nao_api_router import NaoApiRouter
+
+
+def _redact_secret_text(value: Any) -> str:
+    text = str(value or "")
+    replacements = (
+        (r"(Bearer\s+)(?:\\n|\s)*[^'\"\\\s]+", r"\1<redacted>"),
+        (
+            r"(Ocp-Apim-Subscription-Key['\"]?\s*[:=]\s*['\"]?)(?:\\n|\s)*[^'\"\\\s,}]+",
+            r"\1<redacted>",
+        ),
+        (
+            r"((?:api|subscription)[-_ ]?key['\"]?\s*[:=]\s*['\"]?)(?:\\n|\s)*[^'\"\\\s,}]+",
+            r"\1<redacted>",
+        ),
+        (r"(Illegal header value\s+b?['\"])(?:Bearer\s+)?(?:\\n|\s)*[^'\"]+(['\"])", r"\1<redacted>\2"),
+        (r"(header value:\s*['\"])(?:\\n|\s)*[^'\"]+(['\"])", r"\1<redacted>\2"),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
 
 
 class OutputRouterBackend(OutputBackend):
@@ -93,8 +114,9 @@ class OutputRouterBackend(OutputBackend):
         self._stream_cooldown_s = 300.0
 
     def _warn(self, msg: str) -> None:
-        self._last_error_message = str(msg or "").strip()
-        self._console.emit(msg)
+        cleaned = _redact_secret_text(msg).strip()
+        self._last_error_message = cleaned
+        self._console.emit(cleaned)
 
     def last_error_message(self) -> str:
         return str(self._last_error_message or "").strip()
@@ -198,13 +220,14 @@ class OutputRouterBackend(OutputBackend):
             return text
         return trimmed + "."
 
-    def _play_wav_bytes(self, wav_bytes: bytes) -> None:
+    def _play_wav_bytes(self, wav_bytes: bytes) -> bool:
         if sd is None:
             self._warn("[output] sounddevice niet beschikbaar; kan niet afspelen.")
-            return
+            return False
         audio, sample_rate = self._wav_bytes_to_int16(wav_bytes)
         sd.play(audio, samplerate=sample_rate, device=self.output_device)
         sd.wait()
+        return True
 
     def _audio_request_timeout_s(self, *, sample_count: int = 0, sample_rate: int = 0) -> float:
         try:
@@ -414,8 +437,8 @@ class OutputRouterBackend(OutputBackend):
                 pass
 
     def _synthesize_azure(self, text: str) -> Optional[bytes]:
-        key = os.environ.get("AZURE_SPEECH_KEY") or os.environ.get("AZURE_TTS_KEY")
-        region = os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("AZURE_TTS_REGION")
+        key = (os.environ.get("AZURE_SPEECH_KEY") or os.environ.get("AZURE_TTS_KEY") or "").strip()
+        region = (os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("AZURE_TTS_REGION") or "").strip()
         if not key or not region:
             self._warn("[output] Azure TTS mist AZURE_SPEECH_KEY/REGION.")
             return None
@@ -478,44 +501,47 @@ class OutputRouterBackend(OutputBackend):
         self._warn(f"[output] Azure TTS failed: {result.reason}")
         return None
 
-    def emit(self, text: str) -> None:
+    def emit(self, text: str) -> bool:
         if self.target == "none" or self.tts_engine == "none":
-            return self._no_op.emit(text)
+            self._no_op.emit(text)
+            return True
 
         if self.target == "nao" and self.tts_engine in ("nao_native", "nao"):
-            return self._nao.emit(text)
+            self._nao.emit(text)
+            return True
 
         if self.tts_engine == "piper":
             wav_bytes = self._synthesize_piper(text)
             if not wav_bytes:
-                return
+                return False
             if self.target == "server":
                 return self._play_wav_bytes(self._prepare_server_wav_bytes(wav_bytes))
             if self.target == "nao":
                 stream_result = self._try_stream_to_nao(wav_bytes)
                 if stream_result == "ok":
-                    return
+                    return True
                 if stream_result == "fallback_upload":
                     return self._send_wav_to_nao(wav_bytes)
-                return
+                return False
 
         if self.tts_engine == "azure":
             wav_bytes = self._synthesize_azure(text)
             if not wav_bytes:
-                return
+                return False
             if self.target == "server":
                 return self._play_wav_bytes(self._prepare_server_wav_bytes(wav_bytes))
             if self.target == "nao":
                 stream_result = self._try_stream_to_nao(wav_bytes)
                 if stream_result == "ok":
-                    return
+                    return True
                 if stream_result == "fallback_upload":
                     return self._send_wav_to_nao(wav_bytes)
-                return
+                return False
 
         if not self._warned:
             self._warned = True
             self._console.emit(
                 f"[output] target={self.target} tts_engine={self.tts_engine} nog niet ondersteund."
             )
-        return self._console.emit(text)
+        self._console.emit(text)
+        return False

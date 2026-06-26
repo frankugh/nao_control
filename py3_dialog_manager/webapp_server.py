@@ -39,6 +39,12 @@ import signal
 from urllib.parse import urlparse
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+
+def _venv_python(base_dir: str) -> str:
+    if sys.platform == "win32":
+        return os.path.join(base_dir, "venv", "Scripts", "python.exe")
+    return os.path.join(base_dir, "venv", "bin", "python")
+
 from flask import Flask, Response, g, has_request_context, jsonify, request, send_file, send_from_directory
 import requests
 import numpy as np
@@ -59,6 +65,7 @@ try:
     from dialog.backends.mic_laptop import LaptopMic
     from dialog.backends.mic_nao_ssh import NaoSshMic
     from dialog.backends.vad_segmenter import RmsVadUtteranceCapturer, int16_to_wav_bytes
+    from dialog.backends.llm_ollama import normalize_ollama_api_key
     from dialog.interfaces import UtteranceAudio, parse_confirm_method, CommandDecision, RouteDecision
 except Exception as e:  # pragma: no cover
     raise RuntimeError(
@@ -69,6 +76,8 @@ except Exception as e:  # pragma: no cover
 
 JsonLike = Dict[str, Any]
 History = List[Dict[str, Any]]
+
+_DEFAULT_OLLAMA_CLOUD_MODELS = ["gpt-oss:20b-cloud", "gpt-oss:120b-cloud"]
 
 DEFAULT_CONFIG_PATH = os.path.join("configs", "default.json")
 
@@ -243,6 +252,26 @@ _SUMMARY_DEFAULT_FALLBACK_SUMMARY = (
     "Dank voor jullie input. Er kwamen meerdere vragen en leerwensen naar voren rond AI en robotica. "
     "In het vervolg pakken we de belangrijkste thema's stap voor stap op, zodat het praktisch, begrijpelijk en bruikbaar blijft."
 )
+
+
+def _redact_secret_text(value: Any) -> str:
+    text = str(value or "")
+    replacements = (
+        (r"(Bearer\s+)(?:\\n|\s)*[^'\"\\\s]+", r"\1<redacted>"),
+        (
+            r"(Ocp-Apim-Subscription-Key['\"]?\s*[:=]\s*['\"]?)(?:\\n|\s)*[^'\"\\\s,}]+",
+            r"\1<redacted>",
+        ),
+        (
+            r"((?:api|subscription)[-_ ]?key['\"]?\s*[:=]\s*['\"]?)(?:\\n|\s)*[^'\"\\\s,}]+",
+            r"\1<redacted>",
+        ),
+        (r"(Illegal header value\s+b?['\"])(?:Bearer\s+)?(?:\\n|\s)*[^'\"]+(['\"])", r"\1<redacted>\2"),
+        (r"(header value:\s*['\"])(?:\\n|\s)*[^'\"]+(['\"])", r"\1<redacted>\2"),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
 
 
 def _new_request_id() -> str:
@@ -694,9 +723,18 @@ def _ollama_show_model_details(host: str, api_key: Optional[str], model: str) ->
     from ollama import Client as OllamaHttpClient
 
     headers: Dict[str, str] = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    client = OllamaHttpClient(host=host, headers=headers or None)
+    clean_api_key = normalize_ollama_api_key(api_key)
+    if clean_api_key:
+        headers["Authorization"] = f"Bearer {clean_api_key}"
+    if headers:
+        client = OllamaHttpClient(host=host, headers=headers)
+    else:
+        previous_api_key = os.environ.pop("OLLAMA_API_KEY", None)
+        try:
+            client = OllamaHttpClient(host=host, headers=None)
+        finally:
+            if previous_api_key is not None:
+                os.environ["OLLAMA_API_KEY"] = previous_api_key
     return _coerce_ollama_payload(client.show(model))
 
 
@@ -1726,10 +1764,18 @@ def create_app(
     def _cloud_connectivity_issue_message(kind: str, detail: str) -> str:
         labels = {"stt": "Cloud STT", "llm": "Cloud LLM", "tts": "Cloud TTS"}
         label = labels.get(str(kind or "").strip().lower(), "Cloud")
-        cleaned_detail = str(detail or "").strip()
+        cleaned_detail = _redact_sensitive_detail(str(detail or "").strip())
         if cleaned_detail:
             return f"{label} mislukt: {cleaned_detail}"
         return f"{label} mislukt."
+
+    def _redact_sensitive_detail(detail: str) -> str:
+        return _redact_secret_text(detail)
+
+    def _redact_sensitive_value(value: Any) -> Any:
+        if isinstance(value, str):
+            return _redact_sensitive_detail(value)
+        return value
 
     def _cloud_llm_host(runtime_cfg_local: JsonLike) -> str:
         llm_type = str(runtime_cfg_local.get("llm_type") or "").strip().lower()
@@ -1741,11 +1787,11 @@ def create_app(
         for attr_name in ("status_code", "status", "error"):
             value = getattr(exc, attr_name, None)
             if value not in (None, ""):
-                debug_fields[attr_name] = value
+                debug_fields[attr_name] = _redact_sensitive_value(value)
         if exc.args:
-            debug_fields["args"] = [str(item) for item in exc.args[:3]]
+            debug_fields["args"] = [_redact_sensitive_detail(str(item)) for item in exc.args[:3]]
         if exc.__cause__ is not None:
-            debug_fields["cause"] = repr(exc.__cause__)
+            debug_fields["cause"] = _redact_sensitive_detail(repr(exc.__cause__))
         if not debug_fields:
             return ""
         try:
@@ -1761,7 +1807,7 @@ def create_app(
         llm_host = _cloud_llm_host(runtime_cfg_local)
         exc_debug = _cloud_llm_exception_debug(exc)
         debug_suffix = f" debug={exc_debug}" if exc_debug else ""
-        app.logger.exception(
+        app.logger.error(
             "Cloud LLM backend exception sid=%s request_id=%s endpoint=%s llm_type=%s llm_model=%s llm_host=%s exc_type=%s detail=%s%s",
             str(sid or "system"),
             request_id,
@@ -1770,7 +1816,7 @@ def create_app(
             llm_model,
             llm_host,
             exc.__class__.__name__,
-            str(exc),
+            _redact_sensitive_detail(str(exc)),
             debug_suffix,
         )
 
@@ -2961,9 +3007,12 @@ def create_app(
         detail = re.sub(r"^\[output\]\s*", "", _output_backend_last_error(output_backend))
         if detail:
             _mark_cloud_connectivity_issue(runtime_cfg_local, "tts", detail)
+            return False
         else:
             _clear_cloud_connectivity_issue(runtime_cfg_local, "tts")
-        return result
+        if isinstance(result, bool):
+            return result
+        return True
 
     def _render_tts_with_connectivity_tracking(
         runtime_cfg_local: JsonLike,
@@ -3012,12 +3061,17 @@ def create_app(
             self._sid = sid_value
             self._runtime_cfg = runtime_cfg_local
             self._backend = backend
+            self.last_emit_ok: Optional[bool] = None
+            self.last_emit_error: str = ""
 
         def __getattr__(self, name: str) -> Any:
             return getattr(self._backend, name)
 
         def emit(self, text: str) -> Any:
-            return _emit_output_with_connectivity_tracking(self._sid, self._runtime_cfg, self._backend, text)
+            result = _emit_output_with_connectivity_tracking(self._sid, self._runtime_cfg, self._backend, text)
+            self.last_emit_ok = bool(result)
+            self.last_emit_error = re.sub(r"^\[output\]\s*", "", _output_backend_last_error(self._backend))
+            return result
 
         def emit_preloaded_wav_bytes(self, *args: Any, **kwargs: Any) -> Any:
             emitter = getattr(self._backend, "emit_preloaded_wav_bytes", None)
@@ -4231,10 +4285,10 @@ def create_app(
 
     def _base_controller_cmd(nao_ip: str, web_port: int) -> Tuple[List[str], str, Optional[str]]:
         base_dir = os.path.join(repo_root, "py2_nao_base_controller")
-        python_path = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+        python_path = _venv_python(base_dir)
         script_path = os.path.join(base_dir, "nao_api.py")
         if not os.path.exists(python_path):
-            return [], base_dir, "venv\\Scripts\\python.exe niet gevonden (py2_nao_base_controller)."
+            return [], base_dir, f"{python_path} niet gevonden (py2_nao_base_controller)."
         if not os.path.exists(script_path):
             return [], base_dir, "nao_api.py niet gevonden."
         cmd = [python_path, script_path, "--port", str(int(web_port))]
@@ -4244,10 +4298,10 @@ def create_app(
 
     def _behavior_manager_cmd(web_port: int, py2_api_url: str) -> Tuple[List[str], str, Optional[str]]:
         base_dir = os.path.join(repo_root, "py3_nao_behavior_manager")
-        python_path = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+        python_path = _venv_python(base_dir)
         script_path = os.path.join(base_dir, "py3_server.py")
         if not os.path.exists(python_path):
-            return [], base_dir, "venv\\Scripts\\python.exe niet gevonden (py3_nao_behavior_manager)."
+            return [], base_dir, f"{python_path} niet gevonden (py3_nao_behavior_manager)."
         if not os.path.exists(script_path):
             return [], base_dir, "py3_server.py niet gevonden."
         cmd = [
@@ -4562,9 +4616,7 @@ def create_app(
         return summary
 
     def _cmdrec_train_python() -> str:
-        candidate = os.path.join(
-            repo_root, "py3_command_recognition_train", "venv", "Scripts", "python.exe"
-        )
+        candidate = _venv_python(os.path.join(repo_root, "py3_command_recognition_train"))
         if os.path.exists(candidate):
             return candidate
         return sys.executable
@@ -4702,6 +4754,7 @@ def create_app(
                     error_type = str(payload.get("type"))
         except Exception:
             pass
+        message = _redact_secret_text(message)
         source = _infer_event_source(endpoint=request.path)
         _log_dm_event(
             sid=(request.cookies.get("sid") or "no_session"),
@@ -4741,7 +4794,7 @@ def create_app(
                 data=_structured_http_error_data(
                     endpoint=str(request.path),
                     status=500,
-                    message=str(exc),
+                    message=_redact_secret_text(exc),
                     request_id=request_id,
                     started_at=started_at,
                     error_type=exc.__class__.__name__,
@@ -5346,6 +5399,7 @@ def create_app(
         )
         if emit_used == "pipeline":
             output_backend = _TrackedOutputBackend(sid, runtime_cfg, output_backend)
+        tracked_output_backend = output_backend if isinstance(output_backend, _TrackedOutputBackend) else None
         status_to_console = pipeline.status_to_console if emit_used == "pipeline" else False
 
         base_prompt = getattr(pipeline, "system_prompt_base", None)
@@ -5392,6 +5446,10 @@ def create_app(
             "system_prompt": _system_prompt_for_sid(sid),
             "emit_used": emit_used,
         }
+        if tracked_output_backend is not None:
+            payload["output_audio_started"] = bool(tracked_output_backend.last_emit_ok)
+            if tracked_output_backend.last_emit_error:
+                payload["output_audio_error"] = tracked_output_backend.last_emit_error
         if debug_for_response:
             payload["debug"] = debug_for_response
         _log_dialog_reply(reply)
@@ -6843,8 +6901,10 @@ def create_app(
         return models, default_model
 
     def _azure_env() -> Tuple[Optional[str], Optional[str]]:
-        key = os.environ.get("AZURE_SPEECH_KEY") or os.environ.get("AZURE_TTS_KEY")
-        region = os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("AZURE_TTS_REGION")
+        key = (os.environ.get("AZURE_SPEECH_KEY") or os.environ.get("AZURE_TTS_KEY") or "").strip()
+        region = (os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("AZURE_TTS_REGION") or "").strip()
+        key = key or None
+        region = region or None
         return key, region
 
     def _list_azure_voices() -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:
@@ -6855,7 +6915,7 @@ def create_app(
         try:
             resp = requests.get(url, headers={"Ocp-Apim-Subscription-Key": key}, timeout=5)
         except requests.RequestException as exc:
-            return [], None, f"Azure voices fetch failed: {exc}"
+            return [], None, f"Azure voices fetch failed: {_redact_secret_text(exc)}"
         if resp.status_code >= 400:
             return [], None, f"Azure voices fetch failed ({resp.status_code})."
         try:
@@ -7282,6 +7342,12 @@ def create_app(
     @app.get("/api/ollama_models_cloud")
     def api_ollama_models_cloud():
         _local_models, cloud_models, err = _split_ollama_models()
+        seen = {str(model or "").strip().lower() for model in cloud_models}
+        for model in _DEFAULT_OLLAMA_CLOUD_MODELS:
+            key = model.lower()
+            if key not in seen:
+                seen.add(key)
+                cloud_models.append(model)
         payload = {"ok": True, "models": cloud_models}
         if err:
             payload["error"] = err

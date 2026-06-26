@@ -12,7 +12,7 @@
         "models": {
           "stt_primary": "azure:default",
           "stt_fallback": "whisper:small",
-          "llm_primary": "ollama_cloud:mistral-large-3:675b-cloud",
+          "llm_primary": "ollama_cloud:gpt-oss:120b-cloud",
           "llm_fallback": "ollama_local:granite3.2:8b",
           "tts_primary": "azure:nl-NL-FennaNeural",
           "tts_fallback": "piper:C:\\NAOqi_fundamentals\\NAO_Controller_WebAPI\\piper_tts_models\\nl\\nl_BE\\nathalie\\medium\\nl_BE-nathalie-medium.onnx"
