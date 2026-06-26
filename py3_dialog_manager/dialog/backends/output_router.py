@@ -171,6 +171,49 @@ class OutputRouterBackend(OutputBackend):
             audio = audio.reshape(-1, num_channels).mean(axis=1).astype(np.int16)
         return audio, sample_rate
 
+    def _default_output_sample_rate(self) -> Optional[int]:
+        if sd is None:
+            return None
+        try:
+            device_info = sd.query_devices(self.output_device, "output")
+            sample_rate = int(round(float(device_info.get("default_samplerate") or 0)))
+            return sample_rate if sample_rate > 0 else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resample_int16_linear(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
+        if from_rate <= 0 or to_rate <= 0 or from_rate == to_rate or audio.size == 0:
+            return audio.astype(np.int16, copy=False)
+        new_size = max(1, int(round(audio.size * (float(to_rate) / float(from_rate)))))
+        old_x = np.linspace(0.0, 1.0, num=audio.size, endpoint=False)
+        new_x = np.linspace(0.0, 1.0, num=new_size, endpoint=False)
+        resampled = np.interp(new_x, old_x, audio.astype(np.float32))
+        return np.clip(np.rint(resampled), -32768, 32767).astype(np.int16)
+
+    @staticmethod
+    def _fade_audio_edges(audio: np.ndarray, sample_rate: int, *, ms: int = 5) -> np.ndarray:
+        if audio.size == 0 or sample_rate <= 0 or ms <= 0:
+            return audio.astype(np.int16, copy=False)
+        fade_samples = min(audio.size // 2, max(1, int(sample_rate * (ms / 1000.0))))
+        if fade_samples <= 1:
+            return audio.astype(np.int16, copy=False)
+        work = audio.astype(np.float32, copy=True)
+        fade_in = np.linspace(0.0, 1.0, num=fade_samples, endpoint=True, dtype=np.float32)
+        fade_out = np.linspace(1.0, 0.0, num=fade_samples, endpoint=True, dtype=np.float32)
+        work[:fade_samples] *= fade_in
+        work[-fade_samples:] *= fade_out
+        return np.clip(np.rint(work), -32768, 32767).astype(np.int16)
+
+    def _prepare_server_playback_audio(self, wav_bytes: bytes) -> tuple[np.ndarray, int]:
+        audio, sample_rate = self._wav_bytes_to_int16(wav_bytes)
+        target_rate = self._default_output_sample_rate()
+        if target_rate and target_rate != sample_rate:
+            audio = self._resample_int16_linear(audio, sample_rate, target_rate)
+            sample_rate = target_rate
+        audio = self._fade_audio_edges(audio, sample_rate)
+        return audio, sample_rate
+
     def _append_wav_silence(self, wav_bytes: bytes, *, ms: int) -> bytes:
         if ms <= 0:
             return wav_bytes
@@ -224,7 +267,7 @@ class OutputRouterBackend(OutputBackend):
         if sd is None:
             self._warn("[output] sounddevice niet beschikbaar; kan niet afspelen.")
             return False
-        audio, sample_rate = self._wav_bytes_to_int16(wav_bytes)
+        audio, sample_rate = self._prepare_server_playback_audio(wav_bytes)
         sd.play(audio, samplerate=sample_rate, device=self.output_device)
         sd.wait()
         return True

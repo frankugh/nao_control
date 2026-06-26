@@ -230,6 +230,59 @@ def test_output_router_prepends_lead_silence_for_server_tts():
     assert np.array_equal(audio[lead_samples:], raw_samples)
 
 
+def test_output_router_server_playback_resamples_to_output_device_rate(monkeypatch):
+    class FakeSoundDevice:
+        def __init__(self) -> None:
+            self.played = None
+
+        def query_devices(self, device, kind):
+            assert device is None
+            assert kind == "output"
+            return {"default_samplerate": 48000}
+
+        def play(self, audio, *, samplerate, device):
+            self.played = (audio, samplerate, device)
+
+        def wait(self):
+            pass
+
+    fake_sd = FakeSoundDevice()
+    monkeypatch.setattr(output_router_module, "sd", fake_sd)
+    backend = OutputRouterBackend(target="server", tts_engine="azure")
+    raw_wav = _make_wav(np.full(160, 1000, dtype=np.int16), sample_rate=16000)
+
+    ok = backend._play_wav_bytes(raw_wav)
+
+    assert ok is True
+    assert fake_sd.played is not None
+    audio, sample_rate, device = fake_sd.played
+    assert sample_rate == 48000
+    assert device is None
+    assert audio.size == 480
+
+
+def test_output_router_server_playback_fades_edges(monkeypatch):
+    class FakeSoundDevice:
+        def query_devices(self, device, kind):
+            return {"default_samplerate": 16000}
+
+        def play(self, audio, *, samplerate, device):
+            self.audio = audio
+
+        def wait(self):
+            pass
+
+    fake_sd = FakeSoundDevice()
+    monkeypatch.setattr(output_router_module, "sd", fake_sd)
+    backend = OutputRouterBackend(target="server", tts_engine="azure")
+    raw_wav = _make_wav(np.full(1600, 12000, dtype=np.int16), sample_rate=16000)
+
+    assert backend._play_wav_bytes(raw_wav) is True
+    assert fake_sd.audio[0] == 0
+    assert fake_sd.audio[-1] == 0
+    assert fake_sd.audio[120] == 12000
+
+
 def test_output_router_describes_renderable_profile_without_target_in_fingerprint():
     backend = OutputRouterBackend(
         target="server",

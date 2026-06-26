@@ -673,7 +673,13 @@ configure_credentials() {
     local ollama_cloud_complete=false
     test_env_group_complete "${OLLAMA_CLOUD_REQUIRED_ENV_VARS[@]}" && ollama_cloud_complete=true
 
-    if [ "$force_prompt" = "true" ] || [ "$azure_complete" = "false" ] || [ "$ollama_cloud_complete" = "false" ]; then
+    if [ "$force_prompt" = "true" ]; then
+        echo ""
+        echo "Je werkt alleen de cloud credentials bij."
+        echo "Bestaande waarden blijven staan totdat je ze hier vervangt."
+        echo "De installer zet aangepaste waarden in $PROFILE_FILE."
+        echo ""
+    elif [ "$azure_complete" = "false" ] || [ "$ollama_cloud_complete" = "false" ]; then
         echo ""
         echo "Ik zie dat nog niet alle omgevingsvariabelen op de computer staan ingesteld."
         echo "Zonder die variabelen werken de cloud services niet."
@@ -940,8 +946,6 @@ echo "Ugh!"
 echo "Welkom bij de installer voor NAO Studio. Een set tools om interactie te hebben met een fysieke NAO v5 robot of de virtuele avatar daarvan."
 echo ""
 
-ensure_prerequisites
-
 mode="$(read_menu_choice \
     "Wat wil je doen? [installeren / alleen verifieren / alleen credentials bijwerken]" \
     "installeren" \
@@ -958,6 +962,7 @@ case "$mode" in
         configure_credentials "true"
         ;;
     installeren)
+        ensure_prerequisites
         collect_install_plan
         execute_install_plan
         ;;
@@ -966,5 +971,11 @@ esac
 echo ""
 echo "[install] Klaar."
 echo ""
-echo "BELANGRIJK: Open een nieuw terminal-venster (of voer 'source $PROFILE_FILE' uit)"
-echo "om de ingestelde omgevingsvariabelen te activeren."
+if [ "$mode" = "credentials" ]; then
+    echo "BELANGRIJK: Herstart draaiende DM/Script Runner processen zodat ze de nieuwe keys gebruiken."
+    echo "Voor nieuwe terminalvensters staan de waarden klaar in $PROFILE_FILE."
+    echo "In dit venster kun je direct 'source $PROFILE_FILE' uitvoeren als je hier verder werkt."
+elif [ "$mode" = "installeren" ]; then
+    echo "BELANGRIJK: Open een nieuw terminal-venster (of voer 'source $PROFILE_FILE' uit)"
+    echo "om de ingestelde omgevingsvariabelen te activeren."
+fi
