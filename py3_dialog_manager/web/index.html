@@ -6497,7 +6497,10 @@
         cfgInputDevice.innerHTML = '';
         const optDefault = document.createElement('option');
         optDefault.value = '';
-        optDefault.textContent = 'Default mic';
+        const defaultInput = (j.devices || []).find(d => d.default);
+        optDefault.textContent = defaultInput && defaultInput.name
+          ? `Default mic (${defaultInput.name})`
+          : 'Default mic';
         cfgInputDevice.appendChild(optDefault);
         const naoEnabled = cfgNaoIpEnabled.checked && (cfgNaoIp.value || '').trim();
         if (naoEnabled || current === 'nao_ssh') {
@@ -6527,7 +6530,10 @@
         cfgOutputDevice.innerHTML = '';
         const optDefault = document.createElement('option');
         optDefault.value = '';
-        optDefault.textContent = 'Default speakers';
+        const defaultOutput = (j.devices || []).find(d => d.default);
+        optDefault.textContent = defaultOutput && defaultOutput.name
+          ? `Default speakers (${defaultOutput.name})`
+          : 'Default speakers';
         cfgOutputDevice.appendChild(optDefault);
         (j.devices || []).forEach(d => {
           const opt = document.createElement('option');
@@ -6664,7 +6670,7 @@
           return;
         }
         if (selected.value === '') {
-          cfgInputDeviceName.textContent = 'Default mic';
+          cfgInputDeviceName.textContent = selected.textContent || 'Default mic';
         } else if (selected.value === 'nao_ssh') {
           cfgInputDeviceName.textContent = 'NAO mic (SSH)';
         } else {
@@ -8623,7 +8629,12 @@
         cfgStatus.textContent = 'Vul een LLM model in';
       });
 
-      cfgInputDevice.addEventListener('change', () => { updateDeviceName(); updateContinuousAvailability(); updateRecButton(); });
+      cfgInputDevice.addEventListener('change', () => {
+        updateDeviceName();
+        updateContinuousAvailability();
+        updateRecButton();
+        applyRuntimeConfig(getConfigFromForm(), false, false);
+      });
       cfgInputDevice.addEventListener('focus', () => { refreshInputDevices(false).catch(() => {}); });
       cfgInputDevice.addEventListener('pointerdown', () => { refreshInputDevices(false).catch(() => {}); });
       if (cfgClientInputMode) {
