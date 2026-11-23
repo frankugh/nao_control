@@ -74,8 +74,8 @@ read_plain_secret() {
     local prompt="$1"
     local value
     read -r -s -p "$prompt: " value
-    echo ""
-    echo "$value"
+    echo "" >&2
+    printf '%s' "$value"
 }
 
 read_menu_choice() {
