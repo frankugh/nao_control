@@ -4124,6 +4124,15 @@ def create_app(
             env.pop("WERKZEUG_SERVER_FD", None)
             env.pop("WERKZEUG_RUN_MAIN", None)
             env.pop("FLASK_RUN_FROM_CLI", None)
+            if name == "base" and sys.platform == "darwin":
+                # macOS SIP strips DYLD_* when launching via /bin/bash or /usr/bin/env,
+                # so rebuild it from QI_SDK_PREFIX for the pynaoqi dylibs (libqipython etc.).
+                qi_prefix = (env.get("QI_SDK_PREFIX") or "").strip()
+                if qi_prefix:
+                    qi_lib = os.path.join(qi_prefix, "lib")
+                    existing = env.get("DYLD_LIBRARY_PATH", "")
+                    if qi_lib not in existing.split(os.pathsep):
+                        env["DYLD_LIBRARY_PATH"] = qi_lib + (os.pathsep + existing if existing else "")
             proc = subprocess.Popen(
                 cmd,
                 cwd=cwd,
